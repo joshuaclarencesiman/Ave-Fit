@@ -1,0 +1,505 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* =========================================================
+   1. AveFit design tokens
+   Palette is fixed: warm orange accent on warm white / black.
+   ========================================================= */
+:root {
+  --ave-orange: #f97316;
+  --ave-orange-dark: #ea580c;
+  --ave-orange-soft: #fff7ed;
+  --ave-orange-muted: #ffedd5;
+  --ave-black: #080808;
+  --ave-black-soft: #111111;
+  --ave-white: #ffffff;
+  --ave-bg: #fffaf5;
+  --ave-border: #f1e4d7;
+  --ave-text: #171717;
+  --ave-muted: #737373;
+  --ave-radius: 18px;
+  --ave-shadow: 0 10px 30px rgba(15, 23, 42, .07);
+  --ave-shadow-hover: 0 16px 38px rgba(15, 23, 42, .12);
+
+  /* layout rhythm */
+  --ave-sidebar-w: 264px;
+  --ave-topbar-h: 68px;
+  --ave-r-sm: 10px;
+  --ave-r-md: 12px;
+  --ave-r-lg: 16px;
+  --ave-r-xl: 20px;
+
+  --ave-ease: cubic-bezier(.4, 0, .2, 1);
+}
+
+.dark {
+  --ave-radius: 18px;
+  --ave-shadow: 0 12px 32px rgba(0, 0, 0, .28);
+  --ave-shadow-hover: 0 18px 42px rgba(0, 0, 0, .38);
+}
+
+/* =========================================================
+   2. Base
+   ========================================================= */
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  background: var(--ave-white);
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+html.dark { background: var(--ave-black); }
+
+body {
+  background: var(--ave-bg);
+  color: var(--ave-text);
+  font-family: Inter, "Segoe UI Variable Text", "Segoe UI", ui-sans-serif, system-ui,
+    -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  transition: background-color .25s var(--ave-ease), color .25s var(--ave-ease);
+}
+
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+button,
+input,
+select,
+textarea { font: inherit; color: inherit; }
+
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+
+a { color: inherit; text-decoration: none; }
+ul, ol { margin: 0; }
+h1, h2, h3, h4, h5, h6 { margin: 0; }
+p { margin: 0; }
+svg { flex-shrink: 0; }
+
+img { max-width: 100%; }
+
+::selection {
+  background: var(--ave-orange-muted);
+  color: #111;
+}
+
+/* Visible keyboard focus everywhere, invisible for mouse users. */
+:focus-visible {
+  outline: 2px solid var(--ave-orange);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* =========================================================
+   3. Palette bridge
+   The app is built on stock Tailwind utility names
+   (bg-white, text-slate-900, bg-orange-500, bg-slate-50, ...).
+   These rules re-point those utilities at the AveFit palette so
+   every screen stays on-brand without touching page markup.
+
+   Tailwind v4 emits its utilities inside `@layer utilities`, and
+   unlayered author rules outrank layered ones — so no `!important`
+   is needed here.
+   ========================================================= */
+
+/* --- light neutrals --- */
+.bg-white { background-color: #ffffff; }
+.bg-slate-50 { background-color: #fffaf5; }
+.bg-slate-100 { background-color: #fff4e8; }
+.bg-slate-200 { background-color: #f5e9dc; }
+.border-slate-100 { border-color: #f5e9dc; }
+.border-slate-200 { border-color: var(--ave-border); }
+.border-slate-300 { border-color: #e8d7c6; }
+.text-slate-900 { color: #171717; }
+.text-slate-800 { color: #262626; }
+.text-slate-700 { color: #404040; }
+.text-slate-600 { color: #525252; }
+.text-slate-500 { color: #737373; }
+
+/* --- dark neutrals --- */
+.dark .bg-white { background-color: #111111; }
+.dark .bg-slate-50 { background-color: #151515; }
+.dark .bg-slate-100 { background-color: #1b1b1b; }
+.dark .bg-slate-200 { background-color: #242424; }
+.dark .text-slate-900 { color: #fafafa; }
+.dark .text-slate-800 { color: #f5f5f5; }
+.dark .text-slate-700 { color: #e5e5e5; }
+.dark .text-slate-600 { color: #cfcfcf; }
+.dark .text-slate-500 { color: #a3a3a3; }
+.dark .text-slate-400 { color: #a3a3a3; }
+.dark .text-slate-300 { color: #d4d4d4; }
+.dark .border-slate-100,
+.dark .border-slate-200,
+.dark .border-slate-300 { border-color: #2b2b2b; }
+.dark .hover\:bg-slate-50:hover { background-color: #1d1d1d; }
+.dark .hover\:bg-white:hover { background-color: #1b1b1b; }
+
+/* --- form controls in dark mode --- */
+.dark input,
+.dark select,
+.dark textarea {
+  color: #fafafa;
+  background-color: #111111;
+  border-color: #333333;
+}
+.dark input::placeholder,
+.dark textarea::placeholder { color: #737373; }
+.dark input[type="date"],
+.dark input[type="time"],
+.dark input[type="datetime-local"] { color-scheme: dark; }
+.dark option { background-color: #151515; color: #fafafa; }
+
+/* --- orange is the single interactive accent ---
+   blue is remapped too, because it was historically used as a
+   second accent and must not drift away from the palette. */
+.text-orange-400,
+.text-orange-500,
+.text-orange-600,
+.text-orange-700,
+.text-blue-400,
+.text-blue-500,
+.text-blue-600,
+.text-blue-700 { color: var(--ave-orange); }
+
+.bg-orange-400,
+.bg-orange-500,
+.bg-orange-600,
+.bg-orange-700,
+.bg-blue-500,
+.bg-blue-600,
+.bg-blue-700 { background-color: var(--ave-orange); }
+
+.bg-orange-50,
+.bg-orange-100,
+.bg-blue-100 { background-color: var(--ave-orange-muted); }
+
+.border-orange-400,
+.border-orange-500,
+.border-orange-600,
+.border-blue-400,
+.border-blue-500,
+.border-blue-600 { border-color: var(--ave-orange); }
+
+.hover\:bg-orange-600:hover,
+.hover\:bg-orange-700:hover,
+.hover\:bg-blue-600:hover,
+.hover\:bg-blue-700:hover { background-color: var(--ave-orange-dark); }
+
+.hover\:text-orange-600:hover,
+.hover\:text-orange-700:hover,
+.hover\:text-orange-500:hover { color: var(--ave-orange-dark); }
+
+.hover\:border-orange-400:hover,
+.hover\:border-orange-500:hover { border-color: var(--ave-orange); }
+
+/* =========================================================
+   4. Surfaces
+   ========================================================= */
+.bg-white.rounded-xl,
+.bg-white.rounded-2xl,
+.bg-white.rounded-3xl,
+.bg-slate-50.rounded-xl,
+.bg-slate-50.rounded-2xl,
+.bg-slate-50.rounded-3xl,
+.bg-slate-100.rounded-xl,
+.bg-slate-100.rounded-2xl,
+.bg-slate-100.rounded-3xl {
+  border-color: var(--ave-border);
+  box-shadow: var(--ave-shadow);
+}
+
+.dark .bg-white.rounded-xl,
+.dark .bg-white.rounded-2xl,
+.dark .bg-white.rounded-3xl,
+.dark .bg-slate-50.rounded-xl,
+.dark .bg-slate-50.rounded-2xl,
+.dark .bg-slate-50.rounded-3xl,
+.dark .bg-slate-100.rounded-xl,
+.dark .bg-slate-100.rounded-2xl,
+.dark .bg-slate-100.rounded-3xl {
+  border-color: #282828;
+  box-shadow: var(--ave-shadow);
+}
+
+/* =========================================================
+   5. Form controls
+   ========================================================= */
+input:not([type="checkbox"]):not([type="radio"]),
+select,
+textarea {
+  border-radius: var(--ave-r-md);
+  transition: border-color .18s var(--ave-ease), box-shadow .18s var(--ave-ease),
+    background-color .18s var(--ave-ease);
+}
+
+input:not([type="checkbox"]):not([type="radio"]):focus,
+select:focus,
+textarea:focus {
+  border-color: var(--ave-orange);
+  box-shadow: 0 0 0 3px rgba(249, 115, 22, .14);
+  outline: none;
+}
+
+input::placeholder,
+textarea::placeholder { color: #9a9a9a; }
+.dark input::placeholder,
+.dark textarea::placeholder { color: #6b6b6b; }
+
+select {
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23737373' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right .85rem center;
+  background-size: 1rem;
+  padding-right: 2.5rem;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--ave-orange);
+  width: 1.05rem;
+  height: 1.05rem;
+  cursor: pointer;
+}
+
+/* =========================================================
+   6. Buttons
+   ========================================================= */
+button.bg-orange-500,
+button.bg-orange-600,
+a.bg-orange-500,
+a.bg-orange-600 {
+  box-shadow: 0 7px 18px rgba(249, 115, 22, .2);
+}
+button.bg-orange-500:hover,
+button.bg-orange-600:hover,
+a.bg-orange-500:hover,
+a.bg-orange-600:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px rgba(249, 115, 22, .27);
+}
+button.bg-orange-500:active,
+button.bg-orange-600:active,
+a.bg-orange-500:active,
+a.bg-orange-600:active {
+  transform: translateY(0);
+}
+
+/* =========================================================
+   7. Tables
+   ========================================================= */
+table { border-collapse: separate; border-spacing: 0; }
+thead th {
+  font-size: .72rem;
+  font-weight: 600;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: #737373;
+  white-space: nowrap;
+}
+tbody tr { transition: background-color .18s var(--ave-ease); }
+tbody tr:hover { background: #fff7ed; }
+.dark tbody tr:hover { background: #191919; }
+
+/* =========================================================
+   8. Scrollbars
+   ========================================================= */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #d6c5b5 transparent;
+}
+.dark * { scrollbar-color: #3b3b3b transparent; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: #d6c5b5;
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover { background: #bfa894; background-clip: content-box; }
+.dark ::-webkit-scrollbar-thumb { background: #3b3b3b; background-clip: content-box; }
+.dark ::-webkit-scrollbar-thumb:hover { background: #4d4d4d; }
+
+/* =========================================================
+   9. App shell
+   ========================================================= */
+.ave-portal-shell {
+  background: #fffaf5;
+  color: #171717;
+}
+.dark .ave-portal-shell {
+  background: #080808;
+  color: #f5f5f5;
+}
+
+.ave-sidebar {
+  background: #ffffff;
+  border-color: #f0e1d3;
+  color: #171717;
+}
+.dark .ave-sidebar {
+  background: #0b0b0b;
+  border-color: #262626;
+  color: #f5f5f5;
+}
+
+.ave-brand-subtitle { color: #9a8b7d; }
+.dark .ave-brand-subtitle { color: #737373; }
+
+.ave-nav-item {
+  color: #62584f;
+  position: relative;
+}
+.ave-nav-item:hover {
+  background: #fff4e8;
+  color: #171717;
+}
+.dark .ave-nav-item { color: #a3a3a3; }
+.dark .ave-nav-item:hover { background: #171717; color: #fff; }
+.ave-nav-item.active {
+  background: var(--ave-orange);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 8px 20px rgba(249, 115, 22, .22);
+}
+.ave-nav-item:focus-visible { outline-color: var(--ave-orange); }
+
+.ave-topbar {
+  background: rgba(255, 255, 255, .88);
+  border-color: #f0e1d3;
+  backdrop-filter: saturate(180%) blur(14px);
+  -webkit-backdrop-filter: saturate(180%) blur(14px);
+}
+.dark .ave-topbar {
+  background: rgba(8, 8, 8, .86);
+  border-color: #262626;
+}
+
+.ave-search {
+  background: #fffaf5;
+  border-color: #ead9ca;
+  color: #171717;
+  transition: border-color .18s var(--ave-ease), box-shadow .18s var(--ave-ease),
+    background-color .18s var(--ave-ease);
+}
+.ave-search:focus-within {
+  border-color: var(--ave-orange);
+  box-shadow: 0 0 0 3px rgba(249, 115, 22, .13);
+  background: #ffffff;
+}
+.dark .ave-search {
+  background: #111;
+  border-color: #2d2d2d;
+  color: #fff;
+}
+.dark .ave-search:focus-within { background: #161616; }
+.ave-search input { color: #171717; }
+.dark .ave-search input { color: #fff; }
+
+.ave-user-surface {
+  background: #fff;
+  border-color: #f0e1d3;
+}
+.dark .ave-user-surface {
+  background: #111;
+  border-color: #2a2a2a;
+}
+
+.ave-mobile-nav {
+  background: rgba(255, 255, 255, .92);
+  border-color: #ead9ca;
+  backdrop-filter: saturate(180%) blur(14px);
+  -webkit-backdrop-filter: saturate(180%) blur(14px);
+}
+.dark .ave-mobile-nav {
+  background: rgba(8, 8, 8, .92);
+  border-color: #292929;
+}
+
+/* Backdrop for the mobile navigation drawer. */
+.ave-scrim {
+  background: rgba(23, 23, 23, .45);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+/* Brand mark shared by every portal. */
+.ave-logo {
+  background: var(--ave-orange);
+  color: #fff;
+  box-shadow: 0 6px 16px rgba(249, 115, 22, .28);
+}
+
+/* Content panels used by the trainer portal. */
+.trainer-card {
+  background: #fff;
+  border-color: #ead9ca;
+  color: #171717;
+  box-shadow: 0 10px 30px rgba(80, 45, 20, .06);
+}
+.dark .trainer-card {
+  background: #111;
+  border-color: #2b2b2b;
+  color: #f5f5f5;
+  box-shadow: var(--ave-shadow);
+}
+.trainer-muted { color: #786e66; }
+.dark .trainer-muted { color: #a3a3a3; }
+.trainer-field {
+  background: #fffaf5;
+  border-color: #ead9ca;
+  color: #171717;
+}
+.dark .trainer-field {
+  background: #171717;
+  border-color: #363636;
+  color: #fff;
+}
+.trainer-soft { background: #fff7ed; }
+.dark .trainer-soft { background: #1b1b1b; }
+
+/* Large page headers: no giant black blocks in light mode. */
+.ave-page-hero {
+  background: linear-gradient(135deg, #fff7ed 0%, #ffffff 58%, #fffaf5 100%);
+  color: #171717;
+}
+.dark .ave-page-hero {
+  background: linear-gradient(135deg, #050505 0%, #0c0c0c 100%);
+  color: #fff;
+}
+.ave-page-hero .hero-muted { color: #806f61; }
+.dark .ave-page-hero .hero-muted { color: #a3a3a3; }
+
+/* Avoid accidental pure-black page backgrounds in light portals. */
+.user-portal .portal-content,
+.trainer-portal .portal-content { background: #fffaf5; }
+.dark .user-portal .portal-content,
+.dark .trainer-portal .portal-content { background: #080808; }
+
+/* =========================================================
+   10. Motion
+   ========================================================= */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .hover\:scale-105:hover { transform: none !important; }
+}
