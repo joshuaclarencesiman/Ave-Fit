@@ -1,0 +1,544 @@
+.home-page {
+  --home-ink: #151614;
+  --home-paper: #f5f4f0;
+  --home-muted: #686963;
+  --home-orange: #ef642e;
+  --home-white: #fff;
+  min-height: 100dvh;
+  overflow: hidden;
+  background: var(--home-paper);
+  color: var(--home-ink);
+}
+
+.home-page.dark {
+  --home-ink: #f5f4f0;
+  --home-paper: #111210;
+  --home-muted: #b2b3ac;
+  --home-white: #181916;
+}
+
+.home-header {
+  position: sticky;
+  z-index: 20;
+  top: 0;
+  border-bottom: 1px solid rgba(21, 22, 20, .1);
+  background: color-mix(in srgb, var(--home-paper) 94%, transparent);
+  backdrop-filter: blur(16px);
+}
+
+.dark .home-header { border-color: rgba(255, 255, 255, .1); }
+
+.home-header-inner,
+.home-section,
+.home-club-inner,
+.home-coaching-inner,
+.home-join-inner,
+.home-footer-inner {
+  width: min(100% - 64px, 1280px);
+  margin-inline: auto;
+}
+
+.home-header-inner {
+  display: grid;
+  min-height: 78px;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 30px;
+}
+
+.home-brand {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 10px;
+}
+
+.home-brand-mark {
+  display: grid;
+  width: 38px;
+  aspect-ratio: 1;
+  place-items: center;
+  background: var(--home-orange);
+  color: #fff;
+  font-family: Impact, "Arial Narrow", sans-serif;
+  font-size: 24px;
+}
+
+.home-brand-name {
+  display: grid;
+  font-size: 17px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.home-brand-name > span,
+.home-footer-brand span { color: var(--home-orange); }
+
+.home-brand-name small {
+  margin-top: 4px;
+  color: var(--home-muted);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+}
+
+.home-nav {
+  display: flex;
+  align-items: center;
+}
+
+.home-nav { gap: 32px; }
+
+.home-nav a,
+.home-footer-portals a {
+  color: var(--home-muted);
+  font-size: 13px;
+  font-weight: 650;
+  transition: color .18s ease;
+}
+
+.home-nav a:hover,
+.home-footer-portals a:hover { color: var(--home-orange); }
+
+.home-button {
+  display: inline-flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 0 20px;
+  font-size: 13px;
+  font-weight: 750;
+  transition: background-color .2s ease, color .2s ease, transform .2s ease;
+}
+
+.home-button:hover { transform: translateY(-2px); }
+.home-button-dark { background: #171614; color: #fff; }
+.home-button-dark:hover { background: #33342e; color: #fff; }
+.home-button-orange { background: var(--home-orange); color: #fff; }
+.home-button-orange:hover { background: #d94e1b; }
+.home-hero {
+  position: relative;
+  display: flex;
+  min-height: 570px;
+  height: min(76svh, 760px);
+  align-items: center;
+  background: #252521;
+  color: #fff;
+}
+
+.home-hero-image,
+.home-hero-shade {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.home-hero-image { object-fit: cover; object-position: center 52%; }
+
+.home-hero-shade {
+  background: linear-gradient(90deg, rgba(14, 15, 13, .88) 0%, rgba(14, 15, 13, .67) 43%, rgba(14, 15, 13, .12) 100%), linear-gradient(0deg, rgba(14, 15, 13, .35), transparent 35%);
+}
+
+.home-hero-content {
+  position: relative;
+  width: min(100% - 64px, 1280px);
+  margin: 0 auto;
+  padding-block: 76px;
+  animation: home-reveal .75s ease both;
+}
+
+.home-eyebrow {
+  margin: 0 0 20px;
+  color: var(--home-orange);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.home-eyebrow-light { color: #ff956d; }
+
+.home-hero h1,
+.home-section-heading h2,
+.home-club-copy h2,
+.home-coaching-heading h2,
+.home-join h2 {
+  font-family: Impact, "Arial Narrow", sans-serif;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: .98;
+  text-transform: uppercase;
+}
+
+.home-hero h1 {
+  max-width: 720px;
+  font-size: 76px;
+}
+
+.home-hero h1 span { color: #ff8153; }
+
+.home-hero-copy {
+  max-width: 460px;
+  margin-top: 24px;
+  color: rgba(255, 255, 255, .82);
+  font-size: 16px;
+  line-height: 1.75;
+}
+
+.home-hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  margin-top: 34px;
+}
+
+.home-text-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: #fff;
+}
+
+.home-text-link span { color: #ff956d; font-size: 18px; }
+
+.home-hero-note {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 52px;
+  color: rgba(255, 255, 255, .72);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.home-note-rule { width: 34px; height: 1px; background: #ff8153; }
+
+.home-training { padding-block: 112px 120px; }
+
+.home-section-heading { max-width: 680px; }
+
+.home-section-heading h2,
+.home-club-copy h2,
+.home-coaching-heading h2,
+.home-join h2 { font-size: 52px; }
+
+.home-section-intro {
+  max-width: 520px;
+  margin-top: 20px;
+  color: var(--home-muted);
+  font-size: 15px;
+  line-height: 1.75;
+}
+
+.home-feature-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 38px;
+  margin: 64px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.home-feature {
+  min-width: 0;
+  border-top: 1px solid color-mix(in srgb, var(--home-ink) 24%, transparent);
+  padding-top: 22px;
+  animation: home-reveal .7s ease both;
+}
+
+.home-feature:nth-child(2) { animation-delay: .1s; }
+.home-feature:nth-child(3) { animation-delay: .2s; }
+
+.home-feature-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--home-orange);
+}
+
+.home-feature-number { color: var(--home-muted); font-size: 11px; font-weight: 750; }
+
+.home-feature h3 {
+  margin-top: 32px;
+  font-size: 21px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.home-feature > p {
+  max-width: 330px;
+  min-height: 54px;
+  margin-top: 12px;
+  color: var(--home-muted);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.home-feature-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 22px;
+  color: var(--home-ink);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.home-feature-link svg { color: var(--home-orange); }
+
+.home-club { background: var(--home-white); }
+
+.home-club-inner {
+  display: grid;
+  grid-template-columns: 1.03fr .97fr;
+  align-items: center;
+  gap: 9%;
+  padding-block: 96px;
+}
+
+.home-club-image-wrap { position: relative; min-width: 0; }
+
+.home-club-image-wrap img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1.16 / 1;
+  object-fit: cover;
+  object-position: center 42%;
+}
+
+.home-image-caption {
+  position: absolute;
+  right: -14px;
+  bottom: 22px;
+  padding: 12px 15px;
+  background: var(--home-orange);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1px;
+}
+
+.home-club-copy h2 { max-width: 490px; }
+
+.home-club-copy > p:not(.home-eyebrow) {
+  max-width: 470px;
+  margin-top: 22px;
+  color: var(--home-muted);
+  font-size: 15px;
+  line-height: 1.8;
+}
+
+.home-coaching { background: #1c1d1a; color: #f7f6f2; }
+
+.home-coaching-inner {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+  gap: 10%;
+  padding-block: 94px;
+}
+
+.home-coaching-heading h2 { max-width: 500px; }
+
+.home-coaching-heading > p:last-child {
+  max-width: 430px;
+  margin-top: 20px;
+  color: rgba(255, 255, 255, .68);
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.home-coaching-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.home-coaching-steps li {
+  display: grid;
+  min-height: 74px;
+  grid-template-columns: 52px 1fr;
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, .2);
+  gap: 15px;
+}
+
+.home-coaching-steps li:first-child { border-top: 1px solid rgba(255, 255, 255, .2); }
+.home-coaching-steps span { color: #ff956d; font-size: 11px; font-weight: 800; }
+.home-coaching-steps p { font-size: 14px; font-weight: 650; }
+
+.home-join {
+  position: relative;
+  overflow: hidden;
+  background: #c94b23;
+  color: #fff;
+}
+
+.home-join::after {
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: 32%;
+  background: repeating-linear-gradient(135deg, transparent 0 18px, rgba(255, 255, 255, .1) 18px 19px);
+  content: "";
+}
+
+.home-join-inner {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  min-height: 320px;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, .42fr);
+  align-items: center;
+  gap: 8%;
+  padding-block: 68px;
+}
+
+.home-join .home-eyebrow { color: #fff; }
+.home-join h2 { max-width: 720px; font-size: 62px; }
+.home-join h2 span { color: #211b19; }
+
+.home-signup-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 26px;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 800;
+  text-underline-offset: 5px;
+}
+
+.home-signup-link:hover { text-decoration: underline; }
+.home-signup-link svg { transition: transform .18s ease; }
+.home-signup-link:hover svg { transform: translate(2px, -2px); }
+
+.home-join-pillars {
+  position: relative;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.home-join-pillars li {
+  border-top: 1px solid rgba(255, 255, 255, .42);
+  padding: 13px 0;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.home-join-pillars li:last-child { border-bottom: 1px solid rgba(255, 255, 255, .42); }
+
+.home-footer { background: var(--home-paper); }
+
+.home-footer-inner {
+  display: flex;
+  min-height: 120px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding-block: 24px;
+}
+
+.home-footer-brand {
+  font-size: 17px;
+  font-weight: 900;
+}
+
+.home-footer-inner > div p {
+  margin-top: 7px;
+  color: var(--home-muted);
+  font-size: 11px;
+}
+
+@keyframes home-reveal {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 900px) {
+  .home-header-inner { grid-template-columns: 1fr; gap: 12px; padding-block: 11px; }
+  .home-nav { grid-column: 1; grid-row: 2; justify-content: flex-start; gap: 30px; padding: 3px 0 5px; }
+  .home-hero { min-height: 550px; }
+  .home-hero h1 { max-width: 610px; font-size: 64px; }
+  .home-club-inner { gap: 6%; }
+  .home-section-heading h2,
+  .home-club-copy h2,
+  .home-coaching-heading h2 { font-size: 44px; }
+  .home-join-inner { grid-template-columns: 1fr; gap: 30px; padding-block: 58px; }
+  .home-join h2 { font-size: 52px; }
+  .home-signup-link { margin-top: 20px; }
+  .home-join-pillars { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+  .home-join-pillars li { border-bottom: 1px solid rgba(255, 255, 255, .42); }
+  .home-join::after { width: 100%; opacity: .35; }
+}
+
+@media (max-width: 620px) {
+  .home-header-inner,
+  .home-section,
+  .home-club-inner,
+  .home-coaching-inner,
+  .home-join-inner,
+  .home-footer-inner { width: min(100% - 40px, 1280px); }
+
+  .home-header-inner { min-height: 0; }
+  .home-brand-mark { width: 34px; font-size: 22px; }
+  .home-brand-name { font-size: 15px; }
+  .home-brand-name small { font-size: 7px; }
+  .home-nav { justify-content: space-between; gap: 14px; }
+  .home-nav a { font-size: 12px; }
+
+  .home-hero { height: auto; min-height: 510px; align-items: flex-end; }
+  .home-hero-image { object-position: 58% center; }
+  .home-hero-shade { background: linear-gradient(90deg, rgba(14, 15, 13, .82), rgba(14, 15, 13, .35)), linear-gradient(0deg, rgba(14, 15, 13, .6), transparent 75%); }
+  .home-hero-content { width: min(100% - 40px, 1280px); padding-block: 56px 50px; }
+  .home-eyebrow { margin-bottom: 15px; font-size: 10px; }
+  .home-hero h1 { max-width: 390px; font-size: 49px; line-height: 1; }
+  .home-hero-copy { max-width: 370px; margin-top: 18px; font-size: 14px; line-height: 1.65; }
+  .home-hero-actions { align-items: flex-start; flex-direction: column; gap: 18px; margin-top: 24px; }
+  .home-button { min-height: 46px; padding-inline: 16px; }
+  .home-hero-note { margin-top: 30px; font-size: 10px; }
+  .home-training { padding-block: 72px 78px; }
+  .home-section-heading h2,
+  .home-club-copy h2,
+  .home-coaching-heading h2 { font-size: 39px; }
+  .home-section-intro { margin-top: 16px; font-size: 14px; }
+  .home-feature-list { grid-template-columns: 1fr; gap: 34px; margin-top: 42px; }
+  .home-feature { padding-top: 18px; }
+  .home-feature h3 { margin-top: 21px; font-size: 19px; }
+  .home-feature > p { min-height: 0; }
+  .home-feature-link { margin-top: 15px; }
+
+  .home-club-inner { grid-template-columns: 1fr; gap: 38px; padding-block: 64px; }
+  .home-club-image-wrap img { aspect-ratio: 1.12 / 1; }
+  .home-image-caption { right: -7px; bottom: 14px; font-size: 9px; }
+  .home-club-copy > p:not(.home-eyebrow) { margin-top: 17px; font-size: 14px; }
+  .home-club-copy .home-button { margin-top: 22px; }
+
+  .home-coaching-inner { grid-template-columns: 1fr; gap: 34px; padding-block: 66px; }
+  .home-coaching-heading > p:last-child { margin-top: 16px; }
+  .home-coaching-steps li { min-height: 66px; grid-template-columns: 38px 1fr; }
+  .home-coaching-steps p { font-size: 13px; }
+
+  .home-join-inner { min-height: 0; gap: 26px; padding-block: 54px; }
+  .home-join h2 { font-size: 40px; }
+  .home-join-pillars { gap: 12px; }
+  .home-join-pillars li { padding: 10px 0; font-size: 10px; }
+  .home-footer-inner { align-items: flex-start; flex-direction: column; gap: 20px; padding-block: 27px; }
+  .home-footer-portals { gap: 16px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-page *,
+  .home-page *::before,
+  .home-page *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+  }
+}
