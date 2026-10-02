@@ -1,4 +1,5 @@
 const nodemailer = require("nodemailer");
+const dns = require("dns");
 
 require("dotenv").config();
 
@@ -23,6 +24,11 @@ function smtpConfig() {
     // Force IPv4 because some hosted environments
     // may have unreliable IPv6 connectivity.
     family: 4,
+
+    // Force DNS lookup to IPv4 addresses only.
+    lookup: (hostname, options, callback) => {
+      dns.lookup(hostname, { family: 4 }, callback);
+    },
 
     // Implicit TLS for port 465.
     secure:
