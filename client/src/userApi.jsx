@@ -1,6 +1,8 @@
 import axios from "axios";
 
-const userApi = axios.create({ baseURL: "http://localhost:5000/api/user" });
+const userApi = axios.create({
+  baseURL: `${import.meta.env.VITE_API_URL}/api/user`
+});
 
 userApi.interceptors.request.use((config) => {
   const token = sessionStorage.getItem("avefit_user_token");
