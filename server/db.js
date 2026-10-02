@@ -19,6 +19,7 @@ pool.on("error", (err) => {
  */
 const initializeDatabase = async () => {
   const client = await pool.connect();
+
   try {
     await client.query("BEGIN");
 
@@ -50,10 +51,26 @@ const initializeDatabase = async () => {
       ALTER TABLE users
       ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE
     `);
-    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMP`);
-    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_token_hash TEXT`);
-    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_token_expires_at TIMESTAMP`);
-    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_sent_at TIMESTAMP`);
+
+    await client.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMP
+    `);
+
+    await client.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS verification_token_hash TEXT
+    `);
+
+    await client.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS verification_token_expires_at TIMESTAMP
+    `);
+
+    await client.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS verification_sent_at TIMESTAMP
+    `);
 
     await client.query(`
       CREATE INDEX IF NOT EXISTS users_verification_token_idx
@@ -62,8 +79,8 @@ const initializeDatabase = async () => {
     `);
 
     // Accounts the admin has already approved are grandfathered in as verified,
-    // otherwise the new requirement would lock out existing members. Accounts
-    // still awaiting approval must confirm their email before they can be approved.
+    // otherwise the new requirement would lock out existing members.
+    // Accounts still awaiting approval must confirm their email before they can be approved.
     await client.query(`
       UPDATE users
       SET email_verified = TRUE,
@@ -72,31 +89,58 @@ const initializeDatabase = async () => {
         AND email_verified = FALSE
     `);
 
-    // Security/session invalidation columns. Incrementing token_version
-    // immediately invalidates previously issued JWTs.
-    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0`);
-    await client.query(`ALTER TABLE trainers ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0`);
-    await client.query(`ALTER TABLE admins ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0`);
-    await client.query(`ALTER TABLE admins ADD COLUMN IF NOT EXISTS account_status VARCHAR(20) NOT NULL DEFAULT 'Active'`);
-    await client.query(`UPDATE admins SET account_status = 'Active' WHERE account_status IS NULL`);
+    // Security/session invalidation columns.
+    // Incrementing token_version immediately invalidates previously issued JWTs.
+    await client.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0
+    `);
+
+    await client.query(`
+      ALTER TABLE trainers
+      ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0
+    `);
+
+    await client.query(`
+      ALTER TABLE admins
+      ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0
+    `);
+
+    await client.query(`
+      ALTER TABLE admins
+      ADD COLUMN IF NOT EXISTS account_status VARCHAR(20) NOT NULL DEFAULT 'Active'
+    `);
+
+    await client.query(`
+      UPDATE admins
+      SET account_status = 'Active'
+      WHERE account_status IS NULL
+    `);
 
     // Prevent duplicate accounts that differ only by email casing.
-   // await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_unique ON users (LOWER(email))`);
-   // await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS trainers_email_lower_unique ON trainers (LOWER(email)) WHERE email IS NOT NULL`);
-    //await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS admins_email_lower_unique ON admins (LOWER(email))`);
+    // await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_unique ON users (LOWER(email))`);
+    // await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS trainers_email_lower_unique ON trainers (LOWER(email)) WHERE email IS NOT NULL`);
+    // await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS admins_email_lower_unique ON admins (LOWER(email))`);
 
-    // Trainers already in the database remain available. New trainers are
-    // created as Pending by trainerController.js and require admin approval.
+    // Trainers already in the database remain available.
+    // New trainers are created as Pending by trainerController.js
+    // and require admin approval.
     await client.query(`
       ALTER TABLE trainers
       ALTER COLUMN status SET DEFAULT 'Pending'
     `);
 
     await client.query("COMMIT");
-    console.log("✅ Database approval + email verification schema ready");
+
+    console.log(
+      "✅ Database approval + email verification + trainer specialization schema ready"
+    );
   } catch (err) {
     await client.query("ROLLBACK");
-    console.error("❌ Database schema initialization failed:", err.message);
+    console.error(
+      "❌ Database schema initialization failed:",
+      err.message
+    );
     throw err;
   } finally {
     client.release();

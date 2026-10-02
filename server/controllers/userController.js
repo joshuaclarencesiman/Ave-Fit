@@ -135,8 +135,8 @@ const register = async (req, res) => {
 
     const user = result.rows[0];
 
-    // Email verification happens before onboarding; gym approval is still
-    // required before the member can log in.
+    // Email verification and gym approval are both required before login;
+    // admins may review the account before email verification completes.
     //
     // IMPORTANT:
     // Do not wait for the SMTP server here.
@@ -272,8 +272,8 @@ const login = async (req, res) => {
       });
     }
 
-    // Verification is checked before approval because the address has to be
-    // confirmed before an admin is asked to review the registration.
+    // Email verification and admin approval are independent requirements:
+    // admins may review unverified accounts, but members must verify before login.
     if (!user.email_verified) {
       return res.status(403).json({
         success: false,

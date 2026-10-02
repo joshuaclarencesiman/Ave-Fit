@@ -359,24 +359,6 @@ const approveMember = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // A gym should never spend approval time on an address nobody confirmed.
-    const member = await pool.query(
-      "SELECT user_id, first_name, email, email_verified FROM users WHERE user_id = $1",
-      [id]
-    );
-
-    if (member.rows.length === 0) {
-      return res.status(404).json({ message: "Member not found" });
-    }
-
-    if (!member.rows[0].email_verified) {
-      return res.status(409).json({
-        message: `${member.rows[0].first_name || "This member"} has not verified their email address yet`,
-        code: "EMAIL_NOT_VERIFIED",
-        email: member.rows[0].email,
-      });
-    }
-
     const result = await pool.query(
       `
       UPDATE users
