@@ -22,11 +22,20 @@ const app = express();
 app.disable("x-powered-by");
 
 // Keep CORS explicit instead of allowing every website to call the API.
-const allowedOrigins = (process.env.CLIENT_ORIGINS || "http://localhost:5173,http://localhost:5174")
-  .split(",").map((value) => value.trim()).filter(Boolean);
+const allowedOrigins = (
+  process.env.CLIENT_ORIGINS ||
+  "http://localhost:5173,http://localhost:5174,https://ave-fit.pages.dev"
+)
+  .split(",")
+  .map((value) => value.trim())
+  .filter(Boolean);
+
 app.use(cors({
   origin(origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
     return callback(new Error("CORS origin not allowed"));
   },
 }));
