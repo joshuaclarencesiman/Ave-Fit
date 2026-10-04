@@ -1,13 +1,9 @@
 const pool = require("../db");
+const getExerciseCatalog = require("../utils/exerciseCatalog");
 
 const getWorkouts = async (req, res) => {
   try {
-    const result = await pool.query(`
-      SELECT e.*, c.category_name
-      FROM exercises e
-      LEFT JOIN exercise_categories c ON e.category_id = c.category_id
-      ORDER BY e.exercise_name ASC
-    `);
+    const result = await getExerciseCatalog();
     res.json({ success: true, data: result.rows });
   } catch (err) {
     console.error("getWorkouts error:", err.message);

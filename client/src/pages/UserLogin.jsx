@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { MailCheck } from "lucide-react";
+import { GoogleLogin, GoogleOAuthProvider } from "@react-oauth/google";
 import AuthShell from "../components/layout/AuthShell";
 import { Alert, Field, PasswordField, PrimaryButton } from "../components/ui/Form";
 import { useUserAuth } from "../context/UserAuthContext";
+import { USER_REMEMBERED_EMAIL_KEY, USER_REMEMBER_ME_KEY } from "../context/userAuthStorage";
 import userApi from "../userApi";
 
 const TABS = [
@@ -16,6 +18,9 @@ export default function UserLogin() {
   const [searchParams] = useSearchParams();
   const { loginUser } = useUserAuth();
   const [mode, setMode] = useState(searchParams.get("mode") === "signup" ? "signup" : "login");
+  const [rememberMe, setRememberMe] = useState(
+    () => localStorage.getItem(USER_REMEMBER_ME_KEY) === "true"
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [pendingNotice, setPendingNotice] = useState(false);
@@ -23,7 +28,10 @@ export default function UserLogin() {
   const [resendNotice, setResendNotice] = useState("");
   const [resending, setResending] = useState(false);
 
-  const [loginForm, setLoginForm] = useState({ email: "", password: "" });
+  const [loginForm, setLoginForm] = useState({
+    email: localStorage.getItem(USER_REMEMBERED_EMAIL_KEY) || "",
+    password: "",
+  });
   const [signupForm, setSignupForm] = useState({
     first_name: "",
     last_name: "",
@@ -32,6 +40,7 @@ export default function UserLogin() {
     password: "",
     agreed: false,
   });
+  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
   const goToDestination = (user) => {
     navigate(user?.setup_completed ? "/user/workout" : "/user/assessment", { replace: true });
@@ -49,8 +58,8 @@ export default function UserLogin() {
     setResendNotice("");
 
     try {
-      const res = await userApi.post("/login", loginForm);
-      loginUser(res.data.user, res.data.token);
+      const res = await userApi.post("/login", { ...loginForm, rememberMe });
+      loginUser(res.data.user, res.data.token, rememberMe);
       goToDestination(res.data.user);
     } catch (err) {
       const status = err.response?.status;
@@ -65,6 +74,54 @@ export default function UserLogin() {
         setError(bodyStatus === "Rejected" ? err.response?.data?.message || "Login failed." : "");
       } else {
         setError(err.response?.data?.message || "Login failed.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleSuccess = async ({ credential }) => {
+    if (!credential) {
+      setError("Google sign-in did not return an identity token. Please try again.");
+      return;
+    }
+    if (mode === "signup" && !signupForm.agreed) {
+      setError("Please agree to the Terms and Conditions before creating your account.");
+      return;
+    }
+    if (mode === "signup" && !/^09\d{9}$/.test(signupForm.phone)) {
+      setError("Enter a valid phone number starting with 09 before continuing with Google.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    try {
+      const res = await userApi.post("/google-login", {
+        credential,
+        intent: mode,
+        phone: signupForm.phone,
+        first_name: signupForm.first_name,
+        last_name: signupForm.last_name,
+        termsAccepted: signupForm.agreed,
+        rememberMe,
+      });
+      loginUser(res.data.user, res.data.token, rememberMe);
+      goToDestination(res.data.user);
+    } catch (err) {
+      const status = err.response?.data?.status;
+      const code = err.response?.data?.code;
+      if (status === "Pending") {
+        sessionStorage.setItem("avefit_pending_email", err.response.data.email);
+        sessionStorage.setItem("avefit_pending_email_verified", "true");
+        navigate("/user/pending", { replace: true });
+      } else if (status === "Rejected") {
+        setError(err.response?.data?.message || "Your account was not approved.");
+      } else if (code === "SIGNUP_REQUIRED") {
+        setMode("signup");
+        setError("No AveFit account was found. Enter your phone number, accept the Terms, and continue with Google to sign up.");
+      } else {
+        setError(err.response?.data?.message || "Google sign-in failed. Please try again.");
       }
     } finally {
       setLoading(false);
@@ -112,6 +169,7 @@ export default function UserLogin() {
       await userApi.post("/register", signupForm);
       // Remembered so the pending screen can prefill the verification form.
       sessionStorage.setItem("avefit_pending_email", signupForm.email.trim());
+      sessionStorage.removeItem("avefit_pending_email_verified");
       navigate("/user/pending", { replace: true });
     } catch (err) {
       setError(err.response?.data?.message || "Registration failed.");
@@ -126,6 +184,47 @@ export default function UserLogin() {
     setPendingNotice(false);
     setResendNotice("");
   };
+
+  const googleButton = (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3 text-xs text-slate-400">
+        <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+        <span>or</span>
+        <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+      </div>
+      <div className="flex justify-center">
+        {googleClientId ? (
+          <GoogleOAuthProvider clientId={googleClientId}>
+            <GoogleLogin
+              onSuccess={handleGoogleSuccess}
+              onError={() => setError("Google sign-in failed or was cancelled. Please try again.")}
+              text="continue"
+              size="medium"
+              shape="rectangular"
+              theme="filled_white"
+              logo_alignment="left"
+              width="360"
+            />
+          </GoogleOAuthProvider>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setError("Google sign-in is not configured. Set the same Google OAuth client ID in client/.env (VITE_GOOGLE_CLIENT_ID) and server/.env (GOOGLE_CLIENT_ID) to enable it.")}
+            style={{ backgroundColor: "#fff", color: "#3c4043" }}
+            className="flex h-12 w-full items-center justify-center gap-3 rounded-lg px-4 text-base font-medium shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4285f4] focus-visible:ring-offset-2"
+          >
+            <svg aria-hidden="true" viewBox="0 0 48 48" className="h-6 w-6 shrink-0">
+              <path fill="#4285F4" d="M43.6 24.5c0-1.4-.1-2.8-.4-4.1H24v7.8h11c-.5 2.5-1.9 4.6-4 6l6.5 5c3.8-3.5 6.1-8.6 6.1-14.7z" />
+              <path fill="#34A853" d="M24 44c5.4 0 10-1.8 13.3-4.8l-6.5-5c-1.8 1.2-4.1 2-6.8 2-5.2 0-9.6-3.5-11.2-8.2l-6.7 5.2C9.4 39.5 16.1 44 24 44z" />
+              <path fill="#FBBC05" d="M12.8 28c-.4-1.2-.7-2.6-.7-4s.2-2.7.7-4l-6.7-5.2C4.8 18 4 20.9 4 24s.8 6 2.1 9.2l6.7-5.2z" />
+              <path fill="#EA4335" d="M24 11.8c2.9 0 5.5 1 7.5 3l5.7-5.7C33.8 5.8 29.2 4 24 4 16.1 4 9.4 8.5 6.1 14.8l6.7 5.2c1.6-4.7 6-8.2 11.2-8.2z" />
+            </svg>
+            <span>Continue with Google</span>
+          </button>
+        )}
+      </div>
+    </div>
+  );
 
   return (
     <AuthShell
@@ -197,6 +296,22 @@ export default function UserLogin() {
             onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
           />
 
+          <label
+            htmlFor="remember-user"
+            className="flex w-fit cursor-pointer items-center gap-2 text-sm font-medium text-slate-600 dark:text-slate-300"
+          >
+            <input
+              id="remember-user"
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 accent-orange-500"
+            />
+            Remember Me
+          </label>
+
+          {googleButton}
+
           {pendingNotice && (
             <Alert tone="warning">
               Your account is awaiting approval from the gym. You&apos;ll be able to log in
@@ -205,10 +320,10 @@ export default function UserLogin() {
           )}
 
           {unverifiedEmail && (
-            <div className="space-y-3 rounded-xl border border-orange-200 bg-orange-50 p-4 dark:border-orange-500/30 dark:bg-orange-500/10">
+            <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900">
               <div className="flex items-start gap-2.5">
                 <MailCheck size={18} className="mt-0.5 shrink-0 text-orange-500" />
-                <p className="text-sm font-medium text-orange-800 dark:text-orange-200">
+                <p className="text-sm font-medium text-slate-800 dark:text-slate-100">
                   Your email address is not verified. Enter the code sent to {unverifiedEmail}
                   on the confirmation screen, or send a new one.
                 </p>
@@ -220,7 +335,7 @@ export default function UserLogin() {
                 type="button"
                 onClick={handleResendVerification}
                 disabled={resending}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-orange-500/40 bg-white/70 px-5 py-2.5 text-sm font-bold text-orange-700 transition hover:bg-white disabled:opacity-60 dark:bg-transparent dark:text-orange-200 dark:hover:bg-white/10"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-orange-600 bg-orange-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-orange-700 disabled:opacity-60"
               >
                 {resending && (
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-orange-500/30 border-t-orange-500" />
@@ -233,7 +348,7 @@ export default function UserLogin() {
                   sessionStorage.setItem("avefit_pending_email", unverifiedEmail);
                   navigate("/user/pending");
                 }}
-                className="w-full rounded-xl px-5 py-2 text-sm font-semibold text-orange-700 transition hover:bg-orange-500/10 dark:text-orange-200"
+                className="w-full rounded-xl px-5 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
               >
                 Enter verification code
               </button>
@@ -335,6 +450,8 @@ export default function UserLogin() {
             />
             I agree to the Terms and Conditions of AveFit
           </label>
+
+          {googleButton}
 
           {error && <Alert tone="error">{error}</Alert>}
 

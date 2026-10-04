@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import { UserAuthProvider } from "./context/UserAuthContext";
+import { getUserAuthToken } from "./context/userAuthStorage";
 import { TrainerAuthProvider } from "./context/TrainerAuthContext";
 import { ThemeProvider } from "./context/ThemeContext";
 
@@ -40,6 +41,7 @@ import TrainerLogin from "./pages/TrainerLogin";
 import TrainerLayout from "./pages/TrainerLayout";
 import TrainerDashboard from "./pages/TrainerDashboard";
 import TrainerProfile from "./pages/TrainerProfile";
+import TrainerWorkoutPlans from "./pages/TrainerWorkoutPlans";
 
 function AdminProtectedRoute({ children }) {
   const token = sessionStorage.getItem("avefit_token");
@@ -48,7 +50,7 @@ function AdminProtectedRoute({ children }) {
 }
 
 function UserProtectedRoute({ children }) {
-  const token = sessionStorage.getItem("avefit_user_token");
+  const token = getUserAuthToken();
   if (!token) return <Navigate to="/user/login" replace />;
   const savedUser = JSON.parse(localStorage.getItem("avefit_user") || "null");
   if (savedUser?.account_status && savedUser.account_status !== "Active") {
@@ -60,7 +62,7 @@ function UserProtectedRoute({ children }) {
 // Guards the post-onboarding dashboard routes: bounces anyone who hasn't
 // finished the assessment/goal/availability/coach flow back into it.
 function DashboardProtectedRoute({ children }) {
-  const token = sessionStorage.getItem("avefit_user_token");
+  const token = getUserAuthToken();
   if (!token) return <Navigate to="/user/login" replace />;
   const savedUser = JSON.parse(localStorage.getItem("avefit_user") || "null");
   if (savedUser?.account_status && savedUser.account_status !== "Active") return <Navigate to="/user/pending" replace />;
@@ -118,6 +120,7 @@ export default function App() {
               <TrainerLayout>
                 <Routes>
                   <Route path="/roster" element={<TrainerDashboard />} />
+                  <Route path="/workout-plans" element={<TrainerWorkoutPlans />} />
                   <Route path="/profile" element={<TrainerProfile />} />
                   <Route path="*" element={<Navigate to="/trainer/roster" replace />} />
                 </Routes>

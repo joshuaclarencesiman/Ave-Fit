@@ -59,6 +59,17 @@ const initializeDatabase = async () => {
 
     await client.query(`
       ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS google_sub TEXT
+    `);
+
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub_unique
+      ON users (google_sub)
+      WHERE google_sub IS NOT NULL
+    `);
+
+    await client.query(`
+      ALTER TABLE users
       ADD COLUMN IF NOT EXISTS verification_token_hash TEXT
     `);
 
@@ -133,7 +144,7 @@ const initializeDatabase = async () => {
     await client.query("COMMIT");
 
     console.log(
-      "✅ Database approval + email verification + trainer specialization schema ready"
+      "✅ Database approval, email verification, Google auth, and trainer specialization schema ready"
     );
   } catch (err) {
     await client.query("ROLLBACK");

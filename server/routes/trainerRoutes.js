@@ -4,8 +4,9 @@ const verifyToken = require("../middleware/authMiddleware");
 const verifyTrainer = require("../middleware/trainerAuthMiddleware");
 const { userLoginLimiter } = require("../middleware/rateLimit");
 const {
-  getTrainers, getTrainerById, createTrainer, updateTrainer, approveTrainer, rejectTrainer, deactivateTrainer, getTrainerRoster,
+  getTrainers, getTrainerById, createTrainer, updateTrainer, approveTrainer, rejectTrainer, deactivateTrainer, deleteTrainer, getTrainerRoster,
   loginTrainer, getMyRoster, getMyProfile, updateMyPhoto, getExerciseCatalog,
+  getMyWorkoutPlans, createMyWorkoutPlan, deleteMyWorkoutPlan,
   getRosterMemberSessions, assignSessionAsTrainer, deleteSessionAsTrainer,
 } = require("../controllers/trainerController");
 
@@ -14,6 +15,9 @@ router.post("/login", userLoginLimiter, loginTrainer);
 router.get("/me/roster", verifyTrainer, getMyRoster);
 router.get("/me/profile", verifyTrainer, getMyProfile);
 router.put("/me/photo", verifyTrainer, updateMyPhoto);
+router.get("/me/workout-plans", verifyTrainer, getMyWorkoutPlans);
+router.post("/me/workout-plans", verifyTrainer, createMyWorkoutPlan);
+router.delete("/me/workout-plans/:planId", verifyTrainer, deleteMyWorkoutPlan);
 router.get("/me/exercises", verifyTrainer, getExerciseCatalog);
 router.get("/me/members/:userId/sessions", verifyTrainer, getRosterMemberSessions);
 router.post("/me/assign", verifyTrainer, assignSessionAsTrainer);
@@ -28,5 +32,6 @@ router.put("/:id", verifyToken, updateTrainer);
 router.put("/:id/approve", verifyToken, approveTrainer);
 router.put("/:id/reject", verifyToken, rejectTrainer);
 router.put("/:id/deactivate", verifyToken, deactivateTrainer);
+router.delete("/:id", verifyToken, deleteTrainer);
 
 module.exports = router;

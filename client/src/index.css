@@ -449,7 +449,19 @@ tbody tr:hover { background: #fff7ed; }
   color: #fff;
 }
 .dark .ave-search:focus-within { background: #161616; }
-.ave-search input { color: #171717; }
+.ave-search input {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
+  color: #171717;
+}
+.ave-search input:focus {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
 .dark .ave-search input { color: #fff; }
 
 .ave-user-surface {

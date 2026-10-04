@@ -111,6 +111,14 @@ const resetWeek = async (req, res) => {
       WHERE workout_plan_id IN (
         SELECT workout_plan_id FROM workout_plans WHERE user_id=$1
       )
+      AND (
+        session_date = ANY(ARRAY['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']::text[])
+        OR (
+          session_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+          AND session_date >= TO_CHAR(DATE_TRUNC('week', CURRENT_DATE)::date, 'YYYY-MM-DD')
+          AND session_date < TO_CHAR((DATE_TRUNC('week', CURRENT_DATE) + INTERVAL '7 days')::date, 'YYYY-MM-DD')
+        )
+      )
     `, [req.user.user_id]);
     res.json({ success: true, message: "Week reset." });
   } catch (err) {

@@ -2,6 +2,7 @@ const pool = require("../db");
 const bcrypt = require("bcrypt");
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
+const { OAuth2Client } = require("google-auth-library");
 const {
   validateRegistration,
   validateEmail,
@@ -12,6 +13,7 @@ const {
   publicUser,
 } = require("../utils/security");
 const { sendVerificationEmail } = require("../utils/mailer");
+const googleClient = new OAuth2Client();
 const {
   generateVerificationCode,
   hashVerificationToken,
@@ -55,6 +57,16 @@ const issueVerificationCode = async (user) => {
     return { delivered: false };
   }
 };
+
+const createUserToken = (user, rememberMe) => jwt.sign(
+  {
+    user_id: user.user_id,
+    email: user.email,
+    token_version: Number(user.token_version || 0),
+  },
+  process.env.JWT_SECRET,
+  { expiresIn: rememberMe === true ? "30d" : "8h" }
+);
 
 // POST register
 const register = async (req, res) => {
@@ -186,7 +198,7 @@ const register = async (req, res) => {
 // POST login
 const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, rememberMe } = req.body;
 
     if (
       !validateEmail(email) ||
@@ -305,15 +317,7 @@ const login = async (req, res) => {
       });
     }
 
-    const token = jwt.sign(
-      {
-        user_id: user.user_id,
-        email: user.email,
-        token_version: Number(user.token_version || 0),
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: "8h" }
-    );
+    const token = createUserToken(user, rememberMe);
 
     res.json({
       success: true,
@@ -326,6 +330,203 @@ const login = async (req, res) => {
     res.status(500).json({
       success: false,
       message: err.message,
+    });
+  }
+};
+
+// POST Google identity credential
+const googleLogin = async (req, res) => {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  if (!clientId) {
+    return res.status(503).json({
+      success: false,
+      code: "GOOGLE_NOT_CONFIGURED",
+      message: "Google sign-in is not configured on the server.",
+    });
+  }
+
+  const {
+    credential,
+    intent,
+    phone,
+    first_name,
+    last_name,
+    termsAccepted,
+    rememberMe,
+  } = req.body || {};
+
+  if (typeof credential !== "string" || credential.length > 8192 || !["login", "signup"].includes(intent)) {
+    return res.status(400).json({
+      success: false,
+      message: "A valid Google credential and sign-in intent are required.",
+    });
+  }
+
+  let googleProfile;
+  try {
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: clientId,
+    });
+    googleProfile = ticket.getPayload();
+  } catch {
+    return res.status(401).json({
+      success: false,
+      message: "Google could not verify this sign-in. Please try again.",
+    });
+  }
+
+  if (!googleProfile?.sub || !validateEmail(googleProfile.email) || googleProfile.email_verified !== true) {
+    return res.status(401).json({
+      success: false,
+      message: "A verified Google email address is required.",
+    });
+  }
+
+  const email = normalizeEmail(googleProfile.email);
+
+  try {
+    const byGoogleId = await pool.query(
+      `SELECT user_id, first_name, last_name, email, password, phone, google_sub,
+              account_status, email_verified, trainer_id, fitness_goal, height,
+              weight, gender, activity_level, setup_completed, profile_image,
+              token_version
+       FROM users
+       WHERE google_sub = $1`,
+      [googleProfile.sub]
+    );
+
+    let user = byGoogleId.rows[0];
+    if (user && normalizeEmail(user.email) !== email) {
+      return res.status(409).json({
+        success: false,
+        message: "The email on this Google account has changed. Sign in with your existing AveFit email and update it from your profile.",
+      });
+    }
+
+    if (!user) {
+      const byEmail = await pool.query(
+        `SELECT user_id, first_name, last_name, email, password, phone, google_sub,
+                account_status, email_verified, trainer_id, fitness_goal, height,
+                weight, gender, activity_level, setup_completed, profile_image,
+                token_version
+         FROM users
+         WHERE LOWER(email) = $1
+         LIMIT 1`,
+        [email]
+      );
+      user = byEmail.rows[0];
+    }
+
+    if (!user && intent !== "signup") {
+      return res.status(404).json({
+        success: false,
+        code: "SIGNUP_REQUIRED",
+        message: "No AveFit account is linked to this Google account.",
+      });
+    }
+
+    if (!user) {
+      if (termsAccepted !== true) {
+        return res.status(400).json({
+          success: false,
+          code: "TERMS_REQUIRED",
+          message: "Please agree to the Terms and Conditions before creating your account.",
+        });
+      }
+      if (typeof phone !== "string" || !/^09\d{9}$/.test(phone)) {
+        return res.status(400).json({
+          success: false,
+          code: "PHONE_REQUIRED",
+          message: "Enter a valid phone number starting with 09 before continuing with Google.",
+        });
+      }
+
+      const firstName = validateName(googleProfile.given_name)
+        ? googleProfile.given_name
+        : first_name;
+      const lastName = validateName(googleProfile.family_name)
+        ? googleProfile.family_name
+        : last_name;
+      if (!validateName(firstName) || !validateName(lastName)) {
+        return res.status(400).json({
+          success: false,
+          code: "NAME_REQUIRED",
+          message: "Enter a valid first and last name to create your AveFit account.",
+        });
+      }
+
+      const passwordHash = await bcrypt.hash(crypto.randomBytes(32).toString("hex"), 12);
+      const result = await pool.query(
+        `INSERT INTO users (
+           first_name, last_name, email, password, phone, google_sub,
+           account_status, email_verified, email_verified_at
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, 'Pending', TRUE, NOW())
+         RETURNING user_id, first_name, last_name, email, phone, google_sub,
+                   account_status, email_verified, trainer_id, fitness_goal,
+                   height, weight, gender, activity_level, setup_completed,
+                   profile_image, token_version`,
+        [
+          String(firstName).trim(),
+          String(lastName).trim(),
+          email,
+          passwordHash,
+          phone,
+          googleProfile.sub,
+        ]
+      );
+      user = result.rows[0];
+    } else if (user.google_sub && user.google_sub !== googleProfile.sub) {
+      return res.status(409).json({
+        success: false,
+        message: "This AveFit account is already linked to another Google account.",
+      });
+    } else {
+      const result = await pool.query(
+        `UPDATE users
+         SET google_sub = $1,
+             email_verified = TRUE,
+             email_verified_at = COALESCE(email_verified_at, NOW())
+         WHERE user_id = $2
+         RETURNING user_id, first_name, last_name, email, phone, google_sub,
+                   account_status, email_verified, trainer_id, fitness_goal,
+                   height, weight, gender, activity_level, setup_completed,
+                   profile_image, token_version`,
+        [googleProfile.sub, user.user_id]
+      );
+      user = result.rows[0];
+    }
+
+    const accountStatus = String(user.account_status || "Pending").toLowerCase();
+    if (accountStatus !== "active") {
+      const status = accountStatus === "rejected" ? "Rejected" : "Pending";
+      return res.status(403).json({
+        success: false,
+        status,
+        email: user.email,
+        message: status === "Rejected"
+          ? "Your AveFit account was not approved. Please contact the gym administrator."
+          : "Your account is awaiting approval from the gym.",
+      });
+    }
+
+    res.json({
+      success: true,
+      token: createUserToken(user, rememberMe),
+      user: publicUser(user),
+    });
+  } catch (err) {
+    if (err.code === "23505") {
+      return res.status(409).json({
+        success: false,
+        message: "This Google account is already linked to an AveFit account.",
+      });
+    }
+    console.error("google login error:", err.message);
+    res.status(500).json({
+      success: false,
+      message: "Unable to complete Google sign-in.",
     });
   }
 };
@@ -1076,6 +1277,7 @@ const updateProfile = async (req, res) => {
 module.exports = {
   register,
   login,
+  googleLogin,
   verifyEmail,
   resendVerification,
   getVerificationStatus,

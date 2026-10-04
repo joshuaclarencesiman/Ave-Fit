@@ -67,15 +67,15 @@ function ProfileModal({ trainer, onClose, onSelect, selected }) {
           </button>
           <button
             onClick={onClose}
-            className="absolute top-4 right-4 z-30 w-10 h-10 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-black/80"
+            className="absolute top-4 right-4 z-30 w-10 h-10 rounded-full border border-white/30 bg-[#262626] text-white flex items-center justify-center shadow-lg hover:bg-[#3a3a3a]"
             aria-label="Close profile"
           >
-            <X size={18} />
+            <X size={18} className="text-white" />
           </button>
         </div>
         <div className="p-6">
           <p className="text-xs uppercase tracking-wider text-orange-500 font-bold">Coach Profile</p>
-          <h3 className="text-3xl font-bold mt-1">{trainer.full_name}</h3>
+          <h3 className="text-3xl font-bold text-slate-900 dark:text-white mt-1">{trainer.full_name}</h3>
           <p className="text-orange-500 font-semibold mt-1">{trainer.goal_specialty || "General Fitness Coach"}</p>
           <p className="text-sm leading-7 text-slate-600 dark:text-slate-300 mt-5 whitespace-pre-line">
             {trainer.bio || "No profile description has been added yet."}
@@ -137,7 +137,7 @@ function CoachCard({ trainer, selected, recommended, onSelect, onProfile }) {
             </span>
           )}
         </div>
-        <h3 className="text-lg font-bold truncate">{trainer.full_name}</h3>
+        <h3 className="text-lg font-bold text-slate-900 dark:text-white truncate">{trainer.full_name}</h3>
         <p className="text-orange-500 text-sm font-semibold mt-0.5">{trainer.goal_specialty || "General Fitness Coach"}</p>
         <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 line-clamp-2 min-h-[32px]">
           {trainer.bio || "This coach has not added a profile description yet."}
@@ -212,7 +212,7 @@ export default function CoachSelect() {
         </button>
 
         <div className="mb-6">
-          <h2 className="text-3xl font-bold">Choose Your Coach</h2>
+          <h2 className="text-3xl font-bold text-slate-900 dark:text-white">Choose Your Coach</h2>
           <p className="text-slate-500 dark:text-slate-400 text-sm mt-2 leading-6">
             Based on your <b className="text-slate-700 dark:text-slate-200">{goal}</b> goal, we've found the coach who best matches your needs. You can choose any available coach.
           </p>
@@ -233,7 +233,7 @@ export default function CoachSelect() {
               <div className="flex items-center justify-between mb-3">
                 <div>
                   <p className="text-xs uppercase tracking-wider text-orange-500 font-bold">Your best match</p>
-                  <h3 className="text-lg font-bold mt-0.5">Recommended Coach</h3>
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-0.5">Recommended Coach</h3>
                 </div>
                 <Sparkles className="text-orange-500" size={22} />
               </div>
@@ -249,7 +249,7 @@ export default function CoachSelect() {
                 <div className="p-5 sm:p-6">
                   <div className="flex items-start justify-between gap-4">
                     <div>
-                      <h3 className="text-2xl font-bold">{recommended.full_name}</h3>
+                      <h3 className="text-2xl font-bold text-slate-900 dark:text-white">{recommended.full_name}</h3>
                       <p className="text-orange-500 font-semibold mt-1">{recommended.goal_specialty || "General Fitness Coach"}</p>
                     </div>
                     {selectedId === recommended.trainer_id && (
@@ -300,7 +300,7 @@ export default function CoachSelect() {
               <section className="mt-8">
                 <div className="mb-4">
                   <p className="text-xs uppercase tracking-wider text-slate-400 font-bold">Your options</p>
-                  <h3 className="text-lg font-bold mt-0.5">Other Available Coaches</h3>
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white mt-0.5">Other Available Coaches</h3>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const verifyUser = require("../middleware/userAuthMiddleware");
 const {
-  register, login, verifyEmail, resendVerification, getVerificationStatus,
+  register, login, googleLogin, verifyEmail, resendVerification, getVerificationStatus,
   getProfile, updateProfile, updatePhoto,
 } = require("../controllers/userController");
 const { getUserWorkoutPlan, getUserPlans, addWorkoutSession, updateWorkoutSession, completeSession, deleteWorkoutSession, resetWeek } = require("../controllers/userWorkoutController");
@@ -15,6 +15,7 @@ const {
 // Auth
 router.post("/register", signupLimiter, register);
 router.post("/login", userLoginLimiter, login);
+router.post("/google-login", userLoginLimiter, googleLogin);
 
 // Email verification (public: the member has no session until they are verified
 // and approved, so these cannot sit behind verifyUser)

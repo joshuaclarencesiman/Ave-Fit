@@ -1,8 +1,35 @@
 import { useEffect, useState } from "react";
 import { ChevronDown, ChevronUp, Dumbbell, Trash2, Plus, Users, AlertTriangle, X, ClipboardList, CircleCheck, TrendingUp } from "lucide-react";
+import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, ArcElement, Tooltip, Legend } from "chart.js";
+import { Bar, Doughnut } from "react-chartjs-2";
 import trainerApi from "../trainerApi";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const CHART_COLORS = ["#f97316", "#22c55e", "#38bdf8", "#a78bfa", "#f43f5e", "#eab308", "#14b8a6"];
+
+ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Tooltip, Legend);
+
+const axisOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: { labels: { color: "#94a3b8", usePointStyle: true, boxWidth: 8 } },
+    tooltip: { enabled: true },
+  },
+  scales: {
+    x: { beginAtZero: true, grid: { color: "rgba(148,163,184,0.12)" }, ticks: { color: "#94a3b8", precision: 0 } },
+    y: { grid: { display: false }, ticks: { color: "#94a3b8" } },
+  },
+};
+
+const doughnutOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  cutout: "68%",
+  plugins: {
+    legend: { position: "bottom", labels: { color: "#94a3b8", usePointStyle: true, padding: 18, boxWidth: 8 } },
+  },
+};
 
 function formatDuration(value) {
   if (value === null || value === undefined || value === "") return "";
@@ -17,10 +44,17 @@ function toList(val) {
   return [];
 }
 
+function calculateBmi(weight, height) {
+  const weightKg = Number(weight);
+  const heightCm = Number(height);
+  if (!Number.isFinite(weightKg) || weightKg <= 0 || !Number.isFinite(heightCm) || heightCm <= 0) return null;
+  return (weightKg / ((heightCm / 100) ** 2)).toFixed(1);
+}
+
 function MemberProfileModal({ member, onClose }) {
   if (!member) return null;
   const currentWeight = member.latest_weight ?? member.weight;
-  const currentBmi = member.latest_bmi ?? null;
+  const currentBmi = member.latest_bmi ?? calculateBmi(currentWeight, member.height);
   const injuries = toList(member.injuries);
   const conditions = toList(member.health_conditions);
   return <div className="fixed inset-0 z-[80] bg-black/75 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
@@ -50,7 +84,7 @@ function MemberRow({ member, exercises, onChanged, onViewProfile }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const injuries=toList(member.injuries), conditions=toList(member.health_conditions), hasHealthFlags=injuries.length>0||conditions.length>0;
-  const currentWeight=member.latest_weight ?? member.weight, currentBmi=member.latest_bmi;
+  const currentWeight=member.latest_weight ?? member.weight, currentBmi=member.latest_bmi ?? calculateBmi(currentWeight, member.height);
   const preferredDays=toList(member.preferred_days), dayOptions=preferredDays.length?preferredDays:DAYS;
   const fetchSessions=()=>{setLoadingSessions(true);trainerApi.get(`/me/members/${member.user_id}/sessions`).then(r=>setSessions(r.data.data||[])).catch(console.error).finally(()=>setLoadingSessions(false));};
   const toggle=()=>{const next=!expanded;setExpanded(next);if(next&&sessions.length===0)fetchSessions();};
@@ -71,33 +105,63 @@ function MemberRow({ member, exercises, onChanged, onViewProfile }) {
 }
 
 export default function TrainerDashboard(){
-  const [members,setMembers]=useState([]),[exercises,setExercises]=useState([]),[loading,setLoading]=useState(true),[profileMember,setProfileMember]=useState(null);
-  const fetchRoster=()=>trainerApi.get('/me/roster').then(r=>setMembers(r.data.data||[])).catch(console.error);
-  useEffect(()=>{setLoading(true);Promise.all([trainerApi.get('/me/roster'),trainerApi.get('/me/exercises')]).then(([r,e])=>{setMembers(r.data.data||[]);setExercises(e.data.data||[])}).catch(console.error).finally(()=>setLoading(false))},[]);
+  const [members,setMembers]=useState([]),[exercises,setExercises]=useState([]),[loading,setLoading]=useState(true),[profileMember,setProfileMember]=useState(null),[fetchError,setFetchError]=useState("");
+  const fetchRoster=()=>trainerApi.get('/me/roster').then(r=>setMembers(r.data.data||[])).catch(err=>{console.error(err);setFetchError(err.response?.data?.message||"Couldn't refresh your roster analytics.");});
+  useEffect(()=>{setLoading(true);Promise.all([trainerApi.get('/me/roster'),trainerApi.get('/me/exercises')]).then(([r,e])=>{setMembers(r.data.data||[]);setExercises(e.data.data||[])}).catch(err=>{console.error(err);setFetchError(err.response?.data?.message||"Couldn't load your trainer dashboard.")}).finally(()=>setLoading(false))},[]);
   const assignedTotal=members.reduce((total,member)=>total+Number(member.assigned_workouts||0),0);
   const completedTotal=members.reduce((total,member)=>total+Number(member.completed_workouts||0),0);
+  const remainingTotal=Math.max(assignedTotal-completedTotal,0);
   const completionRate=assignedTotal?Math.round((completedTotal/assignedTotal)*100):0;
+  const membersWithoutWorkouts=members.filter(member=>Number(member.assigned_workouts||0)===0).length;
+  const goalCounts=members.reduce((counts,member)=>{const goal=member.fitness_goal?.trim()||"Not specified";counts[goal]=(counts[goal]||0)+1;return counts;},{});
+  const goals=Object.entries(goalCounts).sort((a,b)=>b[1]-a[1]);
+  const weeklyCounts=Object.fromEntries(DAYS.map(day=>[day,{assigned:0,completed:0}]));
+  members.forEach(member=>(member.workouts_by_day||[]).forEach(item=>{
+    let day=String(item.day||"").trim();
+    const namedDay=DAYS.find(value=>value.toLowerCase()===day.toLowerCase());
+    if(!namedDay&&/^\d{4}-\d{2}-\d{2}/.test(day)){
+      const date=new Date(`${day.slice(0,10)}T00:00:00Z`);
+      day=DAYS[(date.getUTCDay()+6)%7];
+    }else{
+      day=namedDay;
+    }
+    if(day&&weeklyCounts[day]){
+      weeklyCounts[day].assigned+=Number(item.assigned||0);
+      weeklyCounts[day].completed+=Number(item.completed||0);
+    }
+  }));
+  const weeklyHasData=DAYS.some(day=>weeklyCounts[day].assigned>0);
+  const workoutBreakdown={labels:["Completed","Remaining"],datasets:[{data:[completedTotal,remainingTotal],backgroundColor:["#22c55e","#f97316"],borderWidth:0}]};
+  const goalBreakdown={labels:goals.map(([goal])=>goal),datasets:[{data:goals.map(([,count])=>count),backgroundColor:goals.map((_,index)=>CHART_COLORS[index%CHART_COLORS.length]),borderWidth:0}]};
+  const memberProgress={labels:members.map(member=>`${member.first_name} ${member.last_name}`),datasets:[
+    {label:"Completed",data:members.map(member=>Number(member.completed_workouts||0)),backgroundColor:"#22c55e",borderRadius:4},
+    {label:"Remaining",data:members.map(member=>Math.max(Number(member.assigned_workouts||0)-Number(member.completed_workouts||0),0)),backgroundColor:"#f97316",borderRadius:4},
+  ]};
+  const weeklyActivity={labels:DAYS,datasets:[
+    {label:"Assigned",data:DAYS.map(day=>weeklyCounts[day].assigned),backgroundColor:"#f97316",borderRadius:5},
+    {label:"Completed",data:DAYS.map(day=>weeklyCounts[day].completed),backgroundColor:"#22c55e",borderRadius:5},
+  ]};
+  const barOptions={...axisOptions,scales:{...axisOptions.scales,x:{...axisOptions.scales.x,stacked:true},y:{...axisOptions.scales.y,stacked:true}}};
+  const memberBarOptions={...barOptions,indexAxis:"y",scales:{x:{...axisOptions.scales.x,stacked:true},y:{...axisOptions.scales.y,stacked:true,ticks:{...axisOptions.scales.y.ticks,autoSkip:false}}}};
+  const panelClass="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900";
   return <div className="px-4 sm:px-6 py-8"><MemberProfileModal member={profileMember} onClose={()=>setProfileMember(null)}/><h1 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2"><Users size={24} className="text-orange-400"/> My Roster</h1><p className="text-slate-500 text-sm mt-1 mb-7 max-w-2xl">Members designated to you by the gym. View their full profile and assign workouts to their weekly schedule.</p>
+    {fetchError&&<div role="alert" className="mb-5 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">{fetchError}</div>}
     <section aria-labelledby="trainer-analytics-heading" className="mb-8">
       <div className="mb-3 flex items-center gap-2"><TrendingUp size={18} className="text-orange-500"/><h2 id="trainer-analytics-heading" className="text-base font-bold text-slate-900 dark:text-white">Workout analytics</h2></div>
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-5">
         {[
           { label: "Roster members", value: members.length, icon: Users },
           { label: "Workouts assigned", value: assignedTotal, icon: ClipboardList },
           { label: "Workouts completed", value: completedTotal, icon: CircleCheck },
           { label: "Completion rate", value: `${completionRate}%`, icon: TrendingUp },
+          { label: "Members without workouts", value: membersWithoutWorkouts, icon: AlertTriangle },
         ].map(({ label, value, icon: Icon })=><div key={label} className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900"><div className="flex items-center justify-between gap-2"><p className="text-xs font-medium text-slate-500">{label}</p><Icon size={16} className="text-orange-500"/></div><p className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">{loading?"—":value}</p></div>)}
       </div>
-      {!loading&&members.length>0&&<div className="mt-4 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-        <h3 className="mb-4 text-sm font-semibold text-slate-800 dark:text-slate-100">Completion by member</h3>
-        <div className="space-y-4">{members.map(member=>{
-          const assigned=Number(member.assigned_workouts||0), completed=Number(member.completed_workouts||0);
-          const rate=assigned?Math.round((completed/assigned)*100):0;
-          return <div key={member.user_id}>
-            <div className="mb-1.5 flex items-center justify-between gap-3 text-xs"><span className="truncate font-medium text-slate-700 dark:text-slate-200">{member.first_name} {member.last_name}</span><span className="shrink-0 text-slate-500">{assigned?`${completed}/${assigned} completed`:"No workouts assigned"}</span></div>
-            <div className="h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800"><div className="h-full rounded-full bg-orange-500 transition-[width]" style={{width:`${rate}%`}}/></div>
-          </div>;
-        })}</div>
+      {!loading&&members.length>0&&<div className="mt-4 grid gap-4 xl:grid-cols-2">
+        <div className={panelClass}><h3 className="mb-3 text-sm font-semibold text-slate-800 dark:text-slate-100">Workout completion</h3><div className="relative h-64">{assignedTotal?<Doughnut data={workoutBreakdown} options={doughnutOptions}/>:<p className="flex h-full items-center justify-center text-sm text-slate-500">No workouts assigned yet.</p>}{assignedTotal>0&&<div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center pb-7"><span className="text-2xl font-bold text-slate-900 dark:text-white">{completionRate}%</span><span className="text-xs text-slate-500">completed</span></div>}</div></div>
+        <div className={panelClass}><h3 className="mb-3 text-sm font-semibold text-slate-800 dark:text-slate-100">Member goals</h3><div className="relative h-64">{goals.length?<Doughnut data={goalBreakdown} options={doughnutOptions}/>:<p className="flex h-full items-center justify-center text-sm text-slate-500">No member goals recorded.</p>}</div></div>
+        <div className={`${panelClass} xl:col-span-2`}><h3 className="mb-3 text-sm font-semibold text-slate-800 dark:text-slate-100">Workout completion by member</h3>{assignedTotal?<div className="h-72"><Bar data={memberProgress} options={memberBarOptions}/></div>:<p className="py-12 text-center text-sm text-slate-500">Assign workouts to members to compare completion.</p>}</div>
+        <div className={`${panelClass} xl:col-span-2`}><h3 className="mb-3 text-sm font-semibold text-slate-800 dark:text-slate-100">Weekly workout schedule</h3>{weeklyHasData?<div className="h-64"><Bar data={weeklyActivity} options={barOptions}/></div>:<p className="py-12 text-center text-sm text-slate-500">No weekday workout schedule data yet.</p>}</div>
       </div>}
     </section>
     {loading?<div className="space-y-3">{[...Array(3)].map((_,i)=><div key={i} className="h-16 bg-white dark:bg-slate-900 border border-orange-100 dark:border-slate-800 rounded-2xl animate-pulse"/>)}</div>:members.length===0?<div className="text-center py-20 border border-orange-100 dark:border-slate-800 bg-white dark:bg-transparent rounded-2xl"><Users size={40} className="mx-auto text-slate-700 mb-3"/><p className="text-slate-400 font-medium">No members yet</p><p className="text-slate-600 text-sm mt-1">Members will appear here after the gym assigns them to you.</p></div>:<div className="space-y-3">{members.map(m=><MemberRow key={m.user_id} member={m} exercises={exercises} onChanged={fetchRoster} onViewProfile={setProfileMember}/>)}</div>}</div>;

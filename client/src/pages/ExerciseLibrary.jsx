@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Search, X, ChevronDown, ListOrdered, Dumbbell } from "lucide-react";
+import { Search, X, ChevronDown, ListOrdered, Dumbbell, ArrowLeft } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import userApi from "../userApi";
 import WorkoutGuide from "../components/WorkoutGuide";
 import { getWorkoutGuideExercise } from "../utils/workoutGuide";
@@ -9,15 +10,22 @@ function ExerciseDetail({ exercise, onClose }) {
   const guide = getWorkoutGuideExercise(exercise.exercise_name);
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-3xl w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+      <div className="bg-[#111] border border-[#303030] text-white rounded-3xl w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto">
+        <button
+          type="button"
+          onClick={onClose}
+          className="mb-5 inline-flex items-center gap-2 rounded-lg border border-[#383838] bg-[#1c1c1c] px-3 py-2 text-sm font-semibold text-slate-200 transition hover:border-orange-500/60 hover:bg-[#252525] hover:text-white"
+        >
+          <ArrowLeft size={16} /> Back to exercises
+        </button>
         <div className="flex items-start justify-between mb-4">
           <div>
-            <h3 className="text-xl font-bold text-slate-900">{exercise.exercise_name}</h3>
-            <p className="text-slate-500 text-sm">{exercise.muscle_group}</p>
+            <h3 className="text-xl font-bold text-white">{exercise.exercise_name}</h3>
+            <p className="text-slate-300 text-sm">{exercise.muscle_group}</p>
           </div>
-          <button onClick={onClose} aria-label="Close exercise guide">
-            <X size={22} className="text-slate-500" />
+          <button onClick={onClose} aria-label="Close exercise guide" className="rounded-lg p-2 text-slate-300 transition hover:bg-[#252525] hover:text-white">
+          <X size={22} />
           </button>
         </div>
 
@@ -27,29 +35,29 @@ function ExerciseDetail({ exercise, onClose }) {
             { label: "Equipment", value: exercise.equipment || "None" },
             { label: "Cal/min", value: exercise.calories_per_minute ? `${exercise.calories_per_minute} kcal` : "—" },
           ].map((item) => (
-            <div key={item.label} className="bg-slate-50 rounded-xl p-3 text-center">
-              <p className="text-slate-900 font-semibold text-sm">{item.value}</p>
-              <p className="text-slate-500 text-xs mt-0.5">{item.label}</p>
+            <div key={item.label} className="bg-[#1c1c1c] border border-[#303030] rounded-xl p-3 text-center">
+              <p className="text-white font-semibold text-sm">{item.value}</p>
+              <p className="text-slate-300 text-xs mt-0.5">{item.label}</p>
             </div>
           ))}
         </div>
 
         {exercise.description && (
           <div className="mb-5">
-            <h4 className="text-sm font-semibold text-slate-600 mb-2">Description</h4>
-            <p className="text-slate-500 text-sm leading-relaxed">{exercise.description}</p>
+            <h4 className="text-sm font-semibold text-slate-200 mb-2">Description</h4>
+            <p className="text-slate-300 text-sm leading-relaxed">{exercise.description}</p>
           </div>
         )}
 
-        <div className="mb-5 border-t border-slate-100 pt-5">
+        <div className="mb-5 border-t border-[#303030] pt-5">
           {guide ? (
             <WorkoutGuide exerciseName={guide} />
           ) : (
-            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
-              <h4 className="font-semibold text-slate-800 flex items-center gap-2">
+            <div className="bg-[#1c1c1c] border border-[#303030] rounded-2xl p-4">
+              <h4 className="font-semibold text-white flex items-center gap-2">
                 <Dumbbell size={16} className="text-orange-500" /> Workout Guide
               </h4>
-              <p className="text-sm text-slate-500 mt-1">
+              <p className="text-sm text-slate-300 mt-1">
                 A matching illustrated guide is not available for this exercise yet.
               </p>
             </div>
@@ -57,8 +65,8 @@ function ExerciseDetail({ exercise, onClose }) {
         </div>
 
         {steps && (
-          <div className="border-t border-slate-100 pt-5">
-            <h4 className="text-sm font-semibold text-slate-600 mb-3 flex items-center gap-2">
+          <div className="border-t border-[#303030] pt-5">
+            <h4 className="text-sm font-semibold text-slate-200 mb-3 flex items-center gap-2">
               <ListOrdered size={15} className="text-orange-500" /> Coaching Notes
             </h4>
             <div className="space-y-3">
@@ -71,8 +79,8 @@ function ExerciseDetail({ exercise, onClose }) {
                     {i < steps.length - 1 && <div className="w-0.5 flex-1 bg-orange-200 mt-1" />}
                   </div>
                   <div className="pb-3">
-                    <p className="font-semibold text-slate-900 text-sm">{step.title}</p>
-                    <p className="text-slate-500 text-sm mt-0.5 leading-relaxed">{step.description}</p>
+                    <p className="font-semibold text-white text-sm">{step.title}</p>
+                    <p className="text-slate-300 text-sm mt-0.5 leading-relaxed">{step.description}</p>
                   </div>
                 </div>
               ))}
@@ -91,6 +99,7 @@ const difficultyColors = {
 };
 
 export default function ExerciseLibrary() {
+  const navigate = useNavigate();
   const [exercises, setExercises] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -126,6 +135,13 @@ export default function ExerciseLibrary() {
       {selected && <ExerciseDetail exercise={selected} onClose={() => setSelected(null)} />}
 
       <div className="ave-page-hero px-6 pt-10 pb-7 border-b border-orange-100 dark:border-white/5">
+        <button
+          type="button"
+          onClick={() => navigate("/user/workout")}
+          className="mb-5 inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-orange-500 hover:text-orange-700 dark:border-slate-700 dark:bg-[#151515] dark:text-slate-200 dark:hover:bg-[#202020] dark:hover:text-white"
+        >
+          <ArrowLeft size={16} /> Back to workouts
+        </button>
         <h1 className="text-2xl font-black text-slate-900 dark:text-white">Exercise Library</h1>
         <p className="text-slate-400 text-sm mt-1">
           {exercises.length} exercises available · illustrated workout guides

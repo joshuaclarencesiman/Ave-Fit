@@ -14,6 +14,31 @@ export default function Assessment() {
   const [bmi, setBmi] = useState(null);
   const [bmiCategory, setBmiCategory] = useState("");
   const [calculated, setCalculated] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [formError, setFormError] = useState("");
+
+  const validateFields = () => {
+    const fields = [
+      { key: "age", label: "Age", value: age, min: 10, max: 100 },
+      { key: "weight", label: "Weight", value: weight, min: 30, max: 300 },
+      { key: "height", label: "Height", value: height, min: 100, max: 250 },
+    ];
+    const errors = {};
+
+    fields.forEach(({ key, label, value, min, max }) => {
+      if (!value.trim()) {
+        errors[key] = `${label} is required.`;
+        return;
+      }
+      const number = Number(value);
+      if (!Number.isFinite(number) || number < min || number > max) {
+        errors[key] = `Enter a ${label.toLowerCase()} between ${min} and ${max}.`;
+      }
+    });
+
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
 
   const getBMICategory = (bmi) => {
     if (bmi < 18.5) return { label: "Underweight", color: "text-orange-500" };
@@ -23,7 +48,12 @@ export default function Assessment() {
   };
 
   const handleCalculate = () => {
-    if (!weight || !height) return;
+    setFormError("");
+    if (!validateFields()) {
+      setCalculated(false);
+      setBmi(null);
+      return;
+    }
     const h = parseFloat(height) / 100;
     const result = (parseFloat(weight) / (h * h)).toFixed(1);
     const cat = getBMICategory(parseFloat(result));
@@ -33,6 +63,13 @@ export default function Assessment() {
   };
 
   const handleContinue = async () => {
+    setFormError("");
+    if (!validateFields()) return;
+    if (!calculated) {
+      setFormError("Calculate your BMI before continuing.");
+      return;
+    }
+
     try {
       await userApi.put("/profile", {
         ...user,
@@ -44,7 +81,7 @@ export default function Assessment() {
       navigate("/user/goal");
     } catch (err) {
       console.error(err);
-      navigate("/user/goal");
+      setFormError("We couldn't save your assessment. Please try again.");
     }
   };
 
@@ -83,19 +120,35 @@ export default function Assessment() {
         { label: "Height", key: "height", value: height, setter: setHeight, unit: "cm", min: 100, max: 250 },
       ].map((f) => (
         <div key={f.key}>
-          <label className="block text-sm font-medium text-slate-600 mb-1">{f.label}</label>
+          <label htmlFor={f.key} className="block text-sm font-medium text-slate-600 mb-1">{f.label}</label>
           <div className="relative">
             <input
+              id={f.key}
               type="number"
               value={f.value}
-              onChange={(e) => { f.setter(e.target.value); setCalculated(false); setBmi(null); }}
+              onChange={(e) => {
+                f.setter(e.target.value);
+                setFieldErrors((errors) => ({ ...errors, [f.key]: "" }));
+                setFormError("");
+                setCalculated(false);
+                setBmi(null);
+              }}
               min={f.min}
               max={f.max}
               placeholder={`Enter ${f.label.toLowerCase()}`}
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-500 pr-14"
+              aria-invalid={Boolean(fieldErrors[f.key])}
+              aria-describedby={fieldErrors[f.key] ? `${f.key}-error` : undefined}
+              className={`w-full bg-slate-50 border rounded-xl px-4 py-3 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-500 pr-14 ${
+                fieldErrors[f.key] ? "border-red-500" : "border-slate-200"
+              }`}
             />
             <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 text-sm">{f.unit}</span>
           </div>
+          {fieldErrors[f.key] && (
+            <p id={`${f.key}-error`} className="mt-1 text-sm text-red-600" role="alert">
+              {fieldErrors[f.key]}
+            </p>
+          )}
         </div>
       ))}
     </div>
@@ -123,19 +176,22 @@ export default function Assessment() {
 
     <button
       onClick={handleCalculate}
-      disabled={!weight || !height || !age}
-      className="w-full bg-slate-100 hover:bg-slate-200 disabled:opacity-40 text-slate-900 font-semibold py-3 rounded-xl transition mb-3"
+      className="w-full bg-slate-100 hover:bg-slate-200 text-slate-900 font-semibold py-3 rounded-xl transition mb-3"
     >
       Calculate BMI
     </button>
 
     <button
       onClick={handleContinue}
-      disabled={!calculated}
-      className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-40 text-white font-bold py-3 rounded-xl transition"
+      className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 rounded-xl transition"
     >
       Continue to Goal Setup →
     </button>
+    {formError && (
+      <p className="mt-3 text-sm text-red-600" role="alert">
+        {formError}
+      </p>
+    )}
     </OnboardingShell>
   );
 }

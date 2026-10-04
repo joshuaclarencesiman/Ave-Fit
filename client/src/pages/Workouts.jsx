@@ -4,9 +4,9 @@ import { getWorkoutGuideExercise } from "../utils/workoutGuide";
 import api from "../services/api";
 
 const difficultyColors = {
-  Beginner: "bg-green-100 text-green-700",
-  Intermediate: "bg-yellow-100 text-yellow-700",
-  Advanced: "bg-red-100 text-red-700",
+  Beginner: "bg-green-500/20 text-green-400",
+  Intermediate: "bg-yellow-500/20 text-yellow-400",
+  Advanced: "bg-red-500/20 text-red-400",
 };
 
 const emptySteps = () => [
@@ -194,6 +194,7 @@ export default function Workouts() {
   const [fetchError, setFetchError] = useState("");
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
+  const [filterDifficulty, setFilterDifficulty] = useState("All");
   const [showModal, setShowModal] = useState(false);
   const [editExercise, setEditExercise] = useState(null);
 
@@ -236,7 +237,8 @@ export default function Workouts() {
       e.exercise_name?.toLowerCase().includes(search.toLowerCase()) ||
       e.muscle_group?.toLowerCase().includes(search.toLowerCase());
     const matchFilter = filter === "All" || e.category_name === filter;
-    return matchSearch && matchFilter;
+    const matchDifficulty = filterDifficulty === "All" || e.difficulty === filterDifficulty;
+    return matchSearch && matchFilter && matchDifficulty;
   });
 
   return (
@@ -270,111 +272,133 @@ export default function Workouts() {
       )}
 
       {/* Filters */}
-      <div className="bg-white rounded-2xl shadow-md p-4 flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-        <div className="flex items-center bg-slate-100 rounded-lg px-3 py-2 w-full sm:w-72">
-          <Search size={16} className="text-gray-400" />
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-md dark:border-slate-800 dark:bg-[#111]">
+        <div className="ave-search flex w-full max-w-md items-center gap-3 rounded-xl border px-3 py-2.5">
+          <Search size={17} className="shrink-0 text-slate-500" />
           <input
             type="text"
             placeholder="Search exercises..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="bg-transparent outline-none ml-2 w-full text-sm"
+            className="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm outline-none shadow-none focus:border-0 focus:ring-0"
           />
         </div>
-        <div className="flex gap-2 flex-wrap">
-          {categoryNames.map((c) => (
-            <button
-              key={c}
-              onClick={() => setFilter(c)}
-              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition ${
-                filter === c ? "bg-orange-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-              }`}
-            >
-              {c}
-            </button>
-          ))}
+        <div className="mt-4">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Filter by category</p>
+          <div className="space-y-3">
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Category</p>
+              <div className="flex flex-wrap justify-start gap-2">
+                {categoryNames.map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => setFilter(c)}
+                    aria-pressed={filter === c}
+                    className={`whitespace-nowrap rounded-lg border px-3.5 py-2 text-sm font-medium transition ${
+                      filter === c
+                        ? "border-orange-600 bg-orange-600 text-white shadow-sm"
+                        : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300 hover:bg-slate-100 dark:border-slate-700 dark:bg-[#1b1b1b] dark:text-slate-200 dark:hover:bg-[#252525]"
+                    }`}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Difficulty</p>
+              <div className="flex flex-wrap gap-2">
+                {["All", "Beginner", "Intermediate", "Advanced"].map((difficulty) => (
+                  <button
+                    key={difficulty}
+                    onClick={() => setFilterDifficulty(difficulty)}
+                    aria-pressed={filterDifficulty === difficulty}
+                    className={`whitespace-nowrap rounded-lg border px-3.5 py-2 text-sm font-medium transition ${
+                      filterDifficulty === difficulty
+                        ? "border-orange-600 bg-orange-600 text-white shadow-sm"
+                        : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300 hover:bg-slate-100 dark:border-slate-700 dark:bg-[#1b1b1b] dark:text-slate-200 dark:hover:bg-[#252525]"
+                    }`}
+                  >
+                    {difficulty}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Cards */}
+      <p className="text-xs text-slate-500">{filtered.length} exercises found</p>
+
       {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+        <div className="space-y-3">
           {[...Array(6)].map((_, i) => (
-            <div key={i} className="bg-white rounded-2xl shadow-md h-40 animate-pulse" />
+            <div key={i} className="h-20 rounded-2xl bg-white animate-pulse" />
           ))}
         </div>
       ) : filtered.length === 0 ? (
-        <div className="bg-white rounded-2xl shadow-md p-12 text-center text-slate-400">
-          No exercises found.
-        </div>
+        <div className="py-16 text-center text-slate-500">No exercises found.</div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-          {filtered.map((exercise) => (
-            <div key={exercise.exercise_id} className="bg-white rounded-2xl shadow-md overflow-hidden hover:shadow-xl transition group relative">
-              <div className="bg-orange-600 p-5 text-white">
-                <div className="flex items-center justify-between">
-                  <Dumbbell size={24} />
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold px-3 py-1 rounded-full bg-white/20">
-                      {exercise.category_name || "General"}
-                    </span>
-                  </div>
+        <div className="space-y-3">
+          {filtered.map((exercise) => {
+            const guide = getWorkoutGuideExercise(exercise.exercise_name);
+            return (
+            <div
+              key={exercise.exercise_id}
+              className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-4 text-left transition hover:border-orange-500/50 hover:bg-slate-100"
+            >
+              {guide ? (
+                <img
+                  src={`/workout-guide/${guide.frames[1].path}`}
+                  alt=""
+                  aria-hidden="true"
+                  className="h-16 w-16 shrink-0 rounded-xl bg-slate-50 object-contain"
+                />
+              ) : (
+                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl bg-slate-50">
+                  <Dumbbell size={22} className="text-slate-300" />
                 </div>
-                <h3 className="text-lg font-bold mt-3">{exercise.exercise_name}</h3>
-                <p className="text-orange-100 text-sm mt-1">{exercise.muscle_group || "Full Body"}</p>
-              </div>
-              <div className="p-4 space-y-3">
-                <p className="text-sm text-slate-500 line-clamp-2">{exercise.description || "No description."}</p>
-                <div className="flex items-center justify-between">
-                  <div className="text-xs text-slate-500">
-                    {exercise.equipment && <span>🏋️ {exercise.equipment}</span>}
-                    {exercise.calories_per_minute && (
-                      <span className="ml-3">🔥 {exercise.calories_per_minute} kcal/min</span>
-                    )}
-                  </div>
-                  <span className={`text-xs font-semibold px-2 py-1 rounded-full ${difficultyColors[exercise.difficulty] || "bg-slate-100 text-slate-500"}`}>
-                    {exercise.difficulty || "N/A"}
-                  </span>
-                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold text-slate-900">{exercise.exercise_name}</p>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  {exercise.muscle_group} • {exercise.category_name || "General"}
+                </p>
+                {exercise.equipment && (
+                  <p className="mt-1 text-xs text-slate-500">🏋️ {exercise.equipment}</p>
+                )}
                 {(() => {
-                  const guide = getWorkoutGuideExercise(exercise.exercise_name);
                   return guide ? (
-                    <div className="flex items-center gap-3 bg-slate-50 rounded-xl p-2 border border-slate-100">
-                      <img
-                        src={`/workout-guide/${guide.frames[1].path}`}
-                        alt=""
-                        aria-hidden="true"
-                        className="w-14 h-14 object-contain rounded-lg bg-white brightness-0 opacity-60"
-                      />
-                      <div>
-                        <p className="text-xs font-semibold text-slate-700">Workout Guide</p>
-                        <p className="text-[11px] text-slate-400">3 illustrated movement frames</p>
-                      </div>
-                    </div>
+                    <p className="mt-1 flex items-center gap-1 text-xs text-orange-500">
+                      <Dumbbell size={11} /> Workout Guide
+                    </p>
                   ) : (
-                    <div className="flex items-center gap-1 text-xs text-slate-400">
-                      <Dumbbell size={12} /> No matching Workout Guide entry
-                    </div>
+                    <p className="mt-1 text-xs text-slate-400">Guide unavailable</p>
                   );
                 })()}
-                {exercise.movement_steps && (
-                  <div className="flex items-center gap-1 text-xs text-green-600 font-medium">
-                    <ListOrdered size={12} /> Coaching notes added
-                  </div>
-                )}
-                <div className="flex gap-2 pt-1">
-                  <button onClick={() => handleEdit(exercise)}
-                    className="flex-1 flex items-center justify-center gap-1 text-xs font-medium py-2 rounded-lg bg-orange-50 text-orange-600 hover:bg-orange-100 transition">
-                    <Edit2 size={13} /> Edit
-                  </button>
-                  <button onClick={() => handleDelete(exercise)}
-                    className="flex-1 flex items-center justify-center gap-1 text-xs font-medium py-2 rounded-lg bg-red-50 text-red-500 hover:bg-red-100 transition">
-                    <Trash2 size={13} /> Delete
-                  </button>
-                </div>
+              </div>
+              <span className={`shrink-0 rounded-lg px-2 py-1 text-xs font-medium ${
+                difficultyColors[exercise.difficulty] || "bg-slate-100 text-slate-500"
+              }`}>
+                {exercise.difficulty || "N/A"}
+              </span>
+              <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+                <button
+                  onClick={() => handleEdit(exercise)}
+                  className="flex items-center justify-center gap-1 rounded-lg bg-[#c2410c] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#9a3412]"
+                >
+                  <Edit2 size={13} /> Edit
+                </button>
+                <button
+                  onClick={() => handleDelete(exercise)}
+                  className="flex items-center justify-center gap-1 rounded-lg bg-[#b42318] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#912018]"
+                >
+                  <Trash2 size={13} /> Delete
+                </button>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

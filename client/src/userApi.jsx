@@ -1,11 +1,12 @@
 import axios from "axios";
+import { getUserAuthToken, USER_TOKEN_KEY } from "./context/userAuthStorage";
 
 const userApi = axios.create({
   baseURL: `${import.meta.env.VITE_API_URL}/api/user`
 });
 
 userApi.interceptors.request.use((config) => {
-  const token = sessionStorage.getItem("avefit_user_token");
+  const token = getUserAuthToken();
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
@@ -18,7 +19,10 @@ userApi.interceptors.response.use(
   (response) => response,
   (error) => {
     const status = error.response?.status;
-    if (status === 401 || status === 403) sessionStorage.removeItem("avefit_user_token");
+    if (status === 401 || status === 403) {
+      sessionStorage.removeItem(USER_TOKEN_KEY);
+      localStorage.removeItem(USER_TOKEN_KEY);
+    }
     return Promise.reject(error);
   }
 );

@@ -1,10 +1,11 @@
 import { useNavigate } from "react-router-dom";
-import { User, Users } from "lucide-react";
+import { ClipboardList, User, Users } from "lucide-react";
 import AppShell from "../components/layout/AppShell";
 import { useTrainerAuth } from "../context/TrainerAuthContext";
 
 const NAV = [
   { to: "/trainer/roster", icon: Users, label: "My Roster" },
+  { to: "/trainer/workout-plans", icon: ClipboardList, label: "Workout Plans" },
   { to: "/trainer/profile", icon: User, label: "My Profile" },
 ];
 

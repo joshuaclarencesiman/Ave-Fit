@@ -1,40 +1,69 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Trash2, CheckCircle, RotateCcw, Dumbbell, Moon } from "lucide-react";
 import { useUserAuth } from "../context/UserAuthContext";
 import userApi from "../userApi";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
+const localDateString = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const formatWorkoutDate = (date) =>
+  new Date(`${date}T00:00:00`).toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+
 export default function WorkoutPage() {
   const { user } = useUserAuth();
   const [sessions, setSessions] = useState([]);
   const [workoutDays, setWorkoutDays] = useState([]); // days the user picked as their availability
   const [loading, setLoading] = useState(true);
-  const [activeDay, setActiveDay] = useState("Monday");
+  const [activeDay, setActiveDay] = useState(() => {
+    const day = new Date().getDay();
+    return DAYS[day === 0 ? 6 : day - 1];
+  });
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const [sessionsRes, profileRes] = await Promise.all([
         userApi.get("/workouts"),
         userApi.get("/profile"),
       ]);
-      setSessions(sessionsRes.data.data || []);
+      const loadedSessions = sessionsRes.data.data || [];
+      setSessions(loadedSessions);
       const days = profileRes.data.data?.preferred_days || [];
       setWorkoutDays(days);
-      if (days.length > 0 && !days.includes(activeDay)) {
-        setActiveDay(days[0]);
+      const today = localDateString(new Date());
+      const nextScheduledDate = [...new Set(
+        loadedSessions
+          .map((session) => session.session_date)
+          .filter((date) => typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date) && date >= today)
+      )].sort()[0];
+      if (nextScheduledDate) {
+        setActiveDay(nextScheduledDate);
+      } else if (days.length > 0) {
+        setActiveDay((currentDay) => days.includes(currentDay) ? currentDay : days[0]);
       }
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const isWorkoutDay = (day) => {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(day)) return sessions.some((session) => session.session_date === day);
+    return workoutDays.length === 0 || workoutDays.includes(day);
   };
-
-  useEffect(() => { fetchData(); }, []);
-
-  const isWorkoutDay = (day) => workoutDays.length === 0 || workoutDays.includes(day);
 
   const handleComplete = async (id) => {
     await userApi.put(`/workouts/${id}/complete`);
@@ -54,6 +83,13 @@ export default function WorkoutPage() {
 
   const daySessions = sessions.filter((s) => s.session_date === activeDay || s.day_of_week === activeDay);
   const completedCount = sessions.filter((s) => s.completed).length;
+  const isScheduledDate = /^\d{4}-\d{2}-\d{2}$/.test(activeDay);
+  const activeDayLabel = isScheduledDate ? formatWorkoutDate(activeDay) : activeDay;
+  const scheduledDates = [...new Set(
+    sessions
+      .map((session) => session.session_date)
+      .filter((date) => typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date))
+  )].sort();
 
   return (
     <div className="min-h-screen bg-[#fffaf5] dark:bg-[#080808] text-slate-900 dark:text-white">
@@ -80,13 +116,16 @@ export default function WorkoutPage() {
       {/* Day Selector */}
       <div className="px-4 py-4 overflow-x-auto">
         <div className="flex gap-2 w-max">
-          {DAYS.map((day) => {
+          {[...DAYS, ...scheduledDates].map((day) => {
             const hasWorkout = sessions.some((s) => s.session_date === day || s.day_of_week === day);
             const restDay = !isWorkoutDay(day);
+            const isDate = /^\d{4}-\d{2}-\d{2}$/.test(day);
+            const label = isDate ? formatWorkoutDate(day) : day.slice(0, 3);
             return (
               <button
                 key={day}
                 onClick={() => setActiveDay(day)}
+                aria-pressed={activeDay === day}
                 className={`flex flex-col items-center px-4 py-3 rounded-2xl text-sm font-medium transition min-w-[60px] ${
                   activeDay === day
                     ? "bg-orange-500 text-white"
@@ -95,7 +134,7 @@ export default function WorkoutPage() {
                     : "bg-white text-slate-500 hover:bg-slate-100"
                 }`}
               >
-                <span>{day.slice(0, 3)}</span>
+                <span className={isDate ? "whitespace-nowrap text-xs" : ""}>{label}</span>
                 {restDay ? (
                   <Moon size={10} className={`mt-1 ${activeDay === day ? "text-orange-400" : "text-slate-600"}`} />
                 ) : hasWorkout ? (
@@ -110,8 +149,8 @@ export default function WorkoutPage() {
       {/* Workout List */}
       <div className="px-6 py-4 space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="font-bold text-slate-900">{activeDay}'s Workouts</h2>
-          {isWorkoutDay(activeDay) && daySessions.length > 0 && (
+          <h2 className="font-bold text-slate-900">{activeDayLabel}'s Workouts</h2>
+          {!isScheduledDate && isWorkoutDay(activeDay) && daySessions.length > 0 && (
             <button onClick={handleReset} className="flex items-center gap-1 text-xs text-slate-500 hover:text-red-400 transition">
               <RotateCcw size={14} /> Reset
             </button>
@@ -131,7 +170,7 @@ export default function WorkoutPage() {
         ) : daySessions.length === 0 ? (
           <div className="text-center py-16">
             <Dumbbell size={40} className="mx-auto text-slate-700 mb-3" />
-            <p className="text-slate-500">No workouts assigned for {activeDay} yet</p>
+            <p className="text-slate-500">No workouts assigned for {activeDayLabel} yet</p>
             <p className="text-slate-600 text-xs mt-1">Your coach will add your training plan here.</p>
           </div>
         ) : (

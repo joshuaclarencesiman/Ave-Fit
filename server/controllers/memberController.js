@@ -450,35 +450,59 @@ const rejectMember = async (req, res) => {
 // DELETE MEMBER
 // =====================================================
 const deleteMember = async (req, res) => {
+  const client = await pool.connect();
+
   try {
     const { id } = req.params;
 
-    const result = await pool.query(
-      `
-      DELETE FROM users
-      WHERE user_id = $1
-      RETURNING user_id
-      `,
+    await client.query("BEGIN");
+
+    const member = await client.query(
+      "SELECT user_id, email FROM users WHERE user_id = $1 FOR UPDATE",
       [id]
     );
 
-    if (result.rows.length === 0) {
+    if (member.rows.length === 0) {
+      await client.query("ROLLBACK");
       return res.status(404).json({
         message: "Member not found"
       });
     }
 
+    await client.query(
+      `DELETE FROM workout_sessions ws
+       USING workout_plans wp
+       WHERE ws.workout_plan_id = wp.workout_plan_id
+         AND wp.user_id = $1`,
+      [id]
+    );
+    await client.query("DELETE FROM workout_plans WHERE user_id = $1", [id]);
+    await client.query("DELETE FROM meal_plans WHERE user_id = $1", [id]);
+    await client.query("DELETE FROM notifications WHERE user_id = $1", [id]);
+    await client.query("DELETE FROM predictions WHERE user_id = $1", [id]);
+    await client.query("DELETE FROM progress_logs WHERE user_id = $1", [id]);
+    await client.query("DELETE FROM recommendations WHERE user_id = $1", [id]);
+    await client.query(
+      "DELETE FROM members WHERE LOWER(email) = LOWER($1)",
+      [member.rows[0].email]
+    );
+    await client.query("DELETE FROM users WHERE user_id = $1", [id]);
+
+    await client.query("COMMIT");
+
     res.json({
-      message: "Member deleted successfully"
+      message: "Member and related records deleted successfully"
     });
 
   } catch (error) {
+    await client.query("ROLLBACK");
     console.error("❌ Error deleting member:", error);
 
     res.status(500).json({
-      message: "Failed to delete member",
-      error: error.message
+      message: "Failed to delete member and related records"
     });
+  } finally {
+    client.release();
   }
 };
 

@@ -4,7 +4,7 @@ import {
   LineElement, BarElement, ArcElement, Title, Tooltip, Legend, Filler,
 } from "chart.js";
 import { Line, Bar, Doughnut } from "react-chartjs-2";
-import { Users, TrendingUp, Dumbbell, Apple } from "lucide-react";
+import { Users, TrendingUp, Dumbbell } from "lucide-react";
 import api from "../services/api";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Title, Tooltip, Legend, Filler);
@@ -99,12 +99,11 @@ export default function Analytics() {
       </div>
 
       {/* Summary */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
         {[
           { label: "Total Members", value: data?.summary.totalMembers, icon: <Users size={22} />, color: "bg-orange-500" },
           { label: "Average BMI", value: data?.summary.avgBmi, icon: <TrendingUp size={22} />, color: "bg-green-500" },
           { label: "Workout Plans", value: data?.summary.totalWorkoutPlans, icon: <Dumbbell size={22} />, color: "bg-purple-500" },
-          { label: "Nutrition Plans", value: data?.summary.totalNutritionPlans, icon: <Apple size={22} />, color: "bg-orange-500" },
         ].map((s) => (
           <div key={s.label} className="bg-white rounded-2xl shadow-md p-5 flex items-center gap-4">
             <div className={`${s.color} p-3 rounded-xl text-white flex-shrink-0`}>{s.icon}</div>

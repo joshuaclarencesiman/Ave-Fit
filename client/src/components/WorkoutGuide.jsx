@@ -33,39 +33,39 @@ export default function WorkoutGuide({ exerciseName, compact = false }) {
       {!compact && (
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h4 className="font-semibold text-slate-900 flex items-center gap-2">
+            <h4 className="font-semibold text-white flex items-center gap-2">
               <Dumbbell size={16} className="text-orange-500" />
               Workout Guide
             </h4>
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="text-xs text-slate-300 mt-1">
               Animated movement guide — the illustrated positions change automatically.
             </p>
           </div>
-          <span className="shrink-0 inline-flex items-center gap-1 text-[11px] font-medium text-green-600 bg-green-50 px-2 py-1 rounded-full">
+          <span className="shrink-0 inline-flex items-center gap-1 text-[11px] font-medium text-emerald-300 bg-emerald-950/60 border border-emerald-800 px-2 py-1 rounded-full">
             <ShieldCheck size={12} /> Guide
           </span>
         </div>
       )}
 
       {compact ? (
-        <div className="bg-slate-50 border border-slate-200 rounded-xl overflow-hidden">
+        <div className="bg-[#202020] border border-[#383838] rounded-xl overflow-hidden">
           <img
             src={frameUrl}
             alt={`${matched.name}, workout guide`}
-            className="w-full aspect-square object-contain brightness-0 opacity-60"
+            className="w-full aspect-square object-contain brightness-0 invert opacity-90"
             loading="lazy"
           />
         </div>
       ) : (
         <div className="space-y-3">
-          <div className="relative bg-slate-50 border border-slate-200 rounded-2xl overflow-hidden">
+          <div className="relative bg-[#202020] border border-[#383838] rounded-2xl overflow-hidden">
             <img
               src={frameUrl}
               alt={`${matched.name}, movement frame ${frame.index}`}
-              className="w-full aspect-[4/3] object-contain p-4 brightness-0 opacity-65 transition-opacity duration-300"
+              className="w-full aspect-[4/3] object-contain p-4 brightness-0 invert opacity-90 transition-opacity duration-300"
             />
 
-            <div className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-white/90 backdrop-blur px-2.5 py-1 text-[11px] font-semibold text-slate-700 shadow-sm">
+            <div className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-[#111]/95 px-2.5 py-1 text-[11px] font-semibold text-slate-100 shadow-sm">
               <span className={`w-1.5 h-1.5 rounded-full ${playing ? "bg-green-500 animate-pulse" : "bg-slate-400"}`} />
               {playing ? "Playing" : "Paused"}
             </div>
@@ -75,7 +75,7 @@ export default function WorkoutGuide({ exerciseName, compact = false }) {
                 type="button"
                 onClick={() => setCurrentFrame(0)}
                 aria-label="Restart workout guide"
-                className="w-9 h-9 rounded-full bg-white/95 text-slate-700 shadow-sm flex items-center justify-center hover:bg-white transition"
+                className="w-9 h-9 rounded-full border border-white/15 bg-[#111] text-slate-100 shadow-sm flex items-center justify-center hover:bg-[#303030] transition"
               >
                 <RotateCcw size={15} />
               </button>
@@ -90,7 +90,7 @@ export default function WorkoutGuide({ exerciseName, compact = false }) {
             </div>
           </div>
 
-          <div className="flex items-center justify-center gap-2">
+          <div className="flex items-center justify-center gap-2" aria-label="Workout guide frames">
             {frames.map((item, index) => (
               <button
                 key={item.index}
@@ -101,20 +101,20 @@ export default function WorkoutGuide({ exerciseName, compact = false }) {
                 }}
                 aria-label={`Show movement frame ${item.index}`}
                 className={`h-1.5 rounded-full transition-all ${
-                  index === currentFrame ? "w-8 bg-orange-500" : "w-2 bg-slate-300 hover:bg-slate-400"
+                  index === currentFrame ? "w-8 bg-orange-500" : "w-2 bg-slate-500 hover:bg-slate-300"
                 }`}
               />
             ))}
           </div>
 
-          <p className="text-center text-[11px] text-slate-400">
+          <p className="text-center text-[11px] text-slate-300">
             Frame {frame.index} of {frames.length} · {playing ? "Auto-playing every 1.2 seconds" : "Paused — press play to continue"}
           </p>
         </div>
       )}
 
       {!compact && (
-        <p className="text-[11px] leading-relaxed text-slate-400">
+        <p className="text-[11px] leading-relaxed text-slate-300">
           Artwork by {matched.attribution.creator}, licensed under {matched.attribution.license}.
         </p>
       )}

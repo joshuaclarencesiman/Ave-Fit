@@ -82,7 +82,7 @@ const tones = {
   error:
     "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300",
   warning:
-    "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-500/30 dark:bg-orange-500/10 dark:text-orange-200",
+    "border-[#fdba74] bg-[#fff7ed] text-[#7c2d12] dark:border-[#9a3412] dark:bg-[#3b200d] dark:text-[#ffedd5]",
   info: "border-slate-200 bg-slate-50 text-slate-600 dark:border-white/10 dark:bg-white/5 dark:text-slate-300",
 };
 

@@ -1,7 +1,6 @@
 import { useMemo } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
-  Apple,
   BarChart3,
   Bell,
   ClipboardList,
@@ -20,7 +19,6 @@ const NAV = [
   { to: "/admin/trainers", icon: UserCheck, label: "Trainers" },
   { to: "/admin/workouts", icon: Dumbbell, label: "Exercises" },
   { to: "/admin/workout-plans", icon: ClipboardList, label: "Workout Plans" },
-  { to: "/admin/nutrition", icon: Apple, label: "Meal Plans" },
   { to: "/admin/analytics", icon: BarChart3, label: "Analytics" },
   { to: "/admin/notifications", icon: Bell, label: "Notifications", badge: true },
   { to: "/admin/settings", icon: Settings, label: "Settings" },

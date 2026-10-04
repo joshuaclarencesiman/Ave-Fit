@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Search, Eye, CheckCircle, XCircle, Plus, Trash2, X, UserRoundCog, UserRound, Save } from "lucide-react";
+import { Search, Eye, CheckCircle, XCircle, Trash2, X, UserRoundCog, UserRound, Save } from "lucide-react";
 import api from "../services/api";
 
 const statusColors = {
@@ -113,17 +113,17 @@ function ViewModal({ member, trainers, onClose, onEdit, onAssign }) {
             {[{label:"Email",value:member.email},{label:"Email Verified",value:member.email_verified?"Yes":"No"},{label:"Phone",value:member.phone},{label:"Gender",value:member.gender},{label:"Age",value:member.age?`${member.age} yrs`:"—"},{label:"Height",value:member.height?`${member.height} cm`:"—"},{label:"Weight",value:member.weight?`${member.weight} kg`:"—"},{label:"Fitness Goal",value:member.fitness_goal},{label:"Status",value:member.status}].map(x=><div key={x.label} className="bg-slate-50 dark:bg-[#222] rounded-xl p-3"><p className="text-xs text-slate-400">{x.label}</p><p className="mt-1 font-semibold text-slate-700 dark:text-gray-200 break-words">{x.value || "—"}</p></div>)}
           </div>
 
-          <div className="rounded-2xl bg-orange-50 dark:bg-orange-500/10 p-4 text-center">
-            <p className="text-xs text-slate-400">BMI</p>
-            <p className="text-3xl font-bold text-slate-800 dark:text-white mt-1">{member.bmi ? parseFloat(member.bmi).toFixed(1) : "—"}</p>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900 p-4 text-center">
+            <p className="text-xs font-medium text-slate-500 dark:text-slate-300">BMI</p>
+            <p className="text-3xl font-bold text-slate-900 dark:text-white mt-1">{member.bmi ? parseFloat(member.bmi).toFixed(1) : "—"}</p>
             <p className={`text-sm font-semibold ${bmiInfo.color}`}>{bmiInfo.label}</p>
           </div>
 
-          <div className="rounded-2xl border border-orange-200 dark:border-orange-400/30 bg-white dark:bg-[#1b1b1b] p-5">
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5">
             <h3 className="flex items-center gap-2 text-lg font-bold text-slate-800 dark:text-white mb-4"><UserRoundCog size={20} className="text-orange-500"/> Designated Coach</h3>
-            {assignedTrainer && <div className="mb-4 flex items-center gap-3 rounded-xl bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 p-3">
+            {assignedTrainer && <div className="mb-4 flex items-center gap-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3">
               {assignedTrainer.photo_url ? <img src={assignedTrainer.photo_url} alt="" className="w-14 h-14 rounded-full object-contain bg-black"/> : <div className="w-14 h-14 rounded-full bg-orange-100 dark:bg-orange-500/20 flex items-center justify-center text-orange-500"><UserRound/></div>}
-              <div className="min-w-0"><p className="text-xs text-slate-500 dark:text-gray-400">Current Coach</p><p className="font-bold text-slate-800 dark:text-white truncate">{assignedTrainer.full_name}</p><p className="text-xs text-orange-600 dark:text-orange-400 truncate">{assignedTrainer.goal_specialty || "General Fitness"}</p></div>
+              <div className="min-w-0"><p className="text-xs font-medium text-slate-500 dark:text-slate-300">Current Coach</p><p className="font-bold text-slate-900 dark:text-white truncate">{assignedTrainer.full_name}</p><p className="text-xs text-orange-700 dark:text-orange-400 truncate">{assignedTrainer.goal_specialty || "General Fitness"}</p></div>
             </div>}
             <select value={selectedTrainer} onChange={e=>setSelectedTrainer(e.target.value)} className="w-full border border-slate-300 dark:border-gray-700 rounded-2xl bg-white dark:bg-[#111] text-slate-900 dark:text-white px-5 py-4 text-base font-medium outline-none focus:ring-2 focus:ring-orange-500 dark:[color-scheme:dark]">
               <option value="" className="bg-white text-gray-900 dark:bg-[#111] dark:text-white">No coach assigned</option>
@@ -188,7 +188,7 @@ export default function Members() {
     {editMember&&<MemberModal member={editMember} onClose={()=>setEditMember(null)} onSave={fetchData}/>} 
     {viewMember&&<ViewModal member={viewMember} trainers={trainers} onClose={()=>setViewMember(null)} onEdit={m=>setEditMember(m)} onAssign={handleAssign}/>} 
 
-    <div className="flex items-center justify-between"><div><h1 className="text-3xl font-bold text-slate-800 dark:text-white">Members</h1><p className="text-slate-500 dark:text-gray-400 mt-1">Manage all registered members and their designated coaches.</p></div><button onClick={()=>setShowAddModal(true)} className="flex items-center gap-2 bg-orange-600 hover:bg-orange-700 text-white px-5 py-2.5 rounded-xl font-medium transition"><Plus size={18}/>Add Member</button></div>
+    <div><h1 className="text-3xl font-bold text-slate-800 dark:text-white">Members</h1><p className="text-slate-500 dark:text-gray-400 mt-1">Manage all registered members and their designated coaches.</p></div>
     {fetchError&&<div className="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 text-red-700 dark:text-red-400 rounded-xl px-4 py-3 text-sm">⚠️ {fetchError}</div>}
     <div className="bg-white dark:bg-[#171717] border border-transparent dark:border-gray-800 rounded-2xl shadow-md dark:shadow-none p-4 flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between"><div className="flex items-center bg-slate-100 dark:bg-[#222] rounded-lg px-3 py-2 w-full sm:w-72"><Search size={16} className="text-gray-400"/><input type="text" placeholder="Search members..." value={search} onChange={e=>setSearch(e.target.value)} className="bg-transparent outline-none ml-2 w-full text-sm text-slate-800 dark:text-white placeholder:text-gray-400"/></div><div className="flex gap-2 flex-wrap">{["All","Active","Pending","Inactive"].map(s=><button key={s} onClick={()=>setFilter(s)} className={`px-4 py-1.5 rounded-lg text-sm font-medium transition ${filter===s?"bg-orange-600 text-white":"bg-slate-100 dark:bg-[#222] text-slate-600 dark:text-gray-300 hover:bg-slate-200 dark:hover:bg-gray-700"}`}>{s}</button>)}</div></div>
     <div className="bg-white dark:bg-[#171717] border border-transparent dark:border-gray-800 rounded-2xl shadow-md dark:shadow-none overflow-hidden">

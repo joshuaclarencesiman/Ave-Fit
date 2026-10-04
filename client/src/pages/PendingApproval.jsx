@@ -14,10 +14,16 @@ export default function PendingApproval() {
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
-  const [verified, setVerified] = useState(false);
+  const [verified, setVerified] = useState(
+    () => sessionStorage.getItem("avefit_pending_email_verified") === "true"
+  );
   const [verifying, setVerifying] = useState(false);
   const [resending, setResending] = useState(false);
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState(() =>
+    sessionStorage.getItem("avefit_pending_email_verified") === "true"
+      ? "Your email is already verified. Your registration is with the gym administrator."
+      : ""
+  );
   const [error, setError] = useState("");
 
   // Check whether this account still needs the code, so the screen does not
@@ -35,6 +41,7 @@ export default function PendingApproval() {
         if (cancelled || !res.data?.registered) return;
         if (res.data.email_verified) {
           setVerified(true);
+          sessionStorage.setItem("avefit_pending_email_verified", "true");
           setNotice("Your email is already verified. Your registration is with the gym administrator.");
         }
       })
@@ -62,6 +69,7 @@ export default function PendingApproval() {
     try {
       const res = await userApi.post("/verify-email", { email, code });
       setVerified(true);
+      sessionStorage.setItem("avefit_pending_email_verified", "true");
       setNotice(res.data.message);
     } catch (err) {
       setError(err.response?.data?.message || "Unable to verify the code right now.");
@@ -98,11 +106,12 @@ export default function PendingApproval() {
         </div>
 
         <h1 className="mt-5 text-2xl font-bold text-slate-900 dark:text-white">
-          Verify your email to continue
+          {verified ? "Your email is verified" : "Verify your email to continue"}
         </h1>
         <p className="mt-3 leading-relaxed text-slate-500 dark:text-slate-400">
-          Thank you for registering with AveFit. Enter the six-digit code sent to your email
-          address so the gym administrator can review your registration.
+          {verified
+            ? "Thank you for registering with AveFit. Your account is waiting for gym approval."
+            : "Thank you for registering with AveFit. Enter the six-digit code sent to your email address so the gym administrator can review your registration."}
         </p>
 
         <div className="mt-6 flex gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-left dark:border-white/10 dark:bg-white/5">

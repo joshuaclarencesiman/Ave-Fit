@@ -19,6 +19,8 @@ const SPECIALIZATION_OPTIONS = [
   "Group Fitness",
 ];
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i;
+
 const normalizeSpecializations = (trainer) => Array.isArray(trainer?.specializations) ? trainer.specializations.filter(Boolean) : [];
 
 const statusColors = {
@@ -31,7 +33,7 @@ const statusColors = {
 function TrainerModal({ trainer, onClose, onSave }) {
   const fileInputRef = useRef(null);
   const [form, setForm] = useState(
-    trainer || { full_name: "", email: "", phone: "", specializations: [], goal_specialty: "" }
+    trainer || { full_name: "", email: "", phone: "09", specializations: [], goal_specialty: "" }
   );
   const [selectedSpecializations, setSelectedSpecializations] = useState(normalizeSpecializations(trainer));
   const [photo, setPhoto] = useState(trainer?.photo_url || null);
@@ -61,7 +63,16 @@ function TrainerModal({ trainer, onClose, onSave }) {
       setError("Full name and email are required.");
       return;
     }
+    if (form.email.trim().length > 254 || !EMAIL_PATTERN.test(form.email.trim())) {
+      setError("Please provide a valid email address.");
+      return;
+    }
+    if (!/^09\d{9}$/.test(form.phone || "")) {
+      setError("Phone number must start with 09 and contain exactly 11 digits.");
+      return;
+    }
     setSaving(true);
+    setError("");
     try {
       const payload = { ...form, specializations: selectedSpecializations, photo_url: photo, ...(password ? { password } : {}) };
       delete payload.specialization;
@@ -119,14 +130,31 @@ function TrainerModal({ trainer, onClose, onSave }) {
           {[
             { label: "Full Name *", key: "full_name", type: "text" },
             { label: "Email *", key: "email", type: "email" },
-            { label: "Phone", key: "phone", type: "text" },
+            { label: "Phone *", key: "phone", type: "tel" },
           ].map((f) => (
             <div key={f.key}>
               <label className="block text-sm font-medium text-slate-600 mb-1">{f.label}</label>
               <input
                 type={f.type}
+                inputMode={f.key === "phone" ? "numeric" : undefined}
+                autoComplete={f.key === "email" ? "email" : f.key === "phone" ? "tel" : undefined}
+                required
+                maxLength={f.key === "phone" ? 11 : f.key === "email" ? 254 : undefined}
+                minLength={f.key === "phone" ? 11 : undefined}
+                pattern={f.key === "phone" ? "09[0-9]{9}" : undefined}
+                placeholder={f.key === "phone" ? "09XXXXXXXXX" : undefined}
                 value={form[f.key] || ""}
-                onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
+                onChange={(e) => {
+                  if (f.key === "phone") {
+                    const digits = e.target.value.replace(/\D/g, "").slice(0, 11);
+                    const phone = digits.startsWith("0")
+                      ? digits.length > 1 && digits[1] !== "9" ? "0" : digits
+                      : "";
+                    setForm({ ...form, phone });
+                    return;
+                  }
+                  setForm({ ...form, [f.key]: e.target.value });
+                }}
                 className="w-full border border-slate-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
               />
             </div>
@@ -419,28 +447,28 @@ function MemberRow({ member, trainer, exercises }) {
   };
 
   return (
-    <div className="border border-slate-200 rounded-xl overflow-hidden">
-      <button onClick={toggleExpand} className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50 transition text-left">
+    <div className="border border-[#303030] bg-[#171717] rounded-xl overflow-hidden">
+      <button onClick={toggleExpand} className="w-full flex items-center justify-between px-4 py-3 hover:bg-[#202020] transition text-left">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 font-bold text-xs">
+          <div className="w-8 h-8 rounded-full bg-orange-500/15 flex items-center justify-center text-orange-400 font-bold text-xs">
             {member.first_name?.charAt(0)}{member.last_name?.charAt(0)}
           </div>
           <div>
-            <p className="font-semibold text-slate-800 text-sm">{member.first_name} {member.last_name}</p>
-            <p className="text-slate-400 text-xs">{member.fitness_goal || "No goal set"} · {member.email}</p>
+            <p className="font-semibold text-gray-100 text-sm">{member.first_name} {member.last_name}</p>
+            <p className="text-gray-400 text-xs">{member.fitness_goal || "No goal set"} · {member.email}</p>
           </div>
         </div>
-        {expanded ? <ChevronUp size={18} className="text-slate-400" /> : <ChevronDown size={18} className="text-slate-400" />}
+        {expanded ? <ChevronUp size={18} className="text-gray-400" /> : <ChevronDown size={18} className="text-gray-400" />}
       </button>
 
       {expanded && (
-        <div className="px-4 pb-4 border-t border-slate-100 bg-slate-50/50">
+        <div className="px-4 pb-4 border-t border-[#303030] bg-[#1d1d1d]">
           {/* Assign form */}
           <div className="pt-4 grid grid-cols-2 sm:grid-cols-5 gap-2 items-end">
             <div className="col-span-2 sm:col-span-2">
-              <label className="block text-xs text-slate-500 mb-1">Exercise</label>
+              <label className="block text-xs text-gray-400 mb-1">Exercise</label>
               <select value={form.exercise_id} onChange={(e) => setForm({ ...form, exercise_id: e.target.value })}
-                className="w-full border border-slate-300 rounded-lg px-2 py-2 text-xs">
+                className="w-full border border-[#3a3a3a] bg-[#111] text-gray-100 rounded-lg px-2 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-orange-500/60">
                 <option value="">Select...</option>
                 {exercises.map((e) => (
                   <option key={e.exercise_id} value={e.exercise_id}>{e.exercise_name}</option>
@@ -448,19 +476,19 @@ function MemberRow({ member, trainer, exercises }) {
               </select>
             </div>
             <div>
-              <label className="block text-xs text-slate-500 mb-1">Sets</label>
+              <label className="block text-xs text-gray-400 mb-1">Sets</label>
               <input type="number" value={form.sets} onChange={(e) => setForm({ ...form, sets: e.target.value })}
-                className="w-full border border-slate-300 rounded-lg px-2 py-2 text-xs" />
+                className="w-full border border-[#3a3a3a] bg-[#111] text-gray-100 rounded-lg px-2 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-orange-500/60" />
             </div>
             <div>
-              <label className="block text-xs text-slate-500 mb-1">Reps</label>
+              <label className="block text-xs text-gray-400 mb-1">Reps</label>
               <input type="number" value={form.reps} onChange={(e) => setForm({ ...form, reps: e.target.value })}
-                className="w-full border border-slate-300 rounded-lg px-2 py-2 text-xs" />
+                className="w-full border border-[#3a3a3a] bg-[#111] text-gray-100 rounded-lg px-2 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-orange-500/60" />
             </div>
             <div>
-              <label className="block text-xs text-slate-500 mb-1">Day</label>
+              <label className="block text-xs text-gray-400 mb-1">Day</label>
               <select value={form.session_date} onChange={(e) => setForm({ ...form, session_date: e.target.value })}
-                className="w-full border border-slate-300 rounded-lg px-2 py-2 text-xs">
+                className="w-full border border-[#3a3a3a] bg-[#111] text-gray-100 rounded-lg px-2 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-orange-500/60">
                 <option value="">Select...</option>
                 {dayOptions.map((d) => <option key={d} value={d}>{d}</option>)}
               </select>
@@ -474,20 +502,20 @@ function MemberRow({ member, trainer, exercises }) {
 
           {/* Assigned sessions */}
           <div className="mt-4">
-            <p className="text-xs font-semibold text-slate-500 mb-2">Assigned Workouts</p>
+            <p className="text-xs font-semibold text-gray-400 mb-2">Assigned Workouts</p>
             {loadingSessions ? (
-              <p className="text-xs text-slate-400">Loading...</p>
+              <p className="text-xs text-gray-500">Loading...</p>
             ) : sessions.length === 0 ? (
-              <p className="text-xs text-slate-400">No workouts assigned yet.</p>
+              <p className="text-xs text-gray-500">No workouts assigned yet.</p>
             ) : (
               <div className="space-y-1.5">
                 {sessions.map((s) => (
-                  <div key={s.session_id} className="flex items-center justify-between bg-white border border-slate-200 rounded-lg px-3 py-2">
+                  <div key={s.session_id} className="flex items-center justify-between bg-[#111] border border-[#303030] rounded-lg px-3 py-2">
                     <div className="flex items-center gap-2 text-xs">
                       <Dumbbell size={14} className="text-orange-500" />
-                      <span className="font-medium text-slate-700">{s.exercise_name || "Exercise"}</span>
-                      <span className="text-slate-400">· {s.session_date}</span>
-                      {s.sets && <span className="text-slate-400">· {s.sets}x{s.reps || "?"}</span>}
+                      <span className="font-medium text-gray-200">{s.exercise_name || "Exercise"}</span>
+                      <span className="text-gray-400">· {s.session_date}</span>
+                      {s.sets && <span className="text-gray-400">· {s.sets}x{s.reps || "?"}</span>}
                       {s.completed && <span className="text-green-500 font-medium">✓ Done</span>}
                     </div>
                     <button onClick={() => handleDeleteSession(s.session_id)} className="text-red-400 hover:text-red-600">
@@ -586,10 +614,14 @@ export default function Trainers() {
     fetchTrainers();
   };
 
-  const handleDeactivate = async (id) => {
-    if (!confirm("Deactivate this trainer?")) return;
-    await api.put(`/trainers/${id}/deactivate`);
-    fetchTrainers();
+  const handleRemove = async (trainer) => {
+    if (!window.confirm(`Permanently remove ${trainer.full_name}? Existing member and workout assignments will be unassigned.`)) return;
+    try {
+      await api.delete(`/trainers/${trainer.trainer_id}`);
+      fetchTrainers();
+    } catch (err) {
+      window.alert(err.response?.data?.message || "Failed to remove trainer.");
+    }
   };
 
   const handleEdit = (trainer) => {
@@ -747,9 +779,18 @@ export default function Trainers() {
                         )}
                         {trainer.status === "Active" && (
                           <button
-                            onClick={() => handleDeactivate(trainer.trainer_id)}
+                            onClick={() => handleRemove(trainer)}
                             className="p-1.5 rounded-lg hover:bg-red-50 text-red-400 transition"
-                            title="Deactivate"
+                            title="Remove trainer"
+                          >
+                            <XCircle size={16} />
+                          </button>
+                        )}
+                        {(trainer.status === "Inactive" || trainer.status === "Rejected") && (
+                          <button
+                            onClick={() => handleRemove(trainer)}
+                            className="p-1.5 rounded-lg hover:bg-red-50 text-red-400 transition"
+                            title="Remove trainer"
                           >
                             <XCircle size={16} />
                           </button>

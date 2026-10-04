@@ -19,3 +19,7 @@ If you are developing a production application, we recommend using TypeScript wi
 ## Workout Guide attribution
 
 AveFit bundles the exercise illustrations from the included `workout-guide-main` repository. The visual assets are licensed under **CC BY-SA 4.0**; attribution is to **Bryl Lim**, with original source artwork from **Everkinetic** as identified by the repository manifest.
+
+## Google sign-in
+
+Set `VITE_GOOGLE_CLIENT_ID` in `client/.env` and the matching `GOOGLE_CLIENT_ID` in `server/.env` using a Google OAuth web client ID. Add the frontend URL (for example, `http://localhost:5173`) to that client's authorized JavaScript origins. New Google signups must provide a phone number and accept the Terms; their verified email skips the email-code step, but the account still requires gym approval.
