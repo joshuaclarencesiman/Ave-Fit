@@ -1,32 +1,39 @@
 import { useEffect, useState } from "react";
-import { Search, X, ChevronDown, ListOrdered, Dumbbell, ArrowLeft } from "lucide-react";
+import { Search, X, ChevronDown, ListOrdered, Dumbbell, ArrowLeft, SlidersHorizontal, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import userApi from "../userApi";
 import WorkoutGuide from "../components/WorkoutGuide";
 import { getWorkoutGuideExercise } from "../utils/workoutGuide";
 
-function ExerciseDetail({ exercise, onClose }) {
+export function ExerciseDetail({ exercise, onClose }) {
   const steps = Array.isArray(exercise.movement_steps) ? exercise.movement_steps : null;
   const guide = getWorkoutGuideExercise(exercise.exercise_name);
 
   return (
-    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-      <div className="bg-[#111] border border-[#303030] text-white rounded-3xl w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="exercise-detail-title"
+        className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-orange-500/20 bg-[#111] p-5 text-white shadow-2xl sm:p-7"
+      >
         <button
           type="button"
           onClick={onClose}
-          className="mb-5 inline-flex items-center gap-2 rounded-lg border border-[#383838] bg-[#1c1c1c] px-3 py-2 text-sm font-semibold text-slate-200 transition hover:border-orange-500/60 hover:bg-[#252525] hover:text-white"
+          className="mb-5 inline-flex min-h-10 items-center gap-2 rounded-lg border border-[#383838] bg-[#1c1c1c] px-3 py-2 text-sm font-semibold text-slate-200 transition hover:border-orange-500/60 hover:bg-[#252525] hover:text-white"
         >
           <ArrowLeft size={16} /> Back to exercises
         </button>
-        <div className="flex items-start justify-between mb-4">
+        <div className="mb-4">
           <div>
-            <h3 className="text-xl font-bold text-white">{exercise.exercise_name}</h3>
+            <h2 id="exercise-detail-title" className="text-xl font-bold text-white">{exercise.exercise_name}</h2>
             <p className="text-slate-300 text-sm">{exercise.muscle_group}</p>
           </div>
-          <button onClick={onClose} aria-label="Close exercise guide" className="rounded-lg p-2 text-slate-300 transition hover:bg-[#252525] hover:text-white">
-          <X size={22} />
-          </button>
         </div>
 
         <div className="grid grid-cols-3 gap-3 mb-5">
@@ -93,9 +100,9 @@ function ExerciseDetail({ exercise, onClose }) {
 }
 
 const difficultyColors = {
-  Beginner: "bg-green-500/20 text-green-400",
-  Intermediate: "bg-yellow-500/20 text-yellow-400",
-  Advanced: "bg-red-500/20 text-red-400",
+  Beginner: "border-green-500/20 bg-green-500/10 text-green-700 dark:text-green-300",
+  Intermediate: "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  Advanced: "border-red-500/20 bg-red-500/10 text-red-700 dark:text-red-300",
 };
 
 export default function ExerciseLibrary() {
@@ -103,6 +110,7 @@ export default function ExerciseLibrary() {
   const [exercises, setExercises] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState("All");
   const [filterDifficulty, setFilterDifficulty] = useState("All");
@@ -118,13 +126,21 @@ export default function ExerciseLibrary() {
         setExercises(exRes.data.data || []);
         setCategories(catRes.data.data || []);
       })
-      .catch((err) => console.error(err))
+      .catch((err) => {
+        console.error(err);
+        setLoadError(err.response?.data?.message || "Unable to load exercises. Please try again.");
+      })
       .finally(() => setLoading(false));
   }, []);
 
+  const activeFilterCount = Number(filterCategory !== "All") + Number(filterDifficulty !== "All");
   const filtered = exercises.filter((e) => {
-    const matchSearch = e.exercise_name?.toLowerCase().includes(search.toLowerCase()) ||
-      e.muscle_group?.toLowerCase().includes(search.toLowerCase());
+    const query = search.trim().toLowerCase();
+    const matchSearch = !query ||
+      e.exercise_name?.toLowerCase().includes(query) ||
+      e.muscle_group?.toLowerCase().includes(query) ||
+      e.equipment?.toLowerCase().includes(query) ||
+      e.category_name?.toLowerCase().includes(query);
     const matchCat = filterCategory === "All" || e.category_name === filterCategory;
     const matchDiff = filterDifficulty === "All" || e.difficulty === filterDifficulty;
     return matchSearch && matchCat && matchDiff;
@@ -134,114 +150,193 @@ export default function ExerciseLibrary() {
     <div className="min-h-screen bg-[#fffaf5] dark:bg-[#080808] text-slate-900 dark:text-white">
       {selected && <ExerciseDetail exercise={selected} onClose={() => setSelected(null)} />}
 
-      <div className="ave-page-hero px-6 pt-10 pb-7 border-b border-orange-100 dark:border-white/5">
+      <header className="ave-page-hero border-b border-orange-100 px-5 pb-7 pt-8 dark:border-white/5 sm:px-8">
         <button
           type="button"
           onClick={() => navigate("/user/workout")}
-          className="mb-5 inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-orange-500 hover:text-orange-700 dark:border-slate-700 dark:bg-[#151515] dark:text-slate-200 dark:hover:bg-[#202020] dark:hover:text-white"
+          className="mb-5 inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-orange-500 hover:text-orange-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 dark:border-slate-700 dark:bg-[#151515] dark:text-slate-200 dark:hover:bg-[#202020] dark:hover:text-white"
         >
           <ArrowLeft size={16} /> Back to workouts
         </button>
-        <h1 className="text-2xl font-black text-slate-900 dark:text-white">Exercise Library</h1>
-        <p className="text-slate-400 text-sm mt-1">
-          {exercises.length} exercises available · illustrated workout guides
-        </p>
-      </div>
-
-      <div className="px-6 space-y-4">
-        <div className="flex items-center bg-white rounded-xl px-4 py-3 gap-3">
-          <Search size={18} className="text-slate-500" />
-          <input type="text" placeholder="Search exercises..." value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="bg-transparent outline-none text-slate-900 placeholder-slate-400 flex-1 text-sm" />
-          {search && <button onClick={() => setSearch("")}><X size={16} className="text-slate-500" /></button>}
+        <div className="mx-auto max-w-5xl">
+          <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">
+            <Sparkles size={14} /> Move with confidence
+          </p>
+          <h1 className="mt-2 text-2xl font-black text-slate-900 dark:text-white sm:text-3xl">Exercise library</h1>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            Explore exercises, learn the equipment and difficulty, and open illustrated guides.
+          </p>
+          {!loading && <p className="mt-3 text-xs font-medium text-slate-500">{exercises.length} exercises available</p>}
         </div>
+      </header>
 
-        <button onClick={() => setShowFilters(!showFilters)}
-          className="flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 transition">
-          <ChevronDown size={16} className={`transition-transform ${showFilters ? "rotate-180" : ""}`} />
-          Filters {filterCategory !== "All" || filterDifficulty !== "All" ? "•" : ""}
-        </button>
-
-        {showFilters && (
-          <div className="space-y-3">
-            <div>
-              <label className="text-xs text-slate-500 mb-2 block">Category</label>
-              <div className="flex flex-wrap gap-2">
-                {["All", ...categories.map((c) => c.category_name)].map((c) => (
-                  <button key={c} onClick={() => setFilterCategory(c)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-                      filterCategory === c ? "bg-orange-500 text-white" : "bg-white text-slate-500"
-                    }`}>
-                    {c}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="text-xs text-slate-500 mb-2 block">Difficulty</label>
-              <div className="flex gap-2">
-                {["All", "Beginner", "Intermediate", "Advanced"].map((d) => (
-                  <button key={d} onClick={() => setFilterDifficulty(d)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-                      filterDifficulty === d ? "bg-orange-500 text-white" : "bg-white text-slate-500"
-                    }`}>
-                    {d}
-                  </button>
-                ))}
-              </div>
-            </div>
+      <main className="mx-auto max-w-5xl space-y-4 px-5 py-6 sm:px-8">
+        {loadError && (
+          <div role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-300">
+            {loadError}
           </div>
         )}
 
-        <p className="text-xs text-slate-500">{filtered.length} exercises found</p>
+        <div className="flex items-center gap-3 rounded-xl border border-orange-100 bg-white px-4 py-3 shadow-sm focus-within:border-orange-400 dark:border-white/10 dark:bg-[#111]">
+          <Search size={18} aria-hidden="true" className="shrink-0 text-slate-500" />
+          <input
+            type="search"
+            aria-label="Search exercises"
+            placeholder="Search by exercise, muscle, category, or equipment..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400 dark:text-white"
+          />
+          {search && (
+            <button type="button" aria-label="Clear search" onClick={() => setSearch("")} className="grid h-8 w-8 place-items-center rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-white/10">
+              <X size={16} />
+            </button>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <button
+            type="button"
+            aria-expanded={showFilters}
+            onClick={() => setShowFilters(!showFilters)}
+            className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 text-sm font-semibold text-slate-700 transition hover:border-orange-300 dark:border-white/10 dark:bg-[#111] dark:text-slate-200"
+          >
+            <SlidersHorizontal size={16} className="text-orange-500" />
+            Filters
+            {activeFilterCount > 0 && (
+              <span className="grid h-5 min-w-5 place-items-center rounded-full bg-orange-500 px-1 text-[11px] font-bold text-white">{activeFilterCount}</span>
+            )}
+            <ChevronDown size={15} className={`transition-transform ${showFilters ? "rotate-180" : ""}`} />
+          </button>
+          <p aria-live="polite" className="text-xs font-medium text-slate-500">
+            {loading ? "Loading exercises…" : `${filtered.length} ${filtered.length === 1 ? "exercise" : "exercises"} found`}
+          </p>
+        </div>
+
+        {showFilters && (
+          <div className="space-y-4 rounded-2xl border border-orange-100 bg-white p-4 dark:border-white/10 dark:bg-[#111]">
+            <div>
+              <p className="mb-2 text-xs font-semibold text-slate-600 dark:text-slate-300">Category</p>
+              <div className="flex flex-wrap gap-2">
+                {["All", ...categories.map((c) => c.category_name)].map((category) => (
+                  <button
+                    key={category}
+                    type="button"
+                    aria-pressed={filterCategory === category}
+                    onClick={() => setFilterCategory(category)}
+                    className={`min-h-9 rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+                      filterCategory === category
+                        ? "border-orange-500 bg-orange-500 text-white"
+                        : "border-slate-200 bg-slate-50 text-slate-600 hover:border-orange-300 dark:border-white/10 dark:bg-white/[0.03] dark:text-slate-300"
+                    }`}
+                  >
+                    {category}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="mb-2 text-xs font-semibold text-slate-600 dark:text-slate-300">Difficulty</p>
+              <div className="flex flex-wrap gap-2">
+                {["All", "Beginner", "Intermediate", "Advanced"].map((difficulty) => (
+                  <button
+                    key={difficulty}
+                    type="button"
+                    aria-pressed={filterDifficulty === difficulty}
+                    onClick={() => setFilterDifficulty(difficulty)}
+                    className={`min-h-9 rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+                      filterDifficulty === difficulty
+                        ? "border-orange-500 bg-orange-500 text-white"
+                        : "border-slate-200 bg-slate-50 text-slate-600 hover:border-orange-300 dark:border-white/10 dark:bg-white/[0.03] dark:text-slate-300"
+                    }`}
+                  >
+                    {difficulty}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {activeFilterCount > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterCategory("All");
+                  setFilterDifficulty("All");
+                }}
+                className="text-xs font-semibold text-orange-700 hover:text-orange-800 dark:text-orange-300"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+        )}
 
         {loading ? (
-          <div className="space-y-3">
-            {[...Array(6)].map((_, i) => <div key={i} className="h-20 bg-white rounded-2xl animate-pulse" />)}
+          <div className="grid gap-3 sm:grid-cols-2">
+            {[...Array(6)].map((_, i) => <div key={i} className="h-32 animate-pulse rounded-2xl bg-white dark:bg-[#111]" />)}
           </div>
-        ) : filtered.length === 0 ? (
-          <div className="text-center py-16 text-slate-500">No exercises found.</div>
+        ) : loadError ? null : filtered.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-orange-200 bg-white px-5 py-14 text-center dark:border-white/10 dark:bg-[#111]">
+            <Search size={28} className="mx-auto mb-3 text-orange-500" />
+            <p className="font-semibold text-slate-900 dark:text-white">No exercises match your search</p>
+            <p className="mt-1 text-sm text-slate-500">Try another search or clear your filters.</p>
+            {(search || activeFilterCount > 0) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch("");
+                  setFilterCategory("All");
+                  setFilterDifficulty("All");
+                }}
+                className="mt-4 rounded-lg px-3 py-2 text-sm font-semibold text-orange-700 hover:bg-orange-50 dark:text-orange-300 dark:hover:bg-orange-500/10"
+              >
+                Reset search and filters
+              </button>
+            )}
+          </div>
         ) : (
-          <div className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             {filtered.map((exercise) => {
               const guide = getWorkoutGuideExercise(exercise.exercise_name);
               return (
-                <button key={exercise.exercise_id} onClick={() => setSelected(exercise)}
-                  className="w-full bg-white hover:bg-slate-100 rounded-2xl p-4 text-left transition border border-slate-200 hover:border-orange-500/50">
-                  <div className="flex items-center gap-4">
-                    {guide && (
+                <button
+                  key={exercise.exercise_id}
+                  type="button"
+                  onClick={() => setSelected(exercise)}
+                  className="group w-full rounded-2xl border border-orange-100 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-orange-300 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 dark:border-white/5 dark:bg-[#111] dark:hover:border-orange-500/40"
+                >
+                  <div className="flex items-start gap-3">
+                    {guide ? (
                       <img
                         src={`/workout-guide/${guide.frames[1].path}`}
                         alt=""
                         aria-hidden="true"
-                        className="w-16 h-16 rounded-xl bg-slate-50 object-contain shrink-0"
+                        className="h-16 w-16 shrink-0 rounded-xl border border-slate-100 bg-slate-50 object-contain dark:border-white/5 dark:bg-white/[0.03]"
                       />
+                    ) : (
+                      <span className="grid h-16 w-16 shrink-0 place-items-center rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400">
+                        <Dumbbell size={23} aria-hidden="true" />
+                      </span>
                     )}
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-slate-900">{exercise.exercise_name}</p>
-                      <p className="text-xs text-slate-500 mt-0.5">{exercise.muscle_group} • {exercise.category_name || "General"}</p>
-                      {exercise.equipment && <p className="text-xs text-slate-500 mt-1">🏋️ {exercise.equipment}</p>}
-                      <div className="flex items-center gap-2 mt-1">
-                        {guide ? (
-                          <p className="text-xs text-orange-500 flex items-center gap-1">
-                            <Dumbbell size={11} /> Workout Guide
-                          </p>
-                        ) : (
-                          <p className="text-xs text-slate-400">Guide unavailable</p>
-                        )}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <h2 className="font-bold text-slate-900 group-hover:text-orange-700 dark:text-white dark:group-hover:text-orange-300">{exercise.exercise_name}</h2>
+                        <span className={`shrink-0 rounded-lg border px-2 py-1 text-[11px] font-semibold ${difficultyColors[exercise.difficulty] || "border-slate-200 bg-slate-100 text-slate-600 dark:border-white/10 dark:bg-white/5 dark:text-slate-300"}`}>
+                          {exercise.difficulty || "Not specified"}
+                        </span>
                       </div>
+                      <p className="mt-1 text-xs text-slate-500">{exercise.muscle_group || "Muscle group not specified"} · {exercise.category_name || "General"}</p>
+                      {exercise.equipment && <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">Equipment: {exercise.equipment}</p>}
+                      <p className={`mt-2 flex items-center gap-1 text-xs font-semibold ${guide ? "text-orange-600 dark:text-orange-400" : "text-slate-400"}`}>
+                        <Dumbbell size={12} /> {guide ? "Illustrated guide available" : "Guide unavailable"}
+                      </p>
                     </div>
-                    <span className={`text-xs px-2 py-1 rounded-lg font-medium shrink-0 ${difficultyColors[exercise.difficulty] || "bg-slate-100 text-slate-500"}`}>
-                      {exercise.difficulty || "N/A"}
-                    </span>
                   </div>
                 </button>
               );
             })}
           </div>
         )}
-      </div>
+      </main>
     </div>
   );
 }

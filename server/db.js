@@ -9,6 +9,22 @@ const pool = new Pool({
   password: process.env.DB_PASSWORD,
 });
 
+const expireMemberships = async (userId = null) => {
+  const result = await pool.query(`
+    UPDATE users
+    SET account_status = 'Inactive',
+        token_version = token_version + 1,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE LOWER(COALESCE(account_status, 'pending')) = 'active'
+      AND membership_end_date IS NOT NULL
+      AND membership_end_date < (NOW() AT TIME ZONE 'Asia/Manila')::date
+      AND ($1::integer IS NULL OR user_id = $1)
+    RETURNING user_id
+  `, [userId]);
+
+  return result.rowCount;
+};
+
 pool.on("error", (err) => {
   console.error("❌ Unexpected PostgreSQL pool error:", err);
 });
@@ -24,8 +40,30 @@ const initializeDatabase = async () => {
     await client.query("BEGIN");
 
     await client.query(`
+      ALTER TABLE workout_sessions
+      ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ
+    `);
+
+    await client.query(`
       ALTER TABLE users
       ADD COLUMN IF NOT EXISTS account_status VARCHAR(20) DEFAULT 'Pending'
+    `);
+
+    await client.query(`
+      ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS membership_months INTEGER,
+        ADD COLUMN IF NOT EXISTS membership_start_date DATE,
+        ADD COLUMN IF NOT EXISTS membership_end_date DATE
+    `);
+
+    await client.query(`
+      UPDATE users
+      SET membership_start_date = created_at::date,
+          membership_end_date = (
+            created_at::date + make_interval(months => membership_months) - INTERVAL '1 day'
+          )::date
+      WHERE membership_months IS NOT NULL
+        AND membership_start_date IS NULL
     `);
 
     // Existing completed accounts should remain usable. Existing unfinished
@@ -84,9 +122,30 @@ const initializeDatabase = async () => {
     `);
 
     await client.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS password_reset_token_hash TEXT
+    `);
+
+    await client.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS password_reset_expires_at TIMESTAMP
+    `);
+
+    await client.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS password_reset_sent_at TIMESTAMP
+    `);
+
+    await client.query(`
       CREATE INDEX IF NOT EXISTS users_verification_token_idx
       ON users (verification_token_hash)
       WHERE verification_token_hash IS NOT NULL
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS users_password_reset_token_idx
+      ON users (password_reset_token_hash)
+      WHERE password_reset_token_hash IS NOT NULL
     `);
 
     // Accounts the admin has already approved are grandfathered in as verified,
@@ -105,6 +164,16 @@ const initializeDatabase = async () => {
     await client.query(`
       ALTER TABLE users
       ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0
+    `);
+
+    await client.query(`
+      UPDATE users
+      SET account_status = 'Inactive',
+          token_version = token_version + 1,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE LOWER(COALESCE(account_status, 'pending')) = 'active'
+        AND membership_end_date IS NOT NULL
+        AND membership_end_date < (NOW() AT TIME ZONE 'Asia/Manila')::date
     `);
 
     await client.query(`
@@ -160,3 +229,4 @@ const initializeDatabase = async () => {
 
 module.exports = pool;
 module.exports.initializeDatabase = initializeDatabase;
+module.exports.expireMemberships = expireMemberships;

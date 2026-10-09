@@ -80,9 +80,9 @@ function PlanModal({ members, trainers, onClose, onSave }) {
 }
 
 const statusColors = {
-  Active: "bg-green-100 text-green-700",
-  Inactive: "bg-slate-100 text-slate-500",
-  Completed: "bg-orange-100 text-orange-700",
+  Active: "border-green-200 bg-green-50 text-green-800 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-300",
+  Inactive: "border-slate-200 bg-slate-100 text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-300",
+  Completed: "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300",
 };
 
 export default function WorkoutPlans() {
@@ -91,6 +91,7 @@ export default function WorkoutPlans() {
   const [trainers, setTrainers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("All");
   const [showModal, setShowModal] = useState(false);
   const [fetchError, setFetchError] = useState("");
 
@@ -118,15 +119,21 @@ export default function WorkoutPlans() {
 
   const handleDelete = async (id) => {
     if (!confirm("Delete this workout plan?")) return;
-    await api.delete(`/workouts/plans/${id}`);
-    fetchData();
+    setFetchError("");
+    try {
+      await api.delete(`/workouts/plans/${id}`);
+      await fetchData();
+    } catch (err) {
+      setFetchError(err.response?.data?.message || "Failed to delete workout plan.");
+    }
   };
 
   const filtered = plans.filter((p) =>
     p.plan_name?.toLowerCase().includes(search.toLowerCase()) ||
     p.member_name?.toLowerCase().includes(search.toLowerCase()) ||
-    p.trainer_name?.toLowerCase().includes(search.toLowerCase())
-  );
+    p.trainer_name?.toLowerCase().includes(search.toLowerCase()) ||
+    p.goal?.toLowerCase().includes(search.toLowerCase())
+  ).filter((plan) => statusFilter === "All" || plan.status === statusFilter);
 
   return (
     <div className="space-y-6">
@@ -140,48 +147,53 @@ export default function WorkoutPlans() {
       )}
 
       {fetchError && (
-        <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">
+        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
           ⚠️ {fetchError}
         </div>
       )}
 
-      <div className="flex items-center justify-between">
+      <header className="ave-page-hero flex flex-wrap items-end justify-between gap-4 rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8">
         <div>
-          <h1 className="text-3xl font-bold text-slate-800">Workout Plans</h1>
-          <p className="text-slate-500 mt-1">Create and assign workout plans to members.</p>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Training management</p>
+          <h1 className="mt-2 text-3xl font-black text-slate-900 dark:text-white">Workout Plans</h1>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Coordinate plan assignments across members and trainers.</p>
         </div>
         <button onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 bg-orange-600 hover:bg-orange-700 text-white px-5 py-2.5 rounded-xl font-medium transition">
+          className="flex min-h-11 items-center gap-2 rounded-xl bg-orange-500 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500">
           <Plus size={18} /> Create Plan
         </button>
-      </div>
+      </header>
 
       {/* Summary */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {[
           { label: "Total Plans", value: plans.length, color: "text-orange-600" },
           { label: "Active Plans", value: plans.filter((p) => p.status === "Active").length, color: "text-green-600" },
           { label: "Assigned to Members", value: plans.filter((p) => p.member_name).length, color: "text-purple-600" },
         ].map((s) => (
-          <div key={s.label} className="bg-white rounded-xl shadow-sm p-4 text-center">
-            <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
-            <p className="text-xs text-slate-500 mt-1">{s.label}</p>
+          <div key={s.label} className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-[#111]">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{s.label}</p>
+            <p className={`mt-2 text-2xl font-black ${s.color}`}>{loading ? "—" : s.value}</p>
           </div>
         ))}
       </div>
 
       {/* Search */}
-      <div className="bg-white rounded-2xl shadow-md p-4">
-        <div className="flex items-center bg-slate-100 rounded-lg px-3 py-2 w-full sm:w-72">
+      <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-[#111] sm:flex-row">
+        <label className="flex min-h-10 flex-1 items-center gap-2 rounded-lg bg-slate-100 px-3 dark:bg-white/5 sm:max-w-sm">
           <Search size={16} className="text-gray-400" />
-          <input type="text" placeholder="Search plans..." value={search}
+          <input type="search" aria-label="Search workout plans" placeholder="Search plans, goals, members, trainers..." value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="bg-transparent outline-none ml-2 w-full text-sm" />
-        </div>
+            className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none dark:text-white" />
+        </label>
+        <label className="sr-only" htmlFor="admin-plan-status">Filter workout plans by status</label>
+        <select id="admin-plan-status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="min-h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 dark:border-white/10 dark:bg-[#111] dark:text-slate-200">
+          {["All","Active","Inactive","Completed"].map((status) => <option key={status} value={status}>{status === "All" ? "All statuses" : status}</option>)}
+        </select>
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-2xl shadow-md overflow-hidden">
+      <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-white/10 dark:bg-[#111]">
         {loading ? (
           <div className="p-8 space-y-3">
             {[...Array(5)].map((_, i) => <div key={i} className="h-12 bg-slate-100 rounded-lg animate-pulse" />)}
@@ -204,7 +216,7 @@ export default function WorkoutPlans() {
                 <tr>
                   <td colSpan={7} className="py-16 text-center">
                     <ClipboardList size={36} className="mx-auto text-slate-200 mb-2" />
-                    <p className="text-slate-400">No workout plans found.</p>
+                    <p className="font-semibold text-slate-700 dark:text-slate-200">{plans.length ? "No plans match these filters." : "No workout plans yet."}</p>
                   </td>
                 </tr>
               ) : (
@@ -215,7 +227,7 @@ export default function WorkoutPlans() {
                     <td className="px-6 py-4 text-slate-600">{plan.member_name || <span className="text-slate-300">Unassigned</span>}</td>
                     <td className="px-6 py-4 text-slate-600">{plan.trainer_name || <span className="text-slate-300">None</span>}</td>
                     <td className="px-6 py-4">
-                      <span className={`px-3 py-1 rounded-full text-xs font-semibold ${statusColors[plan.status] || statusColors.Inactive}`}>
+                      <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${statusColors[plan.status] || statusColors.Inactive}`}>
                         {plan.status}
                       </span>
                     </td>
@@ -234,8 +246,8 @@ export default function WorkoutPlans() {
             </tbody>
           </table>
         )}
-        <div className="px-6 py-3 border-t border-slate-100 text-sm text-slate-400">
-          {filtered.length} of {plans.length} plans
+        <div className="border-t border-slate-100 px-6 py-3 text-sm text-slate-500 dark:border-white/10">
+          Showing {filtered.length} of {plans.length} plans
         </div>
       </div>
     </div>

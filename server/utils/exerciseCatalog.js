@@ -1,7 +1,8 @@
 const pool = require("../db");
+const enrichExercise = require("./exerciseGuidance");
 
-const getExerciseCatalog = () =>
-  pool.query(`
+const getExerciseCatalog = async () => {
+  const result = await pool.query(`
     WITH ranked_exercises AS (
       SELECT e.*,
         ROW_NUMBER() OVER (
@@ -23,5 +24,11 @@ const getExerciseCatalog = () =>
     WHERE e.duplicate_rank = 1
     ORDER BY e.exercise_name ASC
   `);
+
+  return {
+    ...result,
+    rows: result.rows.map(enrichExercise),
+  };
+};
 
 module.exports = getExerciseCatalog;

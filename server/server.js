@@ -2,7 +2,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 
-const { initializeDatabase } = require("./db");
+const { initializeDatabase, expireMemberships } = require("./db");
 
 // Admin routes
 const adminRoutes = require("./routes/adminRoutes");
@@ -85,6 +85,12 @@ const PORT = process.env.PORT || 5000;
 
 initializeDatabase()
   .then(() => {
+    const membershipExpiryTimer = setInterval(() => {
+      expireMemberships().catch((err) => {
+        console.error("❌ Membership expiry check failed:", err.message);
+      });
+    }, 60 * 1000);
+    membershipExpiryTimer.unref();
     app.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));
   })
   .catch((err) => {

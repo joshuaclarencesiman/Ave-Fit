@@ -76,14 +76,49 @@ const updateWorkoutSession = async (req, res) => {
   }
 };
 
+// PUT record the member's workout start/check-in time.
+const startWorkoutSession = async (req, res) => {
+  try {
+    const result = await pool.query(`
+      UPDATE workout_sessions ws
+      SET started_at = COALESCE(ws.started_at, NOW())
+      FROM workout_plans wp
+      WHERE ws.session_id = $1
+        AND ws.workout_plan_id = wp.workout_plan_id
+        AND wp.user_id = $2
+        AND ws.completed = false
+      RETURNING ws.session_id, ws.started_at
+    `, [req.params.id, req.user.user_id]);
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ success: false, message: "Workout not found or already completed." });
+    }
+
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) {
+    console.error("startWorkoutSession error:", err.message);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 // PUT mark session as complete
 const completeSession = async (req, res) => {
   try {
-    const { id } = req.params;
-    await pool.query(
-      "UPDATE workout_sessions SET completed=true, completed_at=NOW() WHERE session_id=$1",
-      [id]
-    );
+    const result = await pool.query(`
+      UPDATE workout_sessions ws
+      SET completed = true, completed_at = NOW()
+      FROM workout_plans wp
+      WHERE ws.session_id = $1
+        AND ws.workout_plan_id = wp.workout_plan_id
+        AND wp.user_id = $2
+        AND ws.started_at IS NOT NULL
+      RETURNING ws.session_id
+    `, [req.params.id, req.user.user_id]);
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ success: false, message: "Start this workout before marking it complete." });
+    }
+
     res.json({ success: true, message: "Session completed." });
   } catch (err) {
     console.error("completeSession error:", err.message);
@@ -115,8 +150,8 @@ const resetWeek = async (req, res) => {
         session_date = ANY(ARRAY['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']::text[])
         OR (
           session_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-          AND session_date >= TO_CHAR(DATE_TRUNC('week', CURRENT_DATE)::date, 'YYYY-MM-DD')
-          AND session_date < TO_CHAR((DATE_TRUNC('week', CURRENT_DATE) + INTERVAL '7 days')::date, 'YYYY-MM-DD')
+          AND session_date >= TO_CHAR(DATE_TRUNC('week', NOW() AT TIME ZONE 'Asia/Manila')::date, 'YYYY-MM-DD')
+          AND session_date < TO_CHAR((DATE_TRUNC('week', NOW() AT TIME ZONE 'Asia/Manila') + INTERVAL '7 days')::date, 'YYYY-MM-DD')
         )
       )
     `, [req.user.user_id]);
@@ -127,4 +162,4 @@ const resetWeek = async (req, res) => {
   }
 };
 
-module.exports = { getUserWorkoutPlan, getUserPlans, addWorkoutSession, updateWorkoutSession, completeSession, deleteWorkoutSession, resetWeek };
+module.exports = { getUserWorkoutPlan, getUserPlans, addWorkoutSession, updateWorkoutSession, startWorkoutSession, completeSession, deleteWorkoutSession, resetWeek };

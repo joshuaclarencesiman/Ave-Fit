@@ -7,6 +7,8 @@
 
 BEGIN;
 
+ALTER TABLE workout_sessions ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ;
+
 -- 1) USERS: onboarding + setup fields --------------------------
 ALTER TABLE users ADD COLUMN IF NOT EXISTS age INTEGER;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS target_weight NUMERIC(5,2);

@@ -3,11 +3,11 @@ import { Bell, CheckCheck, Trash2, Circle } from "lucide-react";
 import api from "../services/api";
 
 const typeColors = {
-  workout: "bg-green-100 text-green-600",
-  membership: "bg-orange-100 text-orange-600",
-  payment: "bg-orange-100 text-orange-600",
-  alert: "bg-red-100 text-red-600",
-  general: "bg-slate-100 text-slate-600",
+  workout: "border-green-200 bg-green-50 text-green-800 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-300",
+  membership: "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300",
+  payment: "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300",
+  alert: "border-red-200 bg-red-50 text-red-800 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300",
+  general: "border-slate-200 bg-slate-100 text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-300",
 };
 
 export default function Notifications() {
@@ -15,6 +15,8 @@ export default function Notifications() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("All");
   const [fetchError, setFetchError] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [busyAction, setBusyAction] = useState("");
 
   const fetchNotifications = () => {
     setLoading(true);
@@ -31,20 +33,42 @@ export default function Notifications() {
   useEffect(() => { fetchNotifications(); }, []);
 
   const handleMarkRead = async (id) => {
-    await api.put(`/notifications/${id}/read`);
-    setNotifications((prev) =>
-      prev.map((n) => n.notification_id === id ? { ...n, is_read: true } : n)
-    );
+    setActionError("");
+    setBusyAction(String(id));
+    try {
+      await api.put(`/notifications/${id}/read`);
+      setNotifications((prev) => prev.map((n) => n.notification_id === id ? { ...n, is_read: true } : n));
+    } catch (err) {
+      setActionError(err.response?.data?.message || "Unable to mark this notification as read.");
+    } finally {
+      setBusyAction("");
+    }
   };
 
   const handleMarkAllRead = async () => {
-    await api.put("/notifications/mark-all-read");
-    setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+    setActionError("");
+    setBusyAction("all");
+    try {
+      await api.put("/notifications/mark-all-read");
+      setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+    } catch (err) {
+      setActionError(err.response?.data?.message || "Unable to mark notifications as read.");
+    } finally {
+      setBusyAction("");
+    }
   };
 
   const handleDelete = async (id) => {
-    await api.delete(`/notifications/${id}`);
-    setNotifications((prev) => prev.filter((n) => n.notification_id !== id));
+    setActionError("");
+    setBusyAction(String(id));
+    try {
+      await api.delete(`/notifications/${id}`);
+      setNotifications((prev) => prev.filter((n) => n.notification_id !== id));
+    } catch (err) {
+      setActionError(err.response?.data?.message || "Unable to delete this notification.");
+    } finally {
+      setBusyAction("");
+    }
   };
 
   const filtered = notifications.filter((n) => {
@@ -58,36 +82,41 @@ export default function Notifications() {
   return (
     <div className="space-y-6">
       {fetchError && (
-        <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">
+        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
           ⚠️ {fetchError}
         </div>
       )}
-      <div className="flex items-center justify-between">
+      {actionError && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">{actionError}</div>}
+      <header className="ave-page-hero flex flex-wrap items-end justify-between gap-4 rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8">
         <div>
-          <h1 className="text-3xl font-bold text-slate-800">Notifications</h1>
-          <p className="text-slate-500 mt-1">
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Admin inbox</p>
+          <h1 className="mt-2 text-3xl font-black text-slate-900 dark:text-white">Notifications</h1>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
             {unreadCount > 0 ? `${unreadCount} unread notification${unreadCount > 1 ? "s" : ""}` : "All caught up!"}
           </p>
         </div>
         {unreadCount > 0 && (
           <button
             onClick={handleMarkAllRead}
-            className="flex items-center gap-2 bg-orange-600 hover:bg-orange-700 text-white px-5 py-2.5 rounded-xl font-medium transition text-sm"
+            disabled={busyAction !== ""}
+            className="flex min-h-11 items-center gap-2 rounded-xl bg-orange-500 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-orange-600 disabled:opacity-50"
           >
             <CheckCheck size={16} />
             Mark All as Read
           </button>
         )}
-      </div>
+      </header>
 
       {/* Filter tabs */}
-      <div className="flex gap-2">
+      <div className="flex gap-2" role="group" aria-label="Filter notifications">
         {["All", "Unread", "Read"].map((f) => (
           <button
             key={f}
+            type="button"
+            aria-pressed={filter === f}
             onClick={() => setFilter(f)}
             className={`px-4 py-1.5 rounded-lg text-sm font-medium transition ${
-              filter === f ? "bg-orange-600 text-white" : "bg-white text-slate-600 shadow-sm hover:bg-slate-50"
+              filter === f ? "bg-orange-500 text-white" : "border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50 dark:border-white/10 dark:bg-[#111] dark:text-slate-300 dark:hover:bg-white/5"
             }`}
           >
             {f}
@@ -101,7 +130,7 @@ export default function Notifications() {
       </div>
 
       {/* Notifications list */}
-      <div className="bg-white rounded-2xl shadow-md overflow-hidden">
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-white/10 dark:bg-[#111]">
         {loading ? (
           <div className="p-8 space-y-4">
             {[...Array(5)].map((_, i) => (
@@ -111,19 +140,20 @@ export default function Notifications() {
         ) : filtered.length === 0 ? (
           <div className="py-20 text-center">
             <Bell size={40} className="mx-auto text-slate-200 mb-3" />
-            <p className="text-slate-400 font-medium">No notifications found.</p>
+            <p className="font-semibold text-slate-700 dark:text-slate-200">{notifications.length ? `No ${filter.toLowerCase()} notifications.` : "You’re all caught up."}</p>
+            <p className="mt-1 text-sm text-slate-500">{notifications.length ? "Choose another filter to view your notifications." : "New admin updates will appear here."}</p>
           </div>
         ) : (
           <div className="divide-y divide-slate-100">
             {filtered.map((notif) => (
               <div
                 key={notif.notification_id}
-                className={`flex items-start gap-4 px-6 py-4 transition hover:bg-slate-50 ${
-                  !notif.is_read ? "bg-orange-50/40" : ""
+                className={`flex items-start gap-3 px-4 py-4 transition hover:bg-slate-50 dark:hover:bg-white/[0.03] sm:gap-4 sm:px-6 ${
+                  !notif.is_read ? "bg-orange-50/70 dark:bg-orange-500/[0.06]" : ""
                 }`}
               >
                 {/* Type badge */}
-                <div className={`mt-1 p-2 rounded-lg flex-shrink-0 ${typeColors[notif.notification_type] || typeColors.general}`}>
+                <div className={`mt-1 rounded-lg border p-2 flex-shrink-0 ${typeColors[notif.notification_type] || typeColors.general}`}>
                   <Bell size={16} />
                 </div>
 
@@ -133,7 +163,7 @@ export default function Notifications() {
                     {!notif.is_read && (
                       <Circle size={8} className="fill-orange-500 text-orange-500 flex-shrink-0" />
                     )}
-                    <p className={`text-sm ${!notif.is_read ? "font-semibold text-slate-800" : "text-slate-600"}`}>
+                    <p className={`text-sm ${!notif.is_read ? "font-semibold text-slate-900 dark:text-white" : "text-slate-700 dark:text-slate-300"}`}>
                       {notif.message}
                     </p>
                   </div>
@@ -147,7 +177,7 @@ export default function Notifications() {
                       </span>
                     )}
                     <span className="text-xs text-slate-400">
-                      {new Date(notif.created_at).toLocaleString()}
+                      {new Date(notif.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Manila" })}
                     </span>
                   </div>
                 </div>
@@ -157,6 +187,8 @@ export default function Notifications() {
                   {!notif.is_read && (
                     <button
                       onClick={() => handleMarkRead(notif.notification_id)}
+                      disabled={busyAction !== ""}
+                      aria-label={`Mark notification as read: ${notif.message}`}
                       className="p-1.5 rounded-lg hover:bg-orange-100 text-orange-500 transition"
                       title="Mark as read"
                     >
@@ -165,6 +197,8 @@ export default function Notifications() {
                   )}
                   <button
                     onClick={() => handleDelete(notif.notification_id)}
+                    disabled={busyAction !== ""}
+                    aria-label={`Delete notification: ${notif.message}`}
                     className="p-1.5 rounded-lg hover:bg-red-50 text-red-400 transition"
                     title="Delete"
                   >

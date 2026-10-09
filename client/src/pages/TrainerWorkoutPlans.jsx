@@ -3,9 +3,9 @@ import { ChevronDown, ClipboardList, Plus, Search, Trash2, X } from "lucide-reac
 import trainerApi from "../trainerApi";
 
 const statusColors = {
-  Active: "bg-green-500/15 text-green-400",
-  Inactive: "bg-slate-500/15 text-slate-400",
-  Completed: "bg-orange-500/15 text-orange-400",
+  Active: "border-green-200 bg-green-50 text-green-800 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-300",
+  Inactive: "border-slate-200 bg-slate-100 text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-300",
+  Completed: "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300",
 };
 
 const localDateString = (date) => {
@@ -412,6 +412,7 @@ export default function TrainerWorkoutPlans() {
   const [exercises, setExercises] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("All");
   const [showModal, setShowModal] = useState(false);
   const [fetchError, setFetchError] = useState("");
 
@@ -455,27 +456,28 @@ export default function TrainerWorkoutPlans() {
     plan.plan_name?.toLowerCase().includes(query) ||
     plan.goal?.toLowerCase().includes(query) ||
     plan.member_name?.toLowerCase().includes(query)
-  );
+  ).filter((plan) => statusFilter === "All" || plan.status === statusFilter);
 
   return (
-    <div className="space-y-6 px-4 py-8 sm:px-6">
+    <div className="space-y-6 px-4 py-6 sm:px-6 sm:py-8">
       {showModal && (
         <PlanModal members={members} exercises={exercises} onClose={() => setShowModal(false)} onSave={fetchData} />
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      <header className="ave-page-hero flex flex-wrap items-end justify-between gap-4 rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8">
         <div>
-          <h1 className="text-2xl font-black text-slate-900 dark:text-white">Workout Plans</h1>
-          <p className="mt-1 text-sm text-slate-500">Create and manage workout plans for your roster.</p>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Training programming</p>
+          <h1 className="mt-2 text-2xl font-black text-slate-900 dark:text-white sm:text-3xl">Workout Plans</h1>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Build and track personalized training plans for your roster.</p>
         </div>
         <button
           type="button"
           onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 rounded-xl bg-orange-600 px-5 py-2.5 font-medium text-white transition hover:bg-orange-700"
+          className="flex min-h-11 items-center gap-2 rounded-xl bg-orange-500 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#080808]"
         >
           <Plus size={18} /> Create Plan
         </button>
-      </div>
+      </header>
 
       {fetchError && (
         <div role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
@@ -485,27 +487,33 @@ export default function TrainerWorkoutPlans() {
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {[
-          { label: "Total Plans", value: plans.length, color: "text-orange-500" },
-          { label: "Active Plans", value: plans.filter((plan) => plan.status === "Active").length, color: "text-green-500" },
-          { label: "Assigned to Members", value: plans.filter((plan) => plan.member_name).length, color: "text-purple-500" },
+          { label: "Total plans", value: plans.length, color: "text-orange-600 dark:text-orange-400" },
+          { label: "Active plans", value: plans.filter((plan) => plan.status === "Active").length, color: "text-green-600 dark:text-green-400" },
+          { label: "Assigned to members", value: plans.filter((plan) => plan.member_name).length, color: "text-violet-600 dark:text-violet-400" },
         ].map((summary) => (
-          <div key={summary.label} className="trainer-card rounded-2xl border p-4 text-center">
-            <p className={`text-2xl font-bold ${summary.color}`}>{summary.value}</p>
-            <p className="mt-1 text-xs text-slate-500">{summary.label}</p>
+          <div key={summary.label} className="trainer-card rounded-2xl border p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{summary.label}</p>
+            <p className={`mt-2 text-2xl font-black ${summary.color}`}>{loading ? "—" : summary.value}</p>
           </div>
         ))}
       </div>
 
-      <div className="trainer-card flex items-center gap-3 rounded-xl border px-4 py-3">
+      <div className="flex flex-col gap-3 sm:flex-row">
+      <label className="trainer-card flex min-h-11 flex-1 items-center gap-3 rounded-xl border px-4 py-3">
         <Search size={18} className="text-slate-500" />
         <input
           type="search"
           aria-label="Search workout plans"
-          placeholder="Search plans..."
+          placeholder="Search plan, goal, or member..."
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-500 dark:text-white"
         />
+      </label>
+      <label className="sr-only" htmlFor="trainer-plan-status">Filter plans by status</label>
+      <select id="trainer-plan-status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="trainer-field min-h-11 rounded-xl px-4 text-sm">
+        {["All", "Active", "Inactive", "Completed"].map((status) => <option key={status} value={status}>{status === "All" ? "All statuses" : status}</option>)}
+      </select>
       </div>
 
       <div className="trainer-card overflow-hidden rounded-2xl border">
@@ -532,7 +540,8 @@ export default function TrainerWorkoutPlans() {
                   <tr>
                     <td colSpan={7} className="py-16 text-center">
                       <ClipboardList size={36} className="mx-auto mb-2 text-slate-400" />
-                      <p className="text-slate-500">No workout plans found.</p>
+                      <p className="font-semibold text-slate-700 dark:text-slate-200">{plans.length ? "No plans match these filters." : "No workout plans yet."}</p>
+                      <p className="mt-1 text-sm text-slate-500">{plans.length ? "Try a different search or status." : "Create a plan to start building a member's routine."}</p>
                     </td>
                   </tr>
                 ) : filtered.map((plan) => (
@@ -545,7 +554,7 @@ export default function TrainerWorkoutPlans() {
                     </td>
                     <td className="px-5 py-4 text-slate-600 dark:text-slate-300">{plan.exercise_count || 0} exercises</td>
                     <td className="px-5 py-4">
-                      <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusColors[plan.status] || statusColors.Inactive}`}>
+                      <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${statusColors[plan.status] || statusColors.Inactive}`}>
                         {plan.status || "Inactive"}
                       </span>
                     </td>
@@ -566,7 +575,7 @@ export default function TrainerWorkoutPlans() {
           </div>
         )}
         <div className="border-t border-slate-200 px-5 py-3 text-sm text-slate-500 dark:border-slate-800">
-          {filtered.length} of {plans.length} plans
+          Showing {filtered.length} of {plans.length} plans
         </div>
       </div>
     </div>

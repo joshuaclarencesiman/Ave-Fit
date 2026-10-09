@@ -4,7 +4,7 @@ import {
   LineElement, BarElement, ArcElement, Title, Tooltip, Legend, Filler,
 } from "chart.js";
 import { Line, Bar, Doughnut } from "react-chartjs-2";
-import { Users, TrendingUp, Dumbbell } from "lucide-react";
+import { Users, TrendingUp, Dumbbell, Clock3, CalendarDays } from "lucide-react";
 import api from "../services/api";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Title, Tooltip, Legend, Filler);
@@ -13,11 +13,29 @@ const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#8b5cf6", "#ef4444"];
 
 const chartOptions = {
   responsive: true,
-  plugins: { legend: { position: "top", labels: { usePointStyle: true, padding: 20 } } },
+  maintainAspectRatio: false,
+  plugins: { legend: { position: "top", labels: { color: "#737373", usePointStyle: true, padding: 20 } } },
   scales: {
-    y: { beginAtZero: true, grid: { color: "rgba(0,0,0,0.05)" } },
-    x: { grid: { display: false } },
+    y: { beginAtZero: true, grid: { color: "rgba(148,163,184,0.15)" }, ticks: { color: "#737373" } },
+    x: { grid: { display: false }, ticks: { color: "#737373" } },
   },
+};
+
+const formatHour = (hour) => {
+  const value = Number(hour);
+  if (!Number.isInteger(value) || value < 0 || value > 23) return "";
+  const suffix = value < 12 ? "AM" : "PM";
+  const twelveHour = value % 12 || 12;
+  return `${twelveHour} ${suffix}`;
+};
+
+const getPeakLabel = (rows, labelForRow) => {
+  const highestCount = Math.max(0, ...rows.map((row) => Number(row.count) || 0));
+  if (!highestCount) return "No data yet";
+  return rows
+    .filter((row) => Number(row.count) === highestCount)
+    .map(labelForRow)
+    .join(", ");
 };
 
 export default function Analytics() {
@@ -38,7 +56,11 @@ export default function Analytics() {
   if (loading) {
     return (
       <div className="space-y-6">
-        <h1 className="text-3xl font-bold text-slate-800">Analytics</h1>
+        <header className="ave-page-hero rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8">
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Gym performance</p>
+          <h1 className="mt-2 text-3xl font-black text-slate-900 dark:text-white">Analytics</h1>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">A clear view of member growth, training activity, and fitness trends.</p>
+        </header>
         {fetchError && (
           <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">
             ⚠️ {fetchError}
@@ -83,65 +105,152 @@ export default function Analytics() {
     }],
   };
 
-  const bmiOrder = ["Underweight", "Normal", "Overweight", "Obese"];
+  const peakHours = data?.peakHours || [];
+  const peakMonths = data?.peakMonths || [];
+  const peakHourValue = getPeakLabel(peakHours, (row) => formatHour(row.hour));
+  const dayAvailability = data?.dayAvailability || [];
+  const peakDayValue = getPeakLabel(dayAvailability, (row) => row.day);
+  const peakMonthValue = getPeakLabel(peakMonths, (row) => row.label);
+
+  const peakHoursChart = {
+    labels: peakHours.map((row) => formatHour(row.hour)),
+    datasets: [{
+      label: "Workout starts",
+      data: peakHours.map((row) => Number(row.count)),
+      backgroundColor: "#f97316",
+      borderRadius: 5,
+    }],
+  };
+
+  const dayAvailabilityChart = {
+    labels: dayAvailability.map((row) => row.day),
+    datasets: [{
+      label: "Active members available",
+      data: dayAvailability.map((row) => Number(row.count)),
+      backgroundColor: "#10b981",
+      borderRadius: 5,
+    }],
+  };
+
+  const peakMonthsChart = {
+    labels: peakMonths.map((row) => row.label),
+    datasets: [{
+      label: "New active members",
+      data: peakMonths.map((row) => Number(row.count)),
+      backgroundColor: "#fb923c",
+      borderRadius: 5,
+    }],
+  };
+
   const bmiMap = Object.fromEntries((data?.bmiDistribution || []).map((b) => [b.category, parseInt(b.count)]));
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {fetchError && (
-        <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">
+        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
           ⚠️ {fetchError}
         </div>
       )}
-      <div>
-        <h1 className="text-3xl font-bold text-slate-800">Analytics</h1>
-        <p className="text-slate-500 mt-1">Live data from your PostgreSQL database.</p>
-      </div>
+      <header className="ave-page-hero rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8">
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Gym performance</p>
+        <h1 className="mt-2 text-3xl font-black text-slate-900 dark:text-white">Analytics</h1>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">A clear view of member growth, training activity, and fitness trends.</p>
+      </header>
 
       {/* Summary */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {[
-          { label: "Total Members", value: data?.summary.totalMembers, icon: <Users size={22} />, color: "bg-orange-500" },
-          { label: "Average BMI", value: data?.summary.avgBmi, icon: <TrendingUp size={22} />, color: "bg-green-500" },
-          { label: "Workout Plans", value: data?.summary.totalWorkoutPlans, icon: <Dumbbell size={22} />, color: "bg-purple-500" },
+          { label: "Total members", value: data?.summary?.totalMembers, icon: <Users size={22} />, color: "text-orange-600 dark:text-orange-400", surface: "bg-orange-500/10" },
+          { label: "Average BMI", value: data?.summary?.avgBmi, icon: <TrendingUp size={22} />, color: "text-green-600 dark:text-green-400", surface: "bg-green-500/10" },
+          { label: "Workout plans", value: data?.summary?.totalWorkoutPlans, icon: <Dumbbell size={22} />, color: "text-violet-600 dark:text-violet-400", surface: "bg-violet-500/10" },
         ].map((s) => (
-          <div key={s.label} className="bg-white rounded-2xl shadow-md p-5 flex items-center gap-4">
-            <div className={`${s.color} p-3 rounded-xl text-white flex-shrink-0`}>{s.icon}</div>
+          <div key={s.label} className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111]">
+            <div className={`${s.surface} ${s.color} flex-shrink-0 rounded-xl p-3`}>{s.icon}</div>
             <div>
-              <p className="text-2xl font-bold text-slate-800">{s.value ?? "—"}</p>
-              <p className="text-sm text-slate-500">{s.label}</p>
+              <p className="text-2xl font-black text-slate-900 dark:text-white">{s.value ?? "—"}</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">{s.label}</p>
             </div>
           </div>
         ))}
       </div>
 
-      {/* Charts Row 1 */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <div className="xl:col-span-2 bg-white rounded-2xl shadow-md p-6">
-          <h3 className="text-lg font-bold text-slate-800 mb-4">Member Growth</h3>
-          {memberGrowthChart.labels.length > 0
-            ? <Line data={memberGrowthChart} options={chartOptions} />
-            : <p className="text-slate-400 text-sm text-center py-12">No data yet.</p>}
+      <section aria-labelledby="gym-peak-heading" className="space-y-4">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">When members train</p>
+          <h2 id="gym-peak-heading" className="mt-1 text-xl font-black text-slate-900 dark:text-white">Gym peak activity</h2>
+          <p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+            Workout start times use Philippines time. Weekdays count active members&apos; preferred workout days, and monthly peaks reflect new active-member sign-ups over the latest six calendar months.
+          </p>
         </div>
-        <div className="bg-white rounded-2xl shadow-md p-6">
-          <h3 className="text-lg font-bold text-slate-800 mb-4">Goal Distribution</h3>
+
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          {[
+            { label: "Busiest hour", value: peakHourValue, icon: Clock3 },
+            { label: "Busiest day", value: peakDayValue, icon: CalendarDays },
+            { label: "Busiest month", value: peakMonthValue, icon: TrendingUp },
+          ].map(({ label, value, icon: Icon }) => (
+            <div key={label} className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-[#111]">
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400"><Icon size={20} /></span>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+                <p className="mt-1 break-words text-lg font-black text-slate-900 dark:text-white">{value}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111]">
+            <h3 className="text-base font-bold text-slate-900 dark:text-white">Workout starts by hour</h3>
+            <p className="mb-4 mt-1 text-xs text-slate-500">Member time-in / start time · Philippines time</p>
+            {peakHours.some((row) => Number(row.count) > 0)
+              ? <div className="h-72"><Bar data={peakHoursChart} options={chartOptions} /></div>
+              : <p className="py-12 text-center text-sm text-slate-500">No workout starts have been recorded yet. Members can record time-in by starting a workout.</p>}
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111]">
+            <h3 className="text-base font-bold text-slate-900 dark:text-white">New active members by month</h3>
+            <p className="mb-4 mt-1 text-xs text-slate-500">Monthly member growth · latest six calendar months</p>
+            {peakMonths.some((row) => Number(row.count) > 0)
+              ? <div className="h-72"><Bar data={peakMonthsChart} options={chartOptions} /></div>
+              : <p className="py-12 text-center text-sm text-slate-500">No new active-member sign-ups have been recorded in this period.</p>}
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111]">
+            <h3 className="text-base font-bold text-slate-900 dark:text-white">Member availability by weekday</h3>
+            <p className="mb-4 mt-1 text-xs text-slate-500">Number of active members who selected each preferred workout day</p>
+            {dayAvailability.some((row) => Number(row.count) > 0)
+              ? <div className="h-72"><Bar data={dayAvailabilityChart} options={chartOptions} /></div>
+              : <p className="py-12 text-center text-sm text-slate-500">No preferred workout-day availability has been recorded yet.</p>}
+          </div>
+        </div>
+      </section>
+
+      {/* Charts Row 1 */}
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111] xl:col-span-2">
+          <h3 className="mb-4 text-base font-bold text-slate-900 dark:text-white">Member growth</h3>
+          {memberGrowthChart.labels.length > 0
+            ? <div className="h-72"><Line data={memberGrowthChart} options={chartOptions} /></div>
+            : <p className="py-12 text-center text-sm text-slate-500">No member growth data available yet.</p>}
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111]">
+          <h3 className="mb-4 text-base font-bold text-slate-900 dark:text-white">Goal distribution</h3>
           {goalChart.labels.length > 0
-            ? <Doughnut data={goalChart} options={{ responsive: true, plugins: { legend: { position: "bottom" } } }} />
-            : <p className="text-slate-400 text-sm text-center py-12">No data yet.</p>}
+            ? <div className="h-72"><Doughnut data={goalChart} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "bottom", labels: { color: "#737373" } } } }} /></div>
+            : <p className="py-12 text-center text-sm text-slate-500">No member goals recorded yet.</p>}
         </div>
       </div>
 
       {/* Charts Row 2 */}
-      <div className="bg-white rounded-2xl shadow-md p-6">
-        <h3 className="text-lg font-bold text-slate-800 mb-4">Completed Sessions by Day of Week</h3>
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111]">
+        <h3 className="mb-4 text-base font-bold text-slate-900 dark:text-white">Completed sessions by weekday</h3>
         {attendanceChart.labels.length > 0
-          ? <Bar data={attendanceChart} options={chartOptions} />
-          : <p className="text-slate-400 text-sm text-center py-12">No completed sessions yet.</p>}
+          ? <div className="h-72"><Bar data={attendanceChart} options={chartOptions} /></div>
+          : <p className="py-12 text-center text-sm text-slate-500">No completed sessions yet.</p>}
       </div>
 
       {/* BMI Distribution */}
-      <div className="bg-white rounded-2xl shadow-md p-6">
-        <h3 className="text-lg font-bold text-slate-800 mb-4">BMI Distribution</h3>
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111]">
+        <h3 className="mb-4 text-base font-bold text-slate-900 dark:text-white">BMI distribution</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
             { label: "Underweight", range: "< 18.5", color: "bg-orange-100 text-orange-700" },

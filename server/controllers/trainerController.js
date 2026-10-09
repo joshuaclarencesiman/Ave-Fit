@@ -1,6 +1,7 @@
 const pool = require("../db");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
+const loadExerciseCatalog = require("../utils/exerciseCatalog");
 
 const {
   validateEmail,
@@ -1245,15 +1246,7 @@ const deleteMyWorkoutPlan = async (req, res) => {
 
 const getExerciseCatalog = async (req, res) => {
   try {
-    const result = await pool.query(`
-      SELECT
-        e.*,
-        c.category_name
-      FROM exercises e
-      LEFT JOIN exercise_categories c
-        ON e.category_id = c.category_id
-      ORDER BY e.exercise_name ASC
-    `);
+    const result = await loadExerciseCatalog();
 
     res.json({
       success: true,

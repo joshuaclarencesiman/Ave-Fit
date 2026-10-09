@@ -42,6 +42,9 @@ const getMembers = async (req, res) => {
     u.health_conditions,
     u.profile_image,
     u.trainer_id,
+    u.membership_months,
+    u.membership_start_date,
+    u.membership_end_date,
 
     t.full_name AS trainer_name,
     t.photo_url AS trainer_photo_url,
@@ -52,7 +55,7 @@ const getMembers = async (req, res) => {
     COALESCE(u.email_verified, FALSE) AS email_verified,
     u.email_verified_at,
 
-    u.created_at AS joined_date,
+    u.created_at::date AS joined_date,
     u.created_at,
     u.updated_at
 
@@ -132,6 +135,9 @@ const getMemberById = async (req, res) => {
 
         u.profile_image,
         u.trainer_id,
+        u.membership_months,
+        u.membership_start_date,
+        u.membership_end_date,
 
         t.full_name AS trainer_name,
         t.photo_url AS trainer_photo_url,
@@ -142,8 +148,7 @@ const getMemberById = async (req, res) => {
         COALESCE(u.email_verified, FALSE) AS email_verified,
         u.email_verified_at,
 
-        u.created_at AS joined_date,
-        u.created_at AS joined_date,
+        u.created_at::date AS joined_date,
         u.updated_at
 
       FROM users u
@@ -270,6 +275,68 @@ const createMember = async (req, res) => {
   });
 };
 
+// =====================================================
+// RECORD / UPDATE MEMBER MEMBERSHIP TERM
+// =====================================================
+const updateMemberMembership = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { membership_months } = req.body;
+
+    if (membership_months === null || membership_months === "") {
+      const result = await pool.query(`
+        UPDATE users
+        SET membership_months = NULL,
+            membership_start_date = NULL,
+            membership_end_date = NULL,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = $1
+        RETURNING user_id, membership_months, membership_start_date, membership_end_date
+      `, [id]);
+
+      if (result.rowCount === 0) {
+        return res.status(404).json({ success: false, message: "Member not found." });
+      }
+
+      return res.json({ success: true, data: result.rows[0] });
+    }
+
+    const months = Number(membership_months);
+    if (![1, 3, 6, 10, 12].includes(months)) {
+      return res.status(400).json({
+        success: false,
+        message: "Choose a membership term of 1, 3, 6, 10, or 12 months.",
+      });
+    }
+
+    const result = await pool.query(`
+      UPDATE users
+      SET membership_months = $1,
+          membership_start_date = COALESCE(membership_start_date, created_at::date),
+          membership_end_date = (
+            COALESCE(membership_start_date, created_at::date)
+            + make_interval(months => $1) - INTERVAL '1 day'
+          )::date,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE user_id = $2
+      RETURNING user_id, membership_months, membership_start_date, membership_end_date
+    `, [months, id]);
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ success: false, message: "Member not found." });
+    }
+
+    res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    console.error("❌ Error updating member membership:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to update member membership.",
+      error: error.message,
+    });
+  }
+};
+
 
 // =====================================================
 // UPDATE MEMBER
@@ -364,10 +431,26 @@ const approveMember = async (req, res) => {
       UPDATE users
       SET
         account_status = 'Active',
+        membership_start_date = CASE
+          WHEN membership_months IS NOT NULL
+            AND membership_end_date < (NOW() AT TIME ZONE 'Asia/Manila')::date
+            THEN (NOW() AT TIME ZONE 'Asia/Manila')::date
+          ELSE membership_start_date
+        END,
+        membership_end_date = CASE
+          WHEN membership_months IS NOT NULL
+            AND membership_end_date < (NOW() AT TIME ZONE 'Asia/Manila')::date
+            THEN (
+              (NOW() AT TIME ZONE 'Asia/Manila')::date
+              + make_interval(months => membership_months)
+              - INTERVAL '1 day'
+            )::date
+          ELSE membership_end_date
+        END,
         token_version = token_version + 1,
         updated_at = CURRENT_TIMESTAMP
       WHERE user_id = $1
-      RETURNING user_id, account_status
+      RETURNING user_id, account_status, membership_start_date, membership_end_date
       `,
       [id]
     );
@@ -384,7 +467,7 @@ const approveMember = async (req, res) => {
     ).catch(() => {});
 
     res.json({
-      message: "Member approved successfully",
+      message: "Member activated successfully",
       member: result.rows[0]
     });
 
@@ -542,6 +625,7 @@ module.exports = {
   getMemberById,
   createMember,
   updateMember,
+  updateMemberMembership,
   assignTrainer,
   approveMember,
   rejectMember,

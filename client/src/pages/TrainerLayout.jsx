@@ -1,11 +1,12 @@
 import { useNavigate } from "react-router-dom";
-import { ClipboardList, User, Users } from "lucide-react";
+import { ClipboardList, Dumbbell, User, Users } from "lucide-react";
 import AppShell from "../components/layout/AppShell";
 import { useTrainerAuth } from "../context/TrainerAuthContext";
 
 const NAV = [
   { to: "/trainer/roster", icon: Users, label: "My Roster" },
   { to: "/trainer/workout-plans", icon: ClipboardList, label: "Workout Plans" },
+  { to: "/trainer/exercises", icon: Dumbbell, label: "Exercises" },
   { to: "/trainer/profile", icon: User, label: "My Profile" },
 ];
 
@@ -44,7 +45,7 @@ export default function TrainerLayout({ children }) {
           </span>
         </span>
       }
-      contentWidth="max-w-5xl"
+      contentWidth="max-w-7xl"
     >
       {children}
     </AppShell>

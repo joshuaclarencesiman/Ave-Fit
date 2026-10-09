@@ -26,6 +26,7 @@ export default function UserLogin() {
   const [pendingNotice, setPendingNotice] = useState(false);
   const [unverifiedEmail, setUnverifiedEmail] = useState("");
   const [resendNotice, setResendNotice] = useState("");
+  const [resetNotice, setResetNotice] = useState("");
   const [resending, setResending] = useState(false);
 
   const [loginForm, setLoginForm] = useState({
@@ -145,6 +146,28 @@ export default function UserLogin() {
     }
   };
 
+  const handleForgotPassword = async () => {
+    const email = loginForm.email.trim();
+
+    if (!email) {
+      setError("Enter your email address to reset your password.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    setResetNotice("");
+
+    try {
+      const res = await userApi.post("/forgot-password", { email });
+      setResetNotice(res.data.message || "If that account exists, a password reset link has been sent.");
+    } catch (err) {
+      setError(err.response?.data?.message || "Unable to send the reset email right now.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSignup = async () => {
     if (
       !signupForm.first_name ||
@@ -183,7 +206,20 @@ export default function UserLogin() {
     setError("");
     setPendingNotice(false);
     setResendNotice("");
+    setResetNotice("");
   };
+
+  const googleButtonClasses =
+    "flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-slate-200 bg-[#f3f4f6] px-4 text-base font-semibold text-[#111111] shadow-[0_1px_2px_rgba(15,23,42,0.08)] transition hover:border-slate-300 hover:bg-[#e5e7eb] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent dark:border-slate-700 dark:bg-[#f3f4f6] dark:text-[#111111] dark:hover:border-slate-400 dark:hover:bg-[#e5e7eb]";
+
+  const GoogleBrandIcon = () => (
+    <svg aria-hidden="true" viewBox="0 0 48 48" className="h-6 w-6 shrink-0">
+      <path fill="#4285F4" d="M43.6 24.5c0-1.4-.1-2.8-.4-4.1H24v7.8h11c-.5 2.5-1.9 4.6-4 6l6.5 5c3.8-3.5 6.1-8.6 6.1-14.7z" />
+      <path fill="#34A853" d="M24 44c5.4 0 10-1.8 13.3-4.8l-6.5-5c-1.8 1.2-4.1 2-6.8 2-5.2 0-9.6-3.5-11.2-8.2l-6.7 5.2C9.4 39.5 16.1 44 24 44z" />
+      <path fill="#FBBC05" d="M12.8 28c-.4-1.2-.7-2.6-.7-4s.2-2.7.7-4l-6.7-5.2C4.8 18 4 20.9 4 24s.8 6 2.1 9.2l6.7-5.2z" />
+      <path fill="#EA4335" d="M24 11.8c2.9 0 5.5 1 7.5 3l5.7-5.7C33.8 5.8 29.2 4 24 4 16.1 4 9.4 8.5 6.1 14.8l6.7 5.2c1.6-4.7 6-8.2 11.2-8.2z" />
+    </svg>
+  );
 
   const googleButton = (
     <div className="space-y-4">
@@ -198,27 +234,26 @@ export default function UserLogin() {
             <GoogleLogin
               onSuccess={handleGoogleSuccess}
               onError={() => setError("Google sign-in failed or was cancelled. Please try again.")}
-              text="continue"
-              size="medium"
-              shape="rectangular"
-              theme="filled_white"
-              logo_alignment="left"
-              width="360"
+              render={({ onClick, disabled }) => (
+                <button
+                  type="button"
+                  onClick={onClick}
+                  disabled={disabled || loading}
+                  className={`${googleButtonClasses} ${loading ? "cursor-not-allowed opacity-80" : ""}`}
+                >
+                  <GoogleBrandIcon />
+                  <span>Continue with Google</span>
+                </button>
+              )}
             />
           </GoogleOAuthProvider>
         ) : (
           <button
             type="button"
             onClick={() => setError("Google sign-in is not configured. Set the same Google OAuth client ID in client/.env (VITE_GOOGLE_CLIENT_ID) and server/.env (GOOGLE_CLIENT_ID) to enable it.")}
-            style={{ backgroundColor: "#fff", color: "#3c4043" }}
-            className="flex h-12 w-full items-center justify-center gap-3 rounded-lg px-4 text-base font-medium shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4285f4] focus-visible:ring-offset-2"
+            className={googleButtonClasses}
           >
-            <svg aria-hidden="true" viewBox="0 0 48 48" className="h-6 w-6 shrink-0">
-              <path fill="#4285F4" d="M43.6 24.5c0-1.4-.1-2.8-.4-4.1H24v7.8h11c-.5 2.5-1.9 4.6-4 6l6.5 5c3.8-3.5 6.1-8.6 6.1-14.7z" />
-              <path fill="#34A853" d="M24 44c5.4 0 10-1.8 13.3-4.8l-6.5-5c-1.8 1.2-4.1 2-6.8 2-5.2 0-9.6-3.5-11.2-8.2l-6.7 5.2C9.4 39.5 16.1 44 24 44z" />
-              <path fill="#FBBC05" d="M12.8 28c-.4-1.2-.7-2.6-.7-4s.2-2.7.7-4l-6.7-5.2C4.8 18 4 20.9 4 24s.8 6 2.1 9.2l6.7-5.2z" />
-              <path fill="#EA4335" d="M24 11.8c2.9 0 5.5 1 7.5 3l5.7-5.7C33.8 5.8 29.2 4 24 4 16.1 4 9.4 8.5 6.1 14.8l6.7 5.2c1.6-4.7 6-8.2 11.2-8.2z" />
-            </svg>
+            <GoogleBrandIcon />
             <span>Continue with Google</span>
           </button>
         )}
@@ -360,6 +395,18 @@ export default function UserLogin() {
           <PrimaryButton type="submit" loading={loading} loadingText="Logging in…" className="mt-2">
             Log in
           </PrimaryButton>
+
+          <div className="text-center">
+            <button
+              type="button"
+              onClick={handleForgotPassword}
+              className="text-sm font-semibold text-orange-600 transition hover:text-orange-700 dark:text-orange-400 dark:hover:text-orange-300"
+            >
+              Forgot password?
+            </button>
+          </div>
+
+          {resetNotice && <Alert tone="info">{resetNotice}</Alert>}
         </form>
       ) : (
         <form

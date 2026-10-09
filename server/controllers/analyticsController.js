@@ -42,16 +42,94 @@ const getDashboardStats = async (req, res) => {
 // GET full analytics
 const getAnalytics = async (req, res) => {
   try {
-    // Member growth last 6 months
+    const growthPeriods = {
+      week: { granularity: "day", offset: "6 days", step: "1 day", labelFormat: "Dy" },
+      month: { granularity: "day", offset: "29 days", step: "1 day", labelFormat: "Mon FMDD" },
+      threeMonths: { granularity: "week", offset: "11 weeks", step: "1 week", labelFormat: "Mon FMDD" },
+      sixMonths: { granularity: "month", offset: "5 months", step: "1 month", labelFormat: "Mon YYYY" },
+      year: { granularity: "month", offset: "11 months", step: "1 month", labelFormat: "Mon YYYY" },
+    };
+    const requestedGrowthPeriod = req.query.period || "sixMonths";
+    const growthPeriod = growthPeriods[requestedGrowthPeriod];
+
+    if (!growthPeriod) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid growth period. Choose week, month, threeMonths, sixMonths, or year.",
+      });
+    }
+
+    // Active member sign-ups by calendar month for the last six months.
     const memberGrowth = await pool.query(`
+      WITH months AS (
+        SELECT month_start
+        FROM GENERATE_SERIES(
+          DATE_TRUNC('month', NOW()) - INTERVAL '5 months',
+          DATE_TRUNC('month', NOW()),
+          INTERVAL '1 month'
+        ) AS generated(month_start)
+      )
       SELECT
-        TO_CHAR(DATE_TRUNC('month', created_at), 'Mon') AS month,
-        COUNT(*) AS count
-      FROM users
-      WHERE LOWER(COALESCE(account_status, 'pending')) = 'active'
-        AND created_at >= NOW() - INTERVAL '6 months'
-      GROUP BY DATE_TRUNC('month', created_at)
-      ORDER BY DATE_TRUNC('month', created_at) ASC
+        TO_CHAR(months.month_start, 'Mon YYYY') AS month,
+        TO_CHAR(months.month_start, 'Mon YYYY') AS label,
+        COUNT(users.user_id)::int AS count
+      FROM months
+      LEFT JOIN users
+        ON LOWER(COALESCE(users.account_status, 'pending')) = 'active'
+        AND users.created_at >= months.month_start
+        AND users.created_at < months.month_start + INTERVAL '1 month'
+      GROUP BY months.month_start
+      ORDER BY months.month_start ASC
+    `);
+
+    const createdAtManila = `CASE
+      WHEN pg_typeof(created_at) = 'timestamp with time zone'::regtype
+        THEN created_at AT TIME ZONE 'Asia/Manila'
+      ELSE created_at::timestamp
+    END`;
+    const completedAtManila = "(completed_at AT TIME ZONE current_setting('TIMEZONE')) AT TIME ZONE 'Asia/Manila'";
+    const growthOverview = await pool.query(`
+      WITH bounds AS (
+        SELECT
+          DATE_TRUNC('${growthPeriod.granularity}', NOW() AT TIME ZONE 'Asia/Manila') - INTERVAL '${growthPeriod.offset}' AS start_at,
+          DATE_TRUNC('${growthPeriod.granularity}', NOW() AT TIME ZONE 'Asia/Manila') AS end_at
+      ),
+      buckets AS (
+        SELECT generated.bucket_start
+        FROM bounds
+        CROSS JOIN LATERAL GENERATE_SERIES(
+          bounds.start_at,
+          bounds.end_at,
+          INTERVAL '${growthPeriod.step}'
+        ) AS generated(bucket_start)
+      ),
+      new_members AS (
+        SELECT DATE_TRUNC('${growthPeriod.granularity}', ${createdAtManila}) AS bucket_start,
+          COUNT(*)::int AS count
+        FROM users
+        WHERE LOWER(COALESCE(account_status, 'pending')) = 'active'
+          AND ${createdAtManila} >= (SELECT start_at FROM bounds)
+          AND ${createdAtManila} < (SELECT end_at FROM bounds) + INTERVAL '${growthPeriod.step}'
+        GROUP BY DATE_TRUNC('${growthPeriod.granularity}', ${createdAtManila})
+      ),
+      completed_workouts AS (
+        SELECT DATE_TRUNC('${growthPeriod.granularity}', ${completedAtManila}) AS bucket_start,
+          COUNT(*)::int AS count
+        FROM workout_sessions
+        WHERE completed = true
+          AND completed_at IS NOT NULL
+          AND ${completedAtManila} >= (SELECT start_at FROM bounds)
+          AND ${completedAtManila} < (SELECT end_at FROM bounds) + INTERVAL '${growthPeriod.step}'
+        GROUP BY DATE_TRUNC('${growthPeriod.granularity}', ${completedAtManila})
+      )
+      SELECT
+        TO_CHAR(buckets.bucket_start, '${growthPeriod.labelFormat}') AS label,
+        COALESCE(new_members.count, 0)::int AS new_members,
+        COALESCE(completed_workouts.count, 0)::int AS workout_sessions
+      FROM buckets
+      LEFT JOIN new_members USING (bucket_start)
+      LEFT JOIN completed_workouts USING (bucket_start)
+      ORDER BY buckets.bucket_start
     `);
 
     // Fitness goal distribution
@@ -79,19 +157,57 @@ const getAnalytics = async (req, res) => {
       GROUP BY category
     `);
 
-    // Completed workout sessions by day of week (session_date stores day
-    // names like "Monday".."Sunday", not calendar dates, so a monthly
-    // breakdown isn't possible — day-of-week is the meaningful grouping here)
+    // completed_at is stored without a timezone, so interpret it in PostgreSQL's
+    // configured timezone before converting to the gym's Asia/Manila clock.
+    const completionDay = `CASE
+      WHEN completed_at IS NOT NULL THEN TO_CHAR(${completedAtManila}, 'FMDay')
+      ELSE session_date
+    END`;
+
+    // Use the actual completion weekday when a timestamp exists. Older records
+    // without completed_at retain the weekday stored in session_date.
     const attendance = await pool.query(`
-      SELECT session_date AS day, COUNT(*) AS count
+      SELECT ${completionDay} AS day, COUNT(*) AS count
       FROM workout_sessions
-      WHERE completed = true AND session_date IS NOT NULL
-      GROUP BY session_date
-      ORDER BY CASE session_date
+      WHERE completed = true
+        AND (completed_at IS NOT NULL OR session_date IN ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'))
+      GROUP BY ${completionDay}
+      ORDER BY CASE ${completionDay}
         WHEN 'Monday' THEN 1 WHEN 'Tuesday' THEN 2 WHEN 'Wednesday' THEN 3
         WHEN 'Thursday' THEN 4 WHEN 'Friday' THEN 5 WHEN 'Saturday' THEN 6
         WHEN 'Sunday' THEN 7 ELSE 8
       END
+    `);
+
+    const peakHours = await pool.query(`
+      SELECT hours.hour, COALESCE(activity.count, 0)::int AS count
+      FROM generate_series(0, 23) AS hours(hour)
+      LEFT JOIN (
+        SELECT EXTRACT(HOUR FROM started_at AT TIME ZONE 'Asia/Manila')::int AS hour, COUNT(*)::int AS count
+        FROM workout_sessions
+        WHERE started_at IS NOT NULL
+        GROUP BY EXTRACT(HOUR FROM started_at AT TIME ZONE 'Asia/Manila')::int
+      ) AS activity ON activity.hour = hours.hour
+      ORDER BY hours.hour
+    `);
+
+    const dayAvailability = await pool.query(`
+      WITH weekdays(day, day_order) AS (
+        VALUES
+          ('Monday', 1), ('Tuesday', 2), ('Wednesday', 3), ('Thursday', 4),
+          ('Friday', 5), ('Saturday', 6), ('Sunday', 7)
+      )
+      SELECT weekdays.day, COUNT(DISTINCT users.user_id)::int AS count
+      FROM weekdays
+      LEFT JOIN users
+        ON LOWER(COALESCE(users.account_status, 'pending')) = 'active'
+        AND EXISTS (
+          SELECT 1
+          FROM UNNEST(COALESCE(users.preferred_days, ARRAY[]::text[])) AS preferred(day)
+          WHERE LOWER(BTRIM(preferred.day)) = LOWER(weekdays.day)
+        )
+      GROUP BY weekdays.day, weekdays.day_order
+      ORDER BY weekdays.day_order
     `);
 
     // Summary
@@ -115,9 +231,13 @@ const getAnalytics = async (req, res) => {
           totalNutritionPlans: parseInt(totalMealPlans.rows[0].count),
         },
         memberGrowth: memberGrowth.rows,
+        growthOverview: growthOverview.rows,
         goalDistribution: goalDistribution.rows,
         bmiDistribution: bmiDistribution.rows,
         attendance: attendance.rows,
+        peakHours: peakHours.rows,
+        dayAvailability: dayAvailability.rows,
+        peakMonths: memberGrowth.rows,
       },
     });
   } catch (err) {

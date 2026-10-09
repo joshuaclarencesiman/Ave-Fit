@@ -252,39 +252,40 @@ export default function Workouts() {
         />
       )}
 
-      <div className="flex items-center justify-between">
+      <header className="ave-page-hero flex flex-wrap items-end justify-between gap-4 rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8">
         <div>
-          <h1 className="text-3xl font-bold text-slate-800">Exercises</h1>
-          <p className="text-slate-500 mt-1">Manage the exercise library and use the bundled Workout Guide illustrations.</p>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Training resources</p>
+          <h1 className="mt-2 text-3xl font-black text-slate-900 dark:text-white">Exercise Library</h1>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Maintain exercises, member-facing instructions, and coaching notes.</p>
         </div>
         <button
           onClick={handleAdd}
-          className="flex items-center gap-2 bg-orange-600 hover:bg-orange-700 text-white px-5 py-2.5 rounded-xl font-medium transition"
+          className="flex min-h-11 items-center gap-2 rounded-xl bg-orange-500 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
         >
           <Plus size={18} /> Add Exercise
         </button>
-      </div>
+      </header>
 
       {fetchError && (
-        <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">
+        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
           ⚠️ {fetchError}
         </div>
       )}
 
       {/* Filters */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-md dark:border-slate-800 dark:bg-[#111]">
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-[#111]">
         <div className="ave-search flex w-full max-w-md items-center gap-3 rounded-xl border px-3 py-2.5">
           <Search size={17} className="shrink-0 text-slate-500" />
           <input
-            type="text"
-            placeholder="Search exercises..."
+            type="search"
+            placeholder="Search exercises, muscles, equipment..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            aria-label="Search exercises"
             className="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm outline-none shadow-none focus:border-0 focus:ring-0"
           />
         </div>
         <div className="mt-4">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Filter by category</p>
           <div className="space-y-3">
             <div>
               <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Category</p>
@@ -328,7 +329,10 @@ export default function Workouts() {
         </div>
       </div>
 
-      <p className="text-xs text-slate-500">{filtered.length} exercises found</p>
+      <div className="flex items-center justify-between gap-3">
+        <p aria-live="polite" className="text-xs font-medium text-slate-500">{loading ? "Loading exercises..." : `${filtered.length} of ${exercises.length} exercises`}</p>
+        {(search || filter !== "All" || filterDifficulty !== "All") && <button type="button" onClick={() => { setSearch(""); setFilter("All"); setFilterDifficulty("All"); }} className="text-xs font-semibold text-orange-700 hover:underline dark:text-orange-300">Clear filters</button>}
+      </div>
 
       {loading ? (
         <div className="space-y-3">
@@ -337,7 +341,7 @@ export default function Workouts() {
           ))}
         </div>
       ) : filtered.length === 0 ? (
-        <div className="py-16 text-center text-slate-500">No exercises found.</div>
+        <div className="rounded-2xl border border-dashed border-orange-200 bg-white py-16 text-center text-slate-600 dark:border-white/10 dark:bg-[#111] dark:text-slate-300"><Dumbbell size={30} className="mx-auto mb-3 text-orange-500"/><p className="font-semibold">No exercises match your filters</p><p className="mt-1 text-sm text-slate-500">Try another search or clear the filters.</p></div>
       ) : (
         <div className="space-y-3">
           {filtered.map((exercise) => {

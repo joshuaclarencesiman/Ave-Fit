@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronDown, ChevronUp, Dumbbell, Trash2, Plus, Users, AlertTriangle, X, ClipboardList, CircleCheck, TrendingUp } from "lucide-react";
+import { ChevronDown, ChevronUp, Dumbbell, Trash2, Plus, Users, AlertTriangle, X, ClipboardList, CircleCheck, TrendingUp, Search } from "lucide-react";
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, ArcElement, Tooltip, Legend } from "chart.js";
 import { Bar, Doughnut } from "react-chartjs-2";
 import trainerApi from "../trainerApi";
@@ -105,7 +105,7 @@ function MemberRow({ member, exercises, onChanged, onViewProfile }) {
 }
 
 export default function TrainerDashboard(){
-  const [members,setMembers]=useState([]),[exercises,setExercises]=useState([]),[loading,setLoading]=useState(true),[profileMember,setProfileMember]=useState(null),[fetchError,setFetchError]=useState("");
+  const [members,setMembers]=useState([]),[exercises,setExercises]=useState([]),[loading,setLoading]=useState(true),[profileMember,setProfileMember]=useState(null),[fetchError,setFetchError]=useState(""),[rosterSearch,setRosterSearch]=useState("");
   const fetchRoster=()=>trainerApi.get('/me/roster').then(r=>setMembers(r.data.data||[])).catch(err=>{console.error(err);setFetchError(err.response?.data?.message||"Couldn't refresh your roster analytics.");});
   useEffect(()=>{setLoading(true);Promise.all([trainerApi.get('/me/roster'),trainerApi.get('/me/exercises')]).then(([r,e])=>{setMembers(r.data.data||[]);setExercises(e.data.data||[])}).catch(err=>{console.error(err);setFetchError(err.response?.data?.message||"Couldn't load your trainer dashboard.")}).finally(()=>setLoading(false))},[]);
   const assignedTotal=members.reduce((total,member)=>total+Number(member.assigned_workouts||0),0);
@@ -113,6 +113,8 @@ export default function TrainerDashboard(){
   const remainingTotal=Math.max(assignedTotal-completedTotal,0);
   const completionRate=assignedTotal?Math.round((completedTotal/assignedTotal)*100):0;
   const membersWithoutWorkouts=members.filter(member=>Number(member.assigned_workouts||0)===0).length;
+  const query=rosterSearch.trim().toLowerCase();
+  const filteredMembers=members.filter(member=>!query||`${member.first_name||""} ${member.last_name||""} ${member.email||""} ${member.fitness_goal||""}`.toLowerCase().includes(query));
   const goalCounts=members.reduce((counts,member)=>{const goal=member.fitness_goal?.trim()||"Not specified";counts[goal]=(counts[goal]||0)+1;return counts;},{});
   const goals=Object.entries(goalCounts).sort((a,b)=>b[1]-a[1]);
   const weeklyCounts=Object.fromEntries(DAYS.map(day=>[day,{assigned:0,completed:0}]));
@@ -144,7 +146,12 @@ export default function TrainerDashboard(){
   const barOptions={...axisOptions,scales:{...axisOptions.scales,x:{...axisOptions.scales.x,stacked:true},y:{...axisOptions.scales.y,stacked:true}}};
   const memberBarOptions={...barOptions,indexAxis:"y",scales:{x:{...axisOptions.scales.x,stacked:true},y:{...axisOptions.scales.y,stacked:true,ticks:{...axisOptions.scales.y.ticks,autoSkip:false}}}};
   const panelClass="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900";
-  return <div className="px-4 sm:px-6 py-8"><MemberProfileModal member={profileMember} onClose={()=>setProfileMember(null)}/><h1 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2"><Users size={24} className="text-orange-400"/> My Roster</h1><p className="text-slate-500 text-sm mt-1 mb-7 max-w-2xl">Members designated to you by the gym. View their full profile and assign workouts to their weekly schedule.</p>
+  return <div className="space-y-6 px-4 py-6 sm:px-6 sm:py-8"><MemberProfileModal member={profileMember} onClose={()=>setProfileMember(null)}/>
+    <header className="ave-page-hero rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8">
+      <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Coach workspace</p>
+      <h1 className="mt-2 flex items-center gap-2 text-2xl font-black text-slate-900 dark:text-white sm:text-3xl"><Users size={25} className="text-orange-500"/> My Roster</h1>
+      <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600 dark:text-slate-400">Review member goals and progress, check training considerations, and assign workouts to their schedules.</p>
+    </header>
     {fetchError&&<div role="alert" className="mb-5 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">{fetchError}</div>}
     <section aria-labelledby="trainer-analytics-heading" className="mb-8">
       <div className="mb-3 flex items-center gap-2"><TrendingUp size={18} className="text-orange-500"/><h2 id="trainer-analytics-heading" className="text-base font-bold text-slate-900 dark:text-white">Workout analytics</h2></div>
@@ -164,5 +171,12 @@ export default function TrainerDashboard(){
         <div className={`${panelClass} xl:col-span-2`}><h3 className="mb-3 text-sm font-semibold text-slate-800 dark:text-slate-100">Weekly workout schedule</h3>{weeklyHasData?<div className="h-64"><Bar data={weeklyActivity} options={barOptions}/></div>:<p className="py-12 text-center text-sm text-slate-500">No weekday workout schedule data yet.</p>}</div>
       </div>}
     </section>
-    {loading?<div className="space-y-3">{[...Array(3)].map((_,i)=><div key={i} className="h-16 bg-white dark:bg-slate-900 border border-orange-100 dark:border-slate-800 rounded-2xl animate-pulse"/>)}</div>:members.length===0?<div className="text-center py-20 border border-orange-100 dark:border-slate-800 bg-white dark:bg-transparent rounded-2xl"><Users size={40} className="mx-auto text-slate-700 mb-3"/><p className="text-slate-400 font-medium">No members yet</p><p className="text-slate-600 text-sm mt-1">Members will appear here after the gym assigns them to you.</p></div>:<div className="space-y-3">{members.map(m=><MemberRow key={m.user_id} member={m} exercises={exercises} onChanged={fetchRoster} onViewProfile={setProfileMember}/>)}</div>}</div>;
+    <section aria-labelledby="roster-members-heading">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div><h2 id="roster-members-heading" className="text-lg font-bold text-slate-900 dark:text-white">Your members</h2><p className="mt-1 text-xs text-slate-500">Select a member to review their schedule and assign a workout.</p></div>
+        {!loading&&members.length>0&&<label className="flex min-h-10 w-full items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 dark:border-white/10 dark:bg-[#111] sm:max-w-xs"><Search size={16} className="text-slate-400"/><span className="sr-only">Search roster</span><input type="search" value={rosterSearch} onChange={event=>setRosterSearch(event.target.value)} placeholder="Search members..." className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-500 dark:text-white"/></label>}
+      </div>
+      {loading?<div className="space-y-3">{[...Array(3)].map((_,i)=><div key={i} className="h-20 animate-pulse rounded-2xl border border-orange-100 bg-white dark:border-white/5 dark:bg-[#111]"/>)}</div>:members.length===0?<div className="rounded-2xl border border-dashed border-orange-200 bg-white py-16 text-center dark:border-white/10 dark:bg-[#111]"><Users size={36} className="mx-auto mb-3 text-orange-500"/><p className="font-semibold text-slate-900 dark:text-white">No members assigned yet</p><p className="mt-1 text-sm text-slate-500">Members will appear here after the gym assigns them to you.</p></div>:filteredMembers.length===0?<div className="rounded-2xl border border-dashed border-orange-200 bg-white py-12 text-center dark:border-white/10 dark:bg-[#111]"><Search size={28} className="mx-auto mb-2 text-orange-500"/><p className="font-semibold text-slate-900 dark:text-white">No members match that search</p><button type="button" onClick={()=>setRosterSearch("")} className="mt-2 text-sm font-semibold text-orange-700 dark:text-orange-300">Clear search</button></div>:<div className="space-y-3">{filteredMembers.map(m=><MemberRow key={m.user_id} member={m} exercises={exercises} onChanged={fetchRoster} onViewProfile={setProfileMember}/>)}</div>}
+    </section>
+  </div>;
 }

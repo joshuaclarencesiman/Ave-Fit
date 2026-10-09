@@ -22,6 +22,7 @@ import Homepage from "./pages/Homepage";
 import UserLogin from "./pages/UserLogin";
 import PendingApproval from "./pages/PendingApproval";
 import VerifyEmail from "./pages/VerifyEmail";
+import ResetPassword from "./pages/ResetPassword";
 import Assessment from "./pages/Assessment";
 import GoalSetup from "./pages/GoalSetup";
 import HealthConditions from "./pages/HealthConditions";
@@ -42,6 +43,7 @@ import TrainerLayout from "./pages/TrainerLayout";
 import TrainerDashboard from "./pages/TrainerDashboard";
 import TrainerProfile from "./pages/TrainerProfile";
 import TrainerWorkoutPlans from "./pages/TrainerWorkoutPlans";
+import TrainerExercises from "./pages/TrainerExercises";
 
 function AdminProtectedRoute({ children }) {
   const token = sessionStorage.getItem("avefit_token");
@@ -121,6 +123,7 @@ export default function App() {
                 <Routes>
                   <Route path="/roster" element={<TrainerDashboard />} />
                   <Route path="/workout-plans" element={<TrainerWorkoutPlans />} />
+                  <Route path="/exercises" element={<TrainerExercises />} />
                   <Route path="/profile" element={<TrainerProfile />} />
                   <Route path="*" element={<Navigate to="/trainer/roster" replace />} />
                 </Routes>
@@ -133,6 +136,7 @@ export default function App() {
         <Route path="/user/login" element={<UserLogin />} />
         <Route path="/user/pending" element={<PendingApproval />} />
         <Route path="/user/verify-email" element={<VerifyEmail />} />
+        <Route path="/user/reset-password" element={<ResetPassword />} />
         <Route path="/user/assessment" element={<UserProtectedRoute><Assessment /></UserProtectedRoute>} />
         <Route path="/user/goal" element={<UserProtectedRoute><GoalSetup /></UserProtectedRoute>} />
         <Route path="/user/health" element={<UserProtectedRoute><HealthConditions /></UserProtectedRoute>} />

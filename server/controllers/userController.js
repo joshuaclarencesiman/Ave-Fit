@@ -1,4 +1,5 @@
 const pool = require("../db");
+const { expireMemberships } = require("../db");
 const bcrypt = require("bcrypt");
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
@@ -6,13 +7,14 @@ const { OAuth2Client } = require("google-auth-library");
 const {
   validateRegistration,
   validateEmail,
+  validatePassword,
   validateName,
   validatePhone,
   validateImageDataUrl,
   normalizeEmail,
   publicUser,
 } = require("../utils/security");
-const { sendVerificationEmail } = require("../utils/mailer");
+const { sendMail, sendVerificationEmail } = require("../utils/mailer");
 const googleClient = new OAuth2Client();
 const {
   generateVerificationCode,
@@ -67,6 +69,63 @@ const createUserToken = (user, rememberMe) => jwt.sign(
   process.env.JWT_SECRET,
   { expiresIn: rememberMe === true ? "30d" : "8h" }
 );
+
+const issuePasswordResetToken = async (user) => {
+  const token = crypto.randomBytes(32).toString("hex");
+  const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+  const resetUrl = `${(process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "")}/user/reset-password?token=${encodeURIComponent(token)}`;
+
+  await pool.query(
+    `UPDATE users
+     SET password_reset_token_hash = $1,
+         password_reset_expires_at = $2,
+         password_reset_sent_at = NOW()
+     WHERE user_id = $3`,
+    [hashVerificationToken(token), expiresAt, user.user_id]
+  );
+
+  const text = [
+    `Hi ${user.first_name || "there"},`,
+    "",
+    "We received a request to reset your AveFit password.",
+    "",
+    `Use this link to choose a new password: ${resetUrl}`,
+    "",
+    "This link expires in 30 minutes. If you did not request this, you can safely ignore this email.",
+    "",
+    "Avenue Power & Fitness Gym",
+  ].join("\n");
+
+  const html = `
+    <div style="font-family:Segoe UI,Helvetica,Arial,sans-serif;max-width:540px;margin:0 auto;padding:24px;color:#0f172a;">
+      <div style="background:#f97316;padding:22px 24px;border-radius:14px 14px 0 0;color:#fff;">
+        <strong style="font-size:22px;letter-spacing:-0.04em;">AveFit</strong>
+      </div>
+      <div style="padding:24px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 14px 14px;background:#fff;">
+        <p style="margin:0 0 12px;font-size:16px;">Hi ${user.first_name || "there"},</p>
+        <p style="margin:0 0 16px;line-height:1.6;">We received a request to reset your AveFit password.</p>
+        <p style="margin:0 0 20px;">
+          <a href="${resetUrl}" style="display:inline-block;background:#f97316;color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">Reset your password</a>
+        </p>
+        <p style="margin:0;line-height:1.6;">This link expires in 30 minutes. If you did not request this, you can safely ignore this email.</p>
+      </div>
+    </div>
+  `;
+
+  try {
+    const result = await sendMail({
+      to: user.email,
+      subject: "Reset your AveFit password",
+      text,
+      html,
+    });
+
+    return { delivered: result.delivered, token };
+  } catch (err) {
+    console.error("send reset password email error:", err.message);
+    return { delivered: false, token };
+  }
+};
 
 // POST register
 const register = async (req, res) => {
@@ -196,6 +255,125 @@ const register = async (req, res) => {
 };
 
 // POST login
+const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body || {};
+
+    if (!validateEmail(email)) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide a valid email address.",
+      });
+    }
+
+    const normalizedEmail = normalizeEmail(email);
+    const result = await pool.query(
+      `SELECT user_id, first_name, email
+       FROM users
+       WHERE LOWER(email) = $1
+       LIMIT 1`,
+      [normalizedEmail]
+    );
+
+    const neutral = {
+      success: true,
+      message: "If that email is registered, a password reset link has been sent.",
+    };
+
+    if (result.rows.length === 0) {
+      return res.json(neutral);
+    }
+
+    await issuePasswordResetToken(result.rows[0]);
+
+    return res.json({
+      ...neutral,
+      email_sent: true,
+    });
+  } catch (err) {
+    console.error("forgotPassword error:", err.message);
+
+    res.status(500).json({
+      success: false,
+      message: "Unable to send the reset email right now.",
+    });
+  }
+};
+
+const resetPassword = async (req, res) => {
+  try {
+    const { token, password } = req.body || {};
+
+    if (typeof token !== "string" || token.length < 32) {
+      return res.status(400).json({
+        success: false,
+        message: "A valid password reset token is required.",
+      });
+    }
+
+    if (!validatePassword(password)) {
+      return res.status(400).json({
+        success: false,
+        message: "Use 8–12 characters with a letter, a number, and a symbol. Avoid common passwords.",
+      });
+    }
+
+    const tokenHash = hashVerificationToken(token);
+    const result = await pool.query(
+      `SELECT user_id, password_reset_expires_at
+       FROM users
+       WHERE password_reset_token_hash = $1
+       LIMIT 1`,
+      [tokenHash]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "This reset link is invalid or has already been used.",
+      });
+    }
+
+    const user = result.rows[0];
+    const expiresAt = user.password_reset_expires_at
+      ? new Date(user.password_reset_expires_at)
+      : null;
+
+    if (!expiresAt || expiresAt.getTime() <= Date.now()) {
+      return res.status(400).json({
+        success: false,
+        message: "This reset link has expired. Please request a new password reset email.",
+      });
+    }
+
+    const hashed = await bcrypt.hash(password, 12);
+
+    await pool.query(
+      `UPDATE users
+       SET password = $1,
+           password_reset_token_hash = NULL,
+           password_reset_expires_at = NULL,
+           password_reset_sent_at = NULL,
+           token_version = token_version + 1,
+           updated_at = NOW()
+       WHERE user_id = $2`,
+      [hashed, user.user_id]
+    );
+
+    res.json({
+      success: true,
+      message: "Your password has been reset. You can now log in with your new password.",
+    });
+  } catch (err) {
+    console.error("resetPassword error:", err.message);
+
+    res.status(500).json({
+      success: false,
+      message: "Unable to reset your password right now.",
+    });
+  }
+};
+
 const login = async (req, res) => {
   try {
     const { email, password, rememberMe } = req.body;
@@ -212,6 +390,8 @@ const login = async (req, res) => {
     }
 
     const normalizedEmail = normalizeEmail(email);
+
+    await expireMemberships();
 
     const result = await pool.query(
       `
@@ -300,6 +480,15 @@ const login = async (req, res) => {
     ).toLowerCase();
 
     if (accountStatus !== "active") {
+      if (accountStatus === "inactive") {
+        return res.status(403).json({
+          success: false,
+          status: "Inactive",
+          message:
+            "Your membership has expired. Please contact the gym administrator to reactivate your account.",
+        });
+      }
+
       if (accountStatus === "rejected") {
         return res.status(403).json({
           success: false,
@@ -386,6 +575,8 @@ const googleLogin = async (req, res) => {
   const email = normalizeEmail(googleProfile.email);
 
   try {
+    await expireMemberships();
+
     const byGoogleId = await pool.query(
       `SELECT user_id, first_name, last_name, email, password, phone, google_sub,
               account_status, email_verified, trainer_id, fitness_goal, height,
@@ -500,14 +691,18 @@ const googleLogin = async (req, res) => {
 
     const accountStatus = String(user.account_status || "Pending").toLowerCase();
     if (accountStatus !== "active") {
-      const status = accountStatus === "rejected" ? "Rejected" : "Pending";
+      const status = accountStatus === "rejected"
+        ? "Rejected"
+        : accountStatus === "inactive" ? "Inactive" : "Pending";
       return res.status(403).json({
         success: false,
         status,
         email: user.email,
         message: status === "Rejected"
           ? "Your AveFit account was not approved. Please contact the gym administrator."
-          : "Your account is awaiting approval from the gym.",
+          : status === "Inactive"
+            ? "Your membership has expired. Please contact the gym administrator to reactivate your account."
+            : "Your account is awaiting approval from the gym.",
       });
     }
 
@@ -1278,6 +1473,8 @@ module.exports = {
   register,
   login,
   googleLogin,
+  forgotPassword,
+  resetPassword,
   verifyEmail,
   resendVerification,
   getVerificationStatus,

@@ -20,7 +20,7 @@ const logProgress = async (req, res) => {
     const { weight, bmi, body_fat, waist, chest, hips, left_arm } = req.body;
     const result = await pool.query(`
       INSERT INTO progress_logs (user_id, weight, bmi, body_fat, waist, chest, hips, left_arm, log_date)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,CURRENT_DATE) RETURNING *
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,(NOW() AT TIME ZONE 'Asia/Manila')::date) RETURNING *
     `, [req.user.user_id, weight || null, bmi || null, body_fat || null, waist || null, chest || null, hips || null, left_arm || null]);
     res.status(201).json({ success: true, data: result.rows[0] });
   } catch (err) {

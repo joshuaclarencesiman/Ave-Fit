@@ -1,36 +1,46 @@
 import { useCallback, useEffect, useState } from "react";
-import { Trash2, CheckCircle, RotateCcw, Dumbbell, Moon } from "lucide-react";
+import { ArrowRight, CalendarDays, CheckCircle, Dumbbell, Moon, Play, RotateCcw, Target, Trash2 } from "lucide-react";
+import { Link } from "react-router-dom";
 import { useUserAuth } from "../context/UserAuthContext";
 import userApi from "../userApi";
+import { formatPhilippinesDate, philippinesDateKey, philippinesDateString, philippinesMondayString } from "../utils/philippinesDate";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
-const localDateString = (date) => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-};
-
 const formatWorkoutDate = (date) =>
-  new Date(`${date}T00:00:00`).toLocaleDateString(undefined, {
+  formatPhilippinesDate(date, {
     weekday: "short",
     month: "short",
     day: "numeric",
   });
 
+const formatWorkoutTime = (date) =>
+  new Intl.DateTimeFormat("en-PH", {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "Asia/Manila",
+  }).format(new Date(date));
+
+const getPhilippinesWeekday = (date = new Date()) => {
+  const dateKey = philippinesDateString(date);
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const weekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+  return DAYS[(weekday + 6) % 7];
+};
+
 export default function WorkoutPage() {
   const { user } = useUserAuth();
   const [sessions, setSessions] = useState([]);
   const [workoutDays, setWorkoutDays] = useState([]); // days the user picked as their availability
+  const [fitnessGoal, setFitnessGoal] = useState("");
   const [loading, setLoading] = useState(true);
-  const [activeDay, setActiveDay] = useState(() => {
-    const day = new Date().getDay();
-    return DAYS[day === 0 ? 6 : day - 1];
-  });
+  const [error, setError] = useState("");
+  const [activeDay, setActiveDay] = useState(() => getPhilippinesWeekday());
+  const [startingSessionId, setStartingSessionId] = useState(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
+    setError("");
     try {
       const [sessionsRes, profileRes] = await Promise.all([
         userApi.get("/workouts"),
@@ -38,12 +48,14 @@ export default function WorkoutPage() {
       ]);
       const loadedSessions = sessionsRes.data.data || [];
       setSessions(loadedSessions);
-      const days = profileRes.data.data?.preferred_days || [];
+      const profile = profileRes.data.data || {};
+      const days = profile.preferred_days || [];
       setWorkoutDays(days);
-      const today = localDateString(new Date());
+      setFitnessGoal(profile.fitness_goal || "");
+      const today = philippinesDateString();
       const nextScheduledDate = [...new Set(
         loadedSessions
-          .map((session) => session.session_date)
+          .map((session) => philippinesDateKey(session.session_date))
           .filter((date) => typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date) && date >= today)
       )].sort()[0];
       if (nextScheduledDate) {
@@ -53,6 +65,7 @@ export default function WorkoutPage() {
       }
     } catch (err) {
       console.error(err);
+      setError(err.response?.data?.message || "Unable to load your workouts. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -61,63 +74,151 @@ export default function WorkoutPage() {
   useEffect(() => { fetchData(); }, [fetchData]);
 
   const isWorkoutDay = (day) => {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(day)) return sessions.some((session) => session.session_date === day);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(day)) return sessions.some((session) => philippinesDateKey(session.session_date) === day);
     return workoutDays.length === 0 || workoutDays.includes(day);
   };
 
   const handleComplete = async (id) => {
-    await userApi.put(`/workouts/${id}/complete`);
-    fetchData();
+    setError("");
+    try {
+      await userApi.put(`/workouts/${id}/complete`);
+      await fetchData();
+    } catch (err) {
+      console.error(err);
+      setError(err.response?.data?.message || "Unable to update this workout. Please try again.");
+    }
+  };
+
+  const handleStart = async (id) => {
+    setError("");
+    setStartingSessionId(id);
+    try {
+      await userApi.put(`/workouts/${id}/start`);
+      await fetchData();
+    } catch (err) {
+      console.error(err);
+      setError(err.response?.data?.message || "Unable to start this workout. Please try again.");
+    } finally {
+      setStartingSessionId(null);
+    }
   };
 
   const handleDelete = async (id) => {
-    await userApi.delete(`/workouts/${id}`);
-    fetchData();
+    setError("");
+    try {
+      await userApi.delete(`/workouts/${id}`);
+      await fetchData();
+    } catch (err) {
+      console.error(err);
+      setError(err.response?.data?.message || "Unable to remove this workout. Please try again.");
+    }
   };
 
   const handleReset = async () => {
     if (!confirm("Reset all workouts for this week?")) return;
-    await userApi.delete("/workouts/reset/week");
-    fetchData();
+    setError("");
+    try {
+      await userApi.delete("/workouts/reset/week");
+      await fetchData();
+    } catch (err) {
+      console.error(err);
+      setError(err.response?.data?.message || "Unable to reset this week's workouts. Please try again.");
+    }
   };
 
-  const daySessions = sessions.filter((s) => s.session_date === activeDay || s.day_of_week === activeDay);
+  const daySessions = sessions.filter((s) => philippinesDateKey(s.session_date) === activeDay || s.day_of_week === activeDay);
   const completedCount = sessions.filter((s) => s.completed).length;
+  const today = philippinesDateString();
+  const weekStartDate = philippinesMondayString();
+  const completedThisWeek = sessions.filter((session) => {
+    if (!session.completed) return false;
+    const value = session.completed_at || session.session_date;
+    if (!value) return false;
+    const date = philippinesDateKey(value);
+    return date >= weekStartDate && date <= today;
+  }).length;
+  const weeklyGoal = workoutDays.length;
+  const weeklyProgress = weeklyGoal ? Math.min(100, Math.round((completedThisWeek / weeklyGoal) * 100)) : 0;
+  const nextSession = sessions
+    .filter((session) => {
+      const date = philippinesDateKey(session.session_date);
+      return !session.completed && date && date >= today;
+    })
+    .sort((a, b) => philippinesDateKey(a.session_date).localeCompare(philippinesDateKey(b.session_date)))[0];
   const isScheduledDate = /^\d{4}-\d{2}-\d{2}$/.test(activeDay);
   const activeDayLabel = isScheduledDate ? formatWorkoutDate(activeDay) : activeDay;
   const scheduledDates = [...new Set(
     sessions
-      .map((session) => session.session_date)
+      .map((session) => philippinesDateKey(session.session_date))
       .filter((date) => typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date))
   )].sort();
 
   return (
     <div className="min-h-screen bg-[#fffaf5] dark:bg-[#080808] text-slate-900 dark:text-white">
       {/* Header */}
-      <div className="ave-page-hero px-6 pt-10 pb-7 border-b border-orange-100 dark:border-white/5">
-        <p className="hero-muted text-sm">Welcome back,</p>
-        <h1 className="text-2xl font-black text-slate-900 dark:text-white">{user?.first_name || "Athlete"} 👋</h1>
-
-        {/* Progress bar */}
-        <div className="mt-4 bg-white dark:bg-[#111] rounded-2xl p-4 border border-orange-100 dark:border-white/5 shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm text-slate-500">Weekly Progress</span>
-            <span className="text-sm font-bold text-orange-500">{completedCount}/{sessions.length} done</span>
+      <div className="ave-page-hero border-b border-orange-100 px-5 pb-6 pt-8 dark:border-white/5 sm:px-8 sm:pb-8">
+        <div className="mx-auto max-w-5xl">
+          <p className="hero-muted text-sm">Your training dashboard</p>
+          <h1 className="mt-1 text-2xl font-black text-slate-900 dark:text-white sm:text-3xl">
+            Welcome back, {user?.first_name || "Athlete"}
+          </h1>
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
+            {fitnessGoal && (
+              <span className="inline-flex items-center gap-1.5">
+                <Target size={15} className="text-orange-500" /> {fitnessGoal}
+              </span>
+            )}
+            {nextSession && (
+              <span className="inline-flex items-center gap-1.5">
+                <CalendarDays size={15} className="text-orange-500" />
+                Next workout {formatWorkoutDate(nextSession.session_date)}
+              </span>
+            )}
           </div>
-          <div className="h-2 bg-orange-50 dark:bg-white/10 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-orange-500 rounded-full transition-all"
-              style={{ width: sessions.length > 0 ? `${(completedCount / sessions.length) * 100}%` : "0%" }}
-            />
+
+          <div className="mt-5 grid gap-3 sm:grid-cols-[1fr_auto]">
+            <div className="rounded-2xl border border-orange-100 bg-white p-4 shadow-sm dark:border-white/5 dark:bg-[#111]">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">This week</span>
+                <span className="text-sm font-bold text-orange-600 dark:text-orange-400">
+                  {weeklyGoal ? `${completedThisWeek}/${weeklyGoal} sessions` : `${completedCount} completed all time`}
+                </span>
+              </div>
+              <div
+                role="progressbar"
+                aria-label="Weekly workout goal"
+                aria-valuemin="0"
+                aria-valuemax={weeklyGoal || 100}
+                aria-valuenow={weeklyGoal ? Math.min(weeklyGoal, completedThisWeek) : 0}
+                className="h-2 overflow-hidden rounded-full bg-orange-50 dark:bg-white/10"
+              >
+                <div className="h-full rounded-full bg-orange-500 transition-all" style={{ width: `${weeklyProgress}%` }} />
+              </div>
+              <p className="mt-2 text-xs text-slate-500">
+                {weeklyGoal ? "Keep showing up for your weekly training goal." : "Set your preferred workout days in your profile to track a weekly goal."}
+              </p>
+            </div>
+            <Link
+              to="/user/progress"
+              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-orange-200 px-4 text-sm font-semibold text-orange-700 transition hover:bg-orange-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 dark:border-orange-500/30 dark:text-orange-300 dark:hover:bg-orange-500/10"
+            >
+              View progress <ArrowRight size={16} />
+            </Link>
           </div>
         </div>
       </div>
 
+      {error && (
+        <div role="alert" className="mx-5 mt-5 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-300 sm:mx-8">
+          {error}
+        </div>
+      )}
+
       {/* Day Selector */}
-      <div className="px-4 py-4 overflow-x-auto">
-        <div className="flex gap-2 w-max">
+      <div className="overflow-x-auto px-5 py-4 sm:px-8">
+        <div className="mx-auto flex w-max gap-2 lg:mx-0">
           {[...DAYS, ...scheduledDates].map((day) => {
-            const hasWorkout = sessions.some((s) => s.session_date === day || s.day_of_week === day);
+            const hasWorkout = sessions.some((s) => philippinesDateKey(s.session_date) === day || s.day_of_week === day);
             const restDay = !isWorkoutDay(day);
             const isDate = /^\d{4}-\d{2}-\d{2}$/.test(day);
             const label = isDate ? formatWorkoutDate(day) : day.slice(0, 3);
@@ -147,9 +248,12 @@ export default function WorkoutPage() {
       </div>
 
       {/* Workout List */}
-      <div className="px-6 py-4 space-y-3">
+      <div className="mx-auto max-w-5xl space-y-3 px-5 py-3 sm:px-8">
         <div className="flex items-center justify-between">
-          <h2 className="font-bold text-slate-900">{activeDayLabel}'s Workouts</h2>
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Training plan</p>
+            <h2 className="mt-0.5 font-bold text-slate-900 dark:text-white">{activeDayLabel}&apos;s workouts</h2>
+          </div>
           {!isScheduledDate && isWorkoutDay(activeDay) && daySessions.length > 0 && (
             <button onClick={handleReset} className="flex items-center gap-1 text-xs text-slate-500 hover:text-red-400 transition">
               <RotateCcw size={14} /> Reset
@@ -159,27 +263,27 @@ export default function WorkoutPage() {
 
         {loading ? (
           <div className="space-y-3">
-            {[...Array(3)].map((_, i) => <div key={i} className="h-20 bg-white rounded-2xl animate-pulse" />)}
+            {[...Array(3)].map((_, i) => <div key={i} className="h-24 rounded-2xl bg-white animate-pulse dark:bg-[#111]" />)}
           </div>
         ) : !isWorkoutDay(activeDay) ? (
-          <div className="text-center py-16">
-            <Moon size={40} className="mx-auto text-slate-700 mb-3" />
-            <p className="text-slate-900 font-semibold">Rest Day</p>
-            <p className="text-slate-500 text-sm mt-1">You didn't set {activeDay} as a workout day — recover and come back stronger.</p>
+          <div className="rounded-2xl border border-orange-100 bg-white px-5 py-12 text-center dark:border-white/5 dark:bg-[#111]">
+            <Moon size={36} className="mx-auto mb-3 text-orange-500" />
+            <p className="font-semibold text-slate-900 dark:text-white">Rest and recover</p>
+            <p className="mt-1 text-sm text-slate-500">You didn&apos;t set {activeDay} as a workout day. Recovery is part of your training.</p>
           </div>
         ) : daySessions.length === 0 ? (
-          <div className="text-center py-16">
-            <Dumbbell size={40} className="mx-auto text-slate-700 mb-3" />
-            <p className="text-slate-500">No workouts assigned for {activeDayLabel} yet</p>
-            <p className="text-slate-600 text-xs mt-1">Your coach will add your training plan here.</p>
+          <div className="rounded-2xl border border-orange-100 bg-white px-5 py-12 text-center dark:border-white/5 dark:bg-[#111]">
+            <Dumbbell size={36} className="mx-auto mb-3 text-orange-500" />
+            <p className="font-semibold text-slate-900 dark:text-white">No workouts assigned yet</p>
+            <p className="mt-1 text-sm text-slate-500">Your coach&apos;s plan for {activeDayLabel} will appear here.</p>
           </div>
         ) : (
           daySessions.map((session) => (
             <div key={session.session_id}
-              className={`bg-white rounded-2xl p-4 border ${session.completed ? "border-green-500/30" : "border-slate-200"}`}>
+              className={`rounded-2xl border bg-white p-4 shadow-sm dark:bg-[#111] ${session.completed ? "border-green-500/30" : "border-orange-100 dark:border-white/5"}`}>
               <div className="flex items-start justify-between">
                 <div className="flex-1">
-                  <p className={`font-semibold ${session.completed ? "text-slate-500 line-through" : "text-slate-900"}`}>
+                  <p className={`font-semibold ${session.completed ? "text-slate-500" : "text-slate-900 dark:text-white"}`}>
                     {session.exercise_name || "Workout"}
                   </p>
                   <p className="text-xs text-slate-500 mt-0.5">{session.muscle_group || ""}</p>
@@ -191,13 +295,30 @@ export default function WorkoutPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   {!session.completed && (
-                    <button onClick={() => handleComplete(session.session_id)}
-                      className="p-2 rounded-xl hover:bg-green-500/10 text-green-400 transition">
-                      <CheckCircle size={20} />
-                    </button>
+                    session.started_at ? (
+                      <div className="flex flex-col items-end gap-1">
+                        <span className="text-[11px] font-medium text-slate-500">
+                          Started {formatWorkoutTime(session.started_at)} PH time
+                        </span>
+                        <button type="button" onClick={() => handleComplete(session.session_id)}
+                          aria-label={`Mark ${session.exercise_name || "workout"} complete`}
+                          className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-green-600 px-3 text-xs font-semibold text-white transition hover:bg-green-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500">
+                          <CheckCircle size={16} /> Complete
+                        </button>
+                      </div>
+                    ) : (
+                      <button type="button" onClick={() => handleStart(session.session_id)}
+                        disabled={startingSessionId === session.session_id}
+                        className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-orange-500 px-3 text-sm font-semibold text-white transition hover:bg-orange-600 disabled:cursor-wait disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+                      >
+                        <Play size={16} fill="currentColor" />
+                        {startingSessionId === session.session_id ? "Starting..." : "Start workout"}
+                      </button>
+                    )
                   )}
-                  <button onClick={() => handleDelete(session.session_id)}
-                    className="p-2 rounded-xl hover:bg-red-500/10 text-red-400 transition">
+                  <button type="button" onClick={() => handleDelete(session.session_id)}
+                    aria-label={`Remove ${session.exercise_name || "workout"}`}
+                    className="grid h-10 w-10 place-items-center rounded-xl text-slate-500 transition hover:bg-red-500/10 hover:text-red-500">
                     <Trash2 size={18} />
                   </button>
                 </div>

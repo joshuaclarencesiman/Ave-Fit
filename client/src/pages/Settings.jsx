@@ -3,6 +3,14 @@ import { Save, User, Lock, Bell, Database, Camera } from "lucide-react";
 import api from "../services/api";
 import { fileToCompressedDataUrl } from "../utils/imageUpload";
 
+const NOTIFICATION_PREFERENCES_KEY = "avefit_admin_notification_preferences";
+const DEFAULT_NOTIFICATION_PREFERENCES = {
+  newMember: true,
+  workoutCompleted: false,
+  bmiAlert: true,
+  weeklyReport: true,
+};
+
 export default function Settings() {
   const fileInputRef = useRef(null);
   const [profile, setProfile] = useState({ full_name: "", email: "" });
@@ -10,14 +18,29 @@ export default function Settings() {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [photoMsg, setPhotoMsg] = useState("");
   const [passwords, setPasswords] = useState({ current_password: "", new_password: "", confirm: "" });
-  const [notifications, setNotifications] = useState({
-    newMember: true, workoutCompleted: false, bmiAlert: true, weeklyReport: true,
-  });
+  const [notifications, setNotifications] = useState(DEFAULT_NOTIFICATION_PREFERENCES);
+  const [preferenceError, setPreferenceError] = useState("");
   const [status, setStatus] = useState({ profile: "", password: "" });
   const [loading, setLoading] = useState({ profile: false, password: false });
   const [fetchError, setFetchError] = useState("");
 
   useEffect(() => {
+    const savedPreferences = localStorage.getItem(NOTIFICATION_PREFERENCES_KEY);
+    if (savedPreferences) {
+      try {
+        const parsedPreferences = JSON.parse(savedPreferences);
+        setNotifications(Object.fromEntries(
+          Object.keys(DEFAULT_NOTIFICATION_PREFERENCES).map((key) => [
+            key,
+            typeof parsedPreferences[key] === "boolean" ? parsedPreferences[key] : DEFAULT_NOTIFICATION_PREFERENCES[key],
+          ]),
+        ));
+      } catch (error) {
+        console.error("Failed to read admin notification preferences:", error);
+        setPreferenceError("Saved notification preferences could not be read. Defaults are being used.");
+      }
+    }
+
     api.get("/settings/profile")
       .then((res) => {
         setProfile({ full_name: res.data.data.full_name, email: res.data.data.email });
@@ -28,6 +51,18 @@ export default function Settings() {
         setFetchError(err.response?.data?.message || err.message || "Couldn't load admin profile.");
       });
   }, []);
+
+  const handleNotificationToggle = (key) => {
+    const nextPreferences = { ...notifications, [key]: !notifications[key] };
+    try {
+      localStorage.setItem(NOTIFICATION_PREFERENCES_KEY, JSON.stringify(nextPreferences));
+      setNotifications(nextPreferences);
+      setPreferenceError("");
+    } catch (error) {
+      console.error("Failed to save admin notification preferences:", error);
+      setPreferenceError("Unable to save this preference in your browser.");
+    }
+  };
 
   const handlePhotoChange = async (e) => {
     const file = e.target.files?.[0];
@@ -42,7 +77,7 @@ export default function Settings() {
       localStorage.setItem("avefit_admin", JSON.stringify({ ...admin, photo_url: dataUrl }));
       setPhotoMsg("Photo updated!");
     } catch (err) {
-      setPhotoMsg(err.message || "Failed to upload photo.");
+      setPhotoMsg(err.response?.data?.message || err.message || "Failed to upload photo.");
     } finally {
       setUploadingPhoto(false);
       setTimeout(() => setPhotoMsg(""), 3000);
@@ -59,7 +94,7 @@ export default function Settings() {
       localStorage.setItem("avefit_admin", JSON.stringify({ ...admin, name: profile.full_name, email: profile.email }));
       setStatus((s) => ({ ...s, profile: "success" }));
     } catch (err) {
-      setStatus((s) => ({ ...s, profile: "error" }));
+      setStatus((s) => ({ ...s, profile: err.response?.data?.message || "error" }));
     } finally {
       setLoading((l) => ({ ...l, profile: false }));
       setTimeout(() => setStatus((s) => ({ ...s, profile: "" })), 3000);
@@ -101,29 +136,32 @@ export default function Settings() {
   };
 
   return (
-    <div className="space-y-8 max-w-3xl">
+    <div className="mx-auto max-w-4xl space-y-6">
       {fetchError && (
-        <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">
+        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
           ⚠️ {fetchError}
         </div>
       )}
-      <div>
-        <h1 className="text-3xl font-bold text-slate-800">Settings</h1>
-        <p className="text-slate-500 mt-1">Manage your account and preferences.</p>
-      </div>
+      <header className="ave-page-hero rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8">
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Administration</p>
+        <h1 className="mt-2 text-3xl font-black text-slate-900 dark:text-white">Settings</h1>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Manage administrator access, account details, and portal preferences.</p>
+      </header>
 
       {/* Profile */}
-      <div className="bg-white rounded-2xl shadow-md p-6 space-y-5">
-        <div className="flex items-center gap-3 border-b pb-4">
-          <div className="bg-orange-100 p-2 rounded-lg text-orange-600"><User size={20} /></div>
-          <h2 className="text-lg font-bold text-slate-800">Profile Information</h2>
+      <section className="space-y-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-6">
+        <div className="flex items-center gap-3 border-b border-slate-200 pb-4 dark:border-white/10">
+          <div className="rounded-lg bg-orange-500/10 p-2 text-orange-600 dark:text-orange-400"><User size={20} /></div>
+          <div><h2 className="text-lg font-bold text-slate-900 dark:text-white">Profile information</h2><p className="mt-0.5 text-xs text-slate-500">Update the details used for your admin account.</p></div>
         </div>
 
         <div className="flex items-center gap-4">
           <button
+            type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={uploadingPhoto}
-            className="relative w-16 h-16 rounded-full disabled:opacity-70 shrink-0"
+            aria-label={uploadingPhoto ? "Uploading admin photo" : "Change admin profile photo"}
+            className="relative w-16 h-16 rounded-full ring-2 ring-orange-100 transition hover:ring-orange-300 focus-visible:outline-none focus-visible:ring-orange-400 disabled:opacity-70 shrink-0 dark:ring-white/10"
           >
             <div className="w-16 h-16 bg-orange-600 rounded-full flex items-center justify-center overflow-hidden">
               {photo ? (
@@ -140,7 +178,7 @@ export default function Settings() {
               )}
             </div>
           </button>
-          <input ref={fileInputRef} type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
+          <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handlePhotoChange} className="hidden" aria-label="Choose admin profile photo" />
           <div>
             <p className="text-sm font-medium text-slate-700">Profile Photo</p>
             <p className="text-xs text-slate-400">Click the avatar to upload a new photo.</p>
@@ -156,35 +194,34 @@ export default function Settings() {
             <div key={f.key}>
               <label className="block text-sm font-medium text-slate-600 mb-1">{f.label}</label>
               <input
-                type="text"
+                type={f.key === "email" ? "email" : "text"}
                 value={profile[f.key] || ""}
                 onChange={(e) => setProfile({ ...profile, [f.key]: e.target.value })}
-                className="w-full border border-slate-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-500 dark:border-white/10 dark:bg-white/5 dark:text-white"
               />
             </div>
           ))}
         </div>
-        <div className="flex items-center justify-between pt-2">
-          {status.profile === "success" && <p className="text-green-500 text-sm font-medium">✓ Profile saved!</p>}
-          {status.profile === "error" && <p className="text-red-500 text-sm font-medium">✗ Failed to save.</p>}
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+          {status.profile && <p role="status" className={`text-sm font-medium ${status.profile === "success" ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>{status.profile === "success" ? "✓ Profile saved!" : `✗ ${status.profile === "error" ? "Failed to save." : status.profile}`}</p>}
           <div className="ml-auto">
             <button
               onClick={handleSaveProfile}
               disabled={loading.profile}
-              className="flex items-center gap-2 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white px-5 py-2.5 rounded-xl font-medium transition text-sm"
+              className="flex min-h-11 items-center gap-2 rounded-xl bg-orange-500 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-orange-600 disabled:opacity-50"
             >
               <Save size={16} />
               {loading.profile ? "Saving..." : "Save Profile"}
             </button>
           </div>
         </div>
-      </div>
+      </section>
 
       {/* Password */}
-      <div className="bg-white rounded-2xl shadow-md p-6 space-y-5">
-        <div className="flex items-center gap-3 border-b pb-4">
-          <div className="bg-purple-100 p-2 rounded-lg text-purple-600"><Lock size={20} /></div>
-          <h2 className="text-lg font-bold text-slate-800">Change Password</h2>
+      <section className="space-y-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-6">
+        <div className="flex items-center gap-3 border-b border-slate-200 pb-4 dark:border-white/10">
+          <div className="rounded-lg bg-orange-500/10 p-2 text-orange-600 dark:text-orange-400"><Lock size={20} /></div>
+          <div><h2 className="text-lg font-bold text-slate-900 dark:text-white">Change password</h2><p className="mt-0.5 text-xs text-slate-500">Use a unique password to keep your administrator account secure.</p></div>
         </div>
         <div className="space-y-4">
           {[
@@ -201,7 +238,8 @@ export default function Settings() {
                 minLength={f.key === "new_password" || f.key === "confirm" ? 8 : undefined}
                 maxLength={f.key === "new_password" || f.key === "confirm" ? 12 : undefined}
                 onChange={(e) => setPasswords({ ...passwords, [f.key]: e.target.value })}
-                className="w-full border border-slate-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                autoComplete={f.key === "current_password" ? "current-password" : "new-password"}
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-500 dark:border-white/10 dark:bg-white/5 dark:text-white"
               />
               {f.key === "new_password" && <p className="mt-1 text-xs text-slate-500">8–12 characters with a letter, number, and symbol.</p>}
             </div>
@@ -209,7 +247,7 @@ export default function Settings() {
         </div>
         <div className="flex items-center justify-between pt-2">
           {status.password && (
-            <p className={`text-sm font-medium ${(passwordStatusMsg[status.password] || passwordStatusMsg.error).color}`}>
+            <p role="status" className={`text-sm font-medium ${(passwordStatusMsg[status.password] || passwordStatusMsg.error).color}`}>
               {(passwordStatusMsg[status.password] || passwordStatusMsg.error).text}
             </p>
           )}
@@ -217,21 +255,22 @@ export default function Settings() {
             <button
               onClick={handleSavePassword}
               disabled={loading.password}
-              className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white px-5 py-2.5 rounded-xl font-medium transition text-sm"
+              className="flex min-h-11 items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-slate-700 disabled:opacity-50 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200"
             >
               <Save size={16} />
               {loading.password ? "Updating..." : "Update Password"}
             </button>
           </div>
         </div>
-      </div>
+      </section>
 
       {/* Notifications */}
-      <div className="bg-white rounded-2xl shadow-md p-6 space-y-5">
-        <div className="flex items-center gap-3 border-b pb-4">
-          <div className="bg-orange-100 p-2 rounded-lg text-orange-600"><Bell size={20} /></div>
-          <h2 className="text-lg font-bold text-slate-800">Notification Preferences</h2>
+      <section className="space-y-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-6">
+        <div className="flex items-center gap-3 border-b border-slate-200 pb-4 dark:border-white/10">
+          <div className="rounded-lg bg-orange-500/10 p-2 text-orange-600 dark:text-orange-400"><Bell size={20} /></div>
+          <div><h2 className="text-lg font-bold text-slate-900 dark:text-white">Notification preferences</h2><p className="mt-0.5 text-xs text-slate-500">These choices are saved in this browser on this device.</p></div>
         </div>
+        {preferenceError && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">{preferenceError}</p>}
         <div className="space-y-4">
           {[
             { key: "newMember", label: "New Member Registration", desc: "Get notified when a new member signs up" },
@@ -245,21 +284,25 @@ export default function Settings() {
                 <p className="text-xs text-slate-400 mt-0.5">{item.desc}</p>
               </div>
               <button
-                onClick={() => setNotifications({ ...notifications, [item.key]: !notifications[item.key] })}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${notifications[item.key] ? "bg-orange-600" : "bg-slate-200"}`}
+                type="button"
+                role="switch"
+                aria-checked={notifications[item.key]}
+                aria-label={item.label}
+                onClick={() => handleNotificationToggle(item.key)}
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111] ${notifications[item.key] ? "bg-orange-500" : "bg-slate-300 dark:bg-slate-700"}`}
               >
                 <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${notifications[item.key] ? "translate-x-6" : "translate-x-1"}`} />
               </button>
             </div>
           ))}
         </div>
-      </div>
+      </section>
 
       {/* System Info */}
-      <div className="bg-white rounded-2xl shadow-md p-6 space-y-4">
-        <div className="flex items-center gap-3 border-b pb-4">
-          <div className="bg-slate-100 p-2 rounded-lg text-slate-600"><Database size={20} /></div>
-          <h2 className="text-lg font-bold text-slate-800">System Info</h2>
+      <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-6">
+        <div className="flex items-center gap-3 border-b border-slate-200 pb-4 dark:border-white/10">
+          <div className="rounded-lg bg-slate-100 p-2 text-slate-600 dark:bg-white/5 dark:text-slate-300"><Database size={20} /></div>
+          <div><h2 className="text-lg font-bold text-slate-900 dark:text-white">System information</h2><p className="mt-0.5 text-xs text-slate-500">Application environment details.</p></div>
         </div>
         <div className="grid grid-cols-2 gap-4 text-sm">
           {[
@@ -270,13 +313,13 @@ export default function Settings() {
             { label: "Backend", value: "Node.js + Express" },
             { label: "School", value: "Batangas State University" },
           ].map((item) => (
-            <div key={item.label} className="flex justify-between border-b border-slate-100 pb-2">
+            <div key={item.label} className="flex flex-wrap justify-between gap-2 border-b border-slate-100 pb-2 dark:border-white/10">
               <span className="text-slate-500">{item.label}</span>
               <span className="font-medium text-slate-700">{item.value}</span>
             </div>
           ))}
         </div>
-      </div>
+      </section>
     </div>
   );
 }

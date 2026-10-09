@@ -1,19 +1,29 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler } from "chart.js";
 import { Line } from "react-chartjs-2";
-import { TrendingUp, Scale, Calendar } from "lucide-react";
+import { Activity, ArrowDownRight, ArrowUpRight, Calendar, CheckCircle2, Scale, Target, TrendingUp } from "lucide-react";
 import userApi from "../userApi";
 import { useUserAuth } from "../context/UserAuthContext";
+import { formatPhilippinesDate, philippinesDateKey, philippinesDateString, philippinesMondayString, philippinesPeriodRange } from "../utils/philippinesDate";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler);
+
+const getWorkoutDate = (session) => {
+  const value = session.completed_at || session.session_date;
+  return philippinesDateKey(value);
+};
 
 export default function ProgressPage() {
   const { user } = useUserAuth();
   const [logs, setLogs] = useState([]);
+  const [sessions, setSessions] = useState([]);
+  const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [analyticsPeriod, setAnalyticsPeriod] = useState("weekly");
 
   // Log form
-  const [logForm, setLogForm] = useState({ weight: "", bmi: "" });
+  const [logForm, setLogForm] = useState({ weight: "", bmi: "", body_fat: "", waist: "" });
   const [logging, setLogging] = useState(false);
   const [logMsg, setLogMsg] = useState("");
 
@@ -22,19 +32,27 @@ export default function ProgressPage() {
   const [predResult, setPredResult] = useState(null);
   const [predicting, setPredicting] = useState(false);
 
-  const fetchProgress = async () => {
+  const fetchProgress = useCallback(async () => {
     setLoading(true);
+    setLoadError("");
     try {
-      const res = await userApi.get("/progress");
-      setLogs(res.data.data || []);
+      const [progressRes, workoutsRes, profileRes] = await Promise.all([
+        userApi.get("/progress"),
+        userApi.get("/workouts"),
+        userApi.get("/profile"),
+      ]);
+      setLogs(progressRes.data.data || []);
+      setSessions(workoutsRes.data.data || []);
+      setProfile(profileRes.data.data || null);
     } catch (err) {
       console.error(err);
+      setLoadError(err.response?.data?.message || "Unable to load your progress right now. Please try again.");
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  useEffect(() => { fetchProgress(); }, []);
+  useEffect(() => { fetchProgress(); }, [fetchProgress]);
 
   // Auto-calc BMI when weight changes
   const handleWeightChange = (val) => {
@@ -55,11 +73,12 @@ export default function ProgressPage() {
     try {
       await userApi.post("/progress", logForm);
       setLogMsg("Progress logged!");
-      setLogForm({ weight: "", bmi: "" });
-      fetchProgress();
+      setLogForm({ weight: "", bmi: "", body_fat: "", waist: "" });
+      await fetchProgress();
       setTimeout(() => setLogMsg(""), 3000);
     } catch (err) {
       console.error(err);
+      setLoadError(err.response?.data?.message || "Unable to save your progress. Please try again.");
     } finally {
       setLogging(false);
     }
@@ -78,73 +97,273 @@ export default function ProgressPage() {
     }
   };
 
-  const chartData = {
-    labels: logs.map((l) => l.log_date ? new Date(l.log_date).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""),
-    datasets: [
-      {
-        label: "Weight (kg)",
-        data: logs.map((l) => parseFloat(l.weight)),
-        borderColor: "#3b82f6",
-        backgroundColor: "rgba(59,130,246,0.08)",
-        fill: true, tension: 0.4,
-        pointBackgroundColor: "#3b82f6", pointRadius: 5,
-      },
-    ],
-  };
-
-  const bmiChart = {
-    labels: logs.map((l) => l.log_date ? new Date(l.log_date).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""),
-    datasets: [
-      {
-        label: "BMI",
-        data: logs.map((l) => parseFloat(l.bmi)),
-        borderColor: "#10b981",
-        backgroundColor: "rgba(16,185,129,0.08)",
-        fill: true, tension: 0.4,
-        pointBackgroundColor: "#10b981", pointRadius: 5,
-      },
-    ],
-  };
-
   const chartOptions = {
     responsive: true,
     plugins: { legend: { display: false } },
     scales: {
-      y: { beginAtZero: false, grid: { color: "rgba(255,255,255,0.05)" }, ticks: { color: "#94a3b8" } },
+      y: { beginAtZero: false, grid: { color: "rgba(148,163,184,0.15)" }, ticks: { color: "#94a3b8" } },
       x: { grid: { display: false }, ticks: { color: "#94a3b8" } },
     },
   };
 
   const latestLog = logs[logs.length - 1];
+  const firstWeightedLog = logs.find((log) => Number.isFinite(Number(log.weight)) && log.weight !== null);
+  const latestWeight = latestLog?.weight == null ? null : Number(latestLog.weight);
+  const firstWeight = firstWeightedLog?.weight == null ? null : Number(firstWeightedLog.weight);
+  const weightChange = latestWeight !== null && firstWeight !== null
+    ? Number((latestWeight - firstWeight).toFixed(1))
+    : null;
+  const targetWeight = profile?.target_weight == null ? null : Number(profile.target_weight);
+  const goal = profile?.fitness_goal || "Your fitness goal";
+  const goalDirection = /lose|loss|reduce/i.test(goal) ? "loss" : /gain|muscle/i.test(goal) ? "gain" : "maintain";
+  const goalChange = weightChange === null ? null : goalDirection === "loss" ? -weightChange : weightChange;
+  const goalProgress = goalDirection !== "maintain" && goalChange !== null && Number.isFinite(targetWeight) && targetWeight > 0 && firstWeight !== null && firstWeight !== targetWeight
+    ? Math.max(0, Math.min(100, (goalChange / Math.abs(firstWeight - targetWeight)) * 100))
+    : null;
+
+  const analyticsRange = philippinesPeriodRange(analyticsPeriod);
+  const periodLogs = logs.filter((log) => {
+    const date = philippinesDateKey(log.log_date);
+    return date && date >= analyticsRange.start && date <= analyticsRange.end;
+  });
+  const periodWeightedLogs = periodLogs.filter((log) => log.weight != null && Number.isFinite(Number(log.weight)));
+  const periodWeightChange = periodWeightedLogs.length > 1
+    ? Number((Number(periodWeightedLogs[periodWeightedLogs.length - 1].weight) - Number(periodWeightedLogs[0].weight)).toFixed(1))
+    : null;
+  const periodCompletedWorkouts = sessions.filter((session) => {
+    const date = getWorkoutDate(session);
+    return session.completed && date && date >= analyticsRange.start && date <= analyticsRange.end;
+  }).length;
+
+  const chartData = {
+    labels: periodLogs.map((l) => formatPhilippinesDate(l.log_date, { month: "short", day: "numeric" })),
+    datasets: [
+      {
+        label: "Weight (kg)",
+        data: periodLogs.map((l) => l.weight ? parseFloat(l.weight) : null),
+        borderColor: "#f97316",
+        backgroundColor: "rgba(249,115,22,0.1)",
+        fill: true, tension: 0.4,
+        pointBackgroundColor: "#f97316", pointRadius: 5,
+      },
+    ],
+  };
+
+  const bmiChart = {
+    labels: periodLogs.map((l) => formatPhilippinesDate(l.log_date, { month: "short", day: "numeric" })),
+    datasets: [
+      {
+        label: "BMI",
+        data: periodLogs.map((l) => l.bmi ? parseFloat(l.bmi) : null),
+        borderColor: "#fb923c",
+        backgroundColor: "rgba(251,146,60,0.1)",
+        fill: true, tension: 0.4,
+        pointBackgroundColor: "#fb923c", pointRadius: 5,
+      },
+    ],
+  };
+
+  const today = philippinesDateString();
+  const weekStartString = philippinesMondayString();
+  const scheduledThisWeek = sessions.filter((session) => {
+    const date = philippinesDateKey(session.session_date);
+    return date && date >= weekStartString && date <= today;
+  });
+  const completedThisWeek = sessions.filter((session) => {
+    const date = getWorkoutDate(session);
+    return session.completed && date >= weekStartString && date <= today;
+  });
+  const completedSessions = sessions.filter((session) => session.completed);
+  const weeklyTarget = Number(profile?.workout_days_per_week) ||
+    (Array.isArray(profile?.preferred_days) ? profile.preferred_days.length : 0);
+  const workoutRate = scheduledThisWeek.length
+    ? Math.round((completedThisWeek.length / scheduledThisWeek.length) * 100)
+    : null;
 
   return (
     <div className="min-h-screen bg-[#fffaf5] dark:bg-[#080808] text-slate-900 dark:text-white">
       {/* Header */}
       <div className="ave-page-hero px-6 pt-10 pb-7 border-b border-orange-100 dark:border-white/5">
-        <h1 className="text-2xl font-black text-slate-900 dark:text-white">Progress Tracker</h1>
-        <p className="text-slate-400 text-sm mt-1">Track your body metrics over time</p>
+        <h1 className="text-2xl font-black text-slate-900 dark:text-white">Your Progress</h1>
+        <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">
+          Your training, body metrics, and progress toward your goals in one place.
+        </p>
       </div>
 
-      <div className="px-6 space-y-6">
-        {/* Current Stats */}
-        {latestLog && (
-          <div className="grid grid-cols-2 gap-4">
-            <div className="bg-white rounded-2xl p-4 text-center">
-              <Scale size={20} className="mx-auto text-orange-500 mb-2" />
-              <p className="text-2xl font-bold">{latestLog.weight} kg</p>
-              <p className="text-xs text-slate-500 mt-1">Latest Weight</p>
-            </div>
-            <div className="bg-white rounded-2xl p-4 text-center">
-              <TrendingUp size={20} className="mx-auto text-green-400 mb-2" />
-              <p className="text-2xl font-bold">{latestLog.bmi}</p>
-              <p className="text-xs text-slate-500 mt-1">Latest BMI</p>
-            </div>
+      <div className="px-6 py-6 space-y-6">
+        {loadError && (
+          <div role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-300">
+            {loadError}
           </div>
         )}
 
+        {loading ? (
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4" aria-label="Loading progress analytics">
+            {[...Array(4)].map((_, index) => (
+              <div key={index} className="h-28 animate-pulse rounded-2xl bg-white dark:bg-[#111]" />
+            ))}
+          </div>
+        ) : (
+          <>
+            <section aria-label="Progress analytics" className="rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/5 dark:bg-[#111]">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h2 className="font-bold text-slate-900 dark:text-white">Progress analytics</h2>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {formatPhilippinesDate(analyticsRange.start, { month: "short", day: "numeric", year: "numeric" })}
+                    {" – "}
+                    {formatPhilippinesDate(analyticsRange.end, { month: "short", day: "numeric", year: "numeric" })}
+                    {" · Philippines time"}
+                  </p>
+                </div>
+                <div role="group" aria-label="Filter progress period" className="grid grid-cols-3 gap-1 rounded-xl bg-slate-100 p-1 dark:bg-white/5">
+                  {[
+                    { id: "weekly", label: "Weekly" },
+                    { id: "monthly", label: "Monthly" },
+                    { id: "yearly", label: "Yearly" },
+                  ].map((period) => (
+                    <button
+                      key={period.id}
+                      type="button"
+                      aria-pressed={analyticsPeriod === period.id}
+                      onClick={() => setAnalyticsPeriod(period.id)}
+                      className={`min-h-9 rounded-lg px-3 text-xs font-semibold transition ${
+                        analyticsPeriod === period.id
+                          ? "bg-orange-500 text-white shadow-sm"
+                          : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+                      }`}
+                    >
+                      {period.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-3 gap-3">
+                <div className="rounded-xl bg-slate-50 p-3 dark:bg-white/[0.04]">
+                  <p className="text-lg font-bold text-slate-900 dark:text-white">{periodLogs.length}</p>
+                  <p className="text-[11px] leading-snug text-slate-500">Progress check-ins</p>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-3 dark:bg-white/[0.04]">
+                  <p className="text-lg font-bold text-slate-900 dark:text-white">
+                    {periodWeightChange == null ? "—" : `${periodWeightChange > 0 ? "+" : ""}${periodWeightChange} kg`}
+                  </p>
+                  <p className="text-[11px] leading-snug text-slate-500">Weight change</p>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-3 dark:bg-white/[0.04]">
+                  <p className="text-lg font-bold text-slate-900 dark:text-white">{periodCompletedWorkouts}</p>
+                  <p className="text-[11px] leading-snug text-slate-500">Workouts completed</p>
+                </div>
+              </div>
+
+              {periodLogs.length > 0 ? (
+                <div className="mt-5 space-y-6">
+                  <div>
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Weight trend</h3>
+                      <span className="text-xs text-slate-500">kg</span>
+                    </div>
+                    <Line data={chartData} options={chartOptions} />
+                  </div>
+                  {periodLogs.some((log) => log.bmi != null) && (
+                    <div className="border-t border-slate-200 pt-5 dark:border-white/10">
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">BMI trend</h3>
+                        <span className="text-xs text-slate-500">BMI</span>
+                      </div>
+                      <Line data={bmiChart} options={chartOptions} />
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="mt-4 rounded-xl border border-dashed border-orange-200 px-4 py-8 text-center dark:border-white/10">
+                  <Activity size={22} className="mx-auto mb-2 text-orange-500" />
+                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">No check-ins in this period</p>
+                  <p className="mt-1 text-xs text-slate-500">Log a measurement during this period to see your trends here.</p>
+                </div>
+              )}
+            </section>
+
+            <section aria-label="Progress overview" className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+              <div className="rounded-2xl border border-orange-100 bg-white p-4 shadow-sm dark:border-white/5 dark:bg-[#111]">
+                <Scale size={19} className="mb-3 text-orange-500" />
+                <p className="text-2xl font-black">{latestWeight !== null ? `${latestWeight} kg` : "—"}</p>
+                <p className="mt-1 text-xs text-slate-500">Latest weight</p>
+                {weightChange !== null && (
+                  <p className="mt-2 flex items-center gap-1 text-xs font-semibold text-slate-500">
+                    {weightChange < 0 ? <ArrowDownRight size={14} /> : weightChange > 0 ? <ArrowUpRight size={14} /> : null}
+                    {weightChange > 0 ? "+" : ""}{weightChange} kg since first log
+                  </p>
+                )}
+              </div>
+              <div className="rounded-2xl border border-orange-100 bg-white p-4 shadow-sm dark:border-white/5 dark:bg-[#111]">
+                <Activity size={19} className="mb-3 text-orange-500" />
+                <p className="text-2xl font-black">{latestLog?.bmi ?? "—"}</p>
+                <p className="mt-1 text-xs text-slate-500">Latest BMI</p>
+                <p className="mt-2 text-xs text-slate-500">{logs.length} body {logs.length === 1 ? "measurement" : "measurements"} logged</p>
+              </div>
+              <div className="rounded-2xl border border-orange-100 bg-white p-4 shadow-sm dark:border-white/5 dark:bg-[#111]">
+                <CheckCircle2 size={19} className="mb-3 text-orange-500" />
+                <p className="text-2xl font-black">{completedThisWeek.length}</p>
+                <p className="mt-1 text-xs text-slate-500">Workouts completed this week</p>
+                <p className="mt-2 text-xs text-slate-500">
+                  {weeklyTarget ? `Goal: ${weeklyTarget} per week` : `${completedSessions.length} completed all time`}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-orange-100 bg-white p-4 shadow-sm dark:border-white/5 dark:bg-[#111]">
+                <Calendar size={19} className="mb-3 text-orange-500" />
+                <p className="text-2xl font-black">{workoutRate === null ? "—" : `${workoutRate}%`}</p>
+                <p className="mt-1 text-xs text-slate-500">Weekly workout completion</p>
+                <p className="mt-2 text-xs text-slate-500">
+                  {scheduledThisWeek.length ? `${completedThisWeek.length} of ${scheduledThisWeek.length} scheduled` : "No dated workouts scheduled this week"}
+                </p>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/5 dark:bg-[#111]">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Target size={19} className="text-orange-500" />
+                    <h2 className="font-bold">Goal progress</h2>
+                  </div>
+                  <p className="mt-2 text-sm text-slate-500">
+                    {goal}{Number.isFinite(targetWeight) && targetWeight > 0 ? ` · Target ${targetWeight} kg` : ""}
+                  </p>
+                </div>
+                {goalProgress !== null && <span className="text-sm font-bold text-orange-500">{goalProgress}%</span>}
+              </div>
+              {goalProgress !== null ? (
+                <div className="mt-4">
+                  <div
+                    role="progressbar"
+                    aria-label="Weight goal progress"
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                    aria-valuenow={goalProgress}
+                    className="h-2 overflow-hidden rounded-full bg-orange-50 dark:bg-white/10"
+                  >
+                    <div className="h-full rounded-full bg-orange-500 transition-all" style={{ width: `${goalProgress}%` }} />
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">
+                    {Math.abs(latestWeight - targetWeight).toFixed(1)} kg to target from your latest log
+                  </p>
+                </div>
+              ) : (
+                <p className="mt-3 text-sm text-slate-500">
+                  {logs.length < 2
+                    ? "Log at least two weights to see your trend toward your goal."
+                    : "Add a target weight in your profile to track goal progress here."}
+                </p>
+              )}
+            </section>
+          </>
+        )}
+
         {/* Log Progress */}
-        <div className="bg-white rounded-2xl p-5">
-          <h3 className="font-bold text-slate-900 mb-4">Log Today's Progress</h3>
+        <div className="rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/5 dark:bg-[#111]">
+          <h2 className="font-bold text-slate-900 dark:text-white mb-1">Log today's progress</h2>
+          <p className="mb-4 text-xs text-slate-500">Regular check-ins help you understand your progress over time.</p>
           <div className="grid grid-cols-2 gap-3 mb-3">
             <div>
               <label className="block text-xs text-slate-500 mb-1">Weight (kg)</label>
@@ -158,33 +377,31 @@ export default function ProgressPage() {
               <input type="number" value={logForm.bmi} readOnly
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-slate-500 text-sm cursor-not-allowed" />
             </div>
+            <div>
+              <label className="block text-xs text-slate-500 mb-1" htmlFor="progress-body-fat">Body fat (%) <span className="text-slate-400">optional</span></label>
+              <input id="progress-body-fat" type="number" min="0" max="100" step="0.1" value={logForm.body_fat}
+                onChange={(e) => setLogForm({ ...logForm, body_fat: e.target.value })}
+                placeholder="e.g. 22.5"
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 mb-1" htmlFor="progress-waist">Waist (cm) <span className="text-slate-400">optional</span></label>
+              <input id="progress-waist" type="number" min="0" step="0.1" value={logForm.waist}
+                onChange={(e) => setLogForm({ ...logForm, waist: e.target.value })}
+                placeholder="e.g. 82"
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
+            </div>
           </div>
-          {logMsg && <p className="text-green-400 text-sm mb-2">{logMsg}</p>}
+          {logMsg && <p role="status" className="text-green-600 dark:text-green-400 text-sm mb-2">{logMsg}</p>}
           <button onClick={handleLogProgress} disabled={logging || !logForm.weight}
-            className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition text-sm">
+            className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition text-sm">
             {logging ? "Logging..." : "Log Progress"}
           </button>
         </div>
 
-        {/* Weight Chart */}
-        {logs.length > 0 && (
-          <div className="bg-white rounded-2xl p-5">
-            <h3 className="font-bold text-slate-900 mb-4">Weight Over Time</h3>
-            <Line data={chartData} options={chartOptions} />
-          </div>
-        )}
-
-        {/* BMI Chart */}
-        {logs.length > 1 && (
-          <div className="bg-white rounded-2xl p-5">
-            <h3 className="font-bold text-slate-900 mb-4">BMI Over Time</h3>
-            <Line data={bmiChart} options={chartOptions} />
-          </div>
-        )}
-
         {/* Weight Prediction */}
-        <div className="bg-white rounded-2xl p-5">
-          <h3 className="font-bold text-slate-900 mb-1">Weight Prediction</h3>
+        <div className="rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/5 dark:bg-[#111]">
+          <h2 className="font-bold text-slate-900 dark:text-white mb-1">Weight prediction</h2>
           <p className="text-slate-500 text-xs mb-4">Predict when you'll reach your goal weight</p>
 
           <div className="space-y-3 mb-4">
@@ -232,21 +449,30 @@ export default function ProgressPage() {
 
         {/* History */}
         {logs.length > 0 && (
-          <div className="bg-white rounded-2xl p-5">
-            <h3 className="font-bold text-slate-900 mb-4">Progress History</h3>
+          <div className="rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/5 dark:bg-[#111]">
+            <h2 className="font-bold text-slate-900 dark:text-white mb-4">Progress history</h2>
             <div className="space-y-2">
               {[...logs].reverse().map((log) => (
                 <div key={log.progress_id} className="flex items-center justify-between py-2 border-b border-slate-200 last:border-0">
                   <span className="text-sm text-slate-500">
-                    {log.log_date ? new Date(log.log_date).toLocaleDateString() : "—"}
+                    {formatPhilippinesDate(log.log_date) || "—"}
                   </span>
                   <div className="flex gap-4 text-sm">
-                    <span className="text-slate-900 font-medium">{log.weight} kg</span>
-                    <span className="text-green-400">BMI {log.bmi}</span>
+                    {log.weight != null && <span className="text-slate-900 dark:text-white font-medium">{log.weight} kg</span>}
+                    {log.bmi != null && <span className="text-orange-600 dark:text-orange-400">BMI {log.bmi}</span>}
+                    {log.body_fat != null && <span className="text-slate-500">{log.body_fat}% fat</span>}
+                    {log.waist != null && <span className="text-slate-500">{log.waist} cm waist</span>}
                   </div>
                 </div>
               ))}
             </div>
+          </div>
+        )}
+        {!loading && logs.length === 0 && (
+          <div className="rounded-2xl border border-dashed border-orange-200 p-6 text-center dark:border-white/10">
+            <Scale size={24} className="mx-auto mb-2 text-orange-500" />
+            <p className="font-semibold">Your progress journey starts here</p>
+            <p className="mt-1 text-sm text-slate-500">Log your first measurement above to start seeing your trends.</p>
           </div>
         )}
       </div>

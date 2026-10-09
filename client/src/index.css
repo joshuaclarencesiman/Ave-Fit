@@ -538,6 +538,19 @@ tbody tr:hover { background: #fff7ed; }
 .ave-page-hero .hero-muted { color: #806f61; }
 .dark .ave-page-hero .hero-muted { color: #a3a3a3; }
 
+.coach-goal-badge {
+  border-color: #fed7aa;
+  background-color: #fff7ed;
+}
+.coach-goal-label { color: #737373; }
+.coach-goal-value { color: #171717; }
+.dark .coach-goal-badge {
+  border-color: #55331f;
+  background-color: #1b1b1b;
+}
+.dark .coach-goal-label { color: #a3a3a3; }
+.dark .coach-goal-value { color: #ffffff; }
+
 /* Avoid accidental pure-black page backgrounds in light portals. */
 .user-portal .portal-content,
 .trainer-portal .portal-content { background: #fffaf5; }

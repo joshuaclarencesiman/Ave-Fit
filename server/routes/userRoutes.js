@@ -2,10 +2,11 @@ const express = require("express");
 const router = express.Router();
 const verifyUser = require("../middleware/userAuthMiddleware");
 const {
-  register, login, googleLogin, verifyEmail, resendVerification, getVerificationStatus,
+  register, login, googleLogin, forgotPassword, resetPassword,
+  verifyEmail, resendVerification, getVerificationStatus,
   getProfile, updateProfile, updatePhoto,
 } = require("../controllers/userController");
-const { getUserWorkoutPlan, getUserPlans, addWorkoutSession, updateWorkoutSession, completeSession, deleteWorkoutSession, resetWeek } = require("../controllers/userWorkoutController");
+const { getUserWorkoutPlan, getUserPlans, addWorkoutSession, updateWorkoutSession, startWorkoutSession, completeSession, deleteWorkoutSession, resetWeek } = require("../controllers/userWorkoutController");
 const { getProgress, logProgress, calculatePrediction, autoPredict, getUserNotifications } = require("../controllers/userProgressController");
 const { getActiveTrainers } = require("../controllers/trainerController");
 const {
@@ -16,6 +17,8 @@ const {
 router.post("/register", signupLimiter, register);
 router.post("/login", userLoginLimiter, login);
 router.post("/google-login", userLoginLimiter, googleLogin);
+router.post("/forgot-password", userLoginLimiter, forgotPassword);
+router.post("/reset-password", userLoginLimiter, resetPassword);
 
 // Email verification (public: the member has no session until they are verified
 // and approved, so these cannot sit behind verifyUser)
@@ -33,6 +36,7 @@ router.get("/workouts", verifyUser, getUserWorkoutPlan);
 router.get("/plans", verifyUser, getUserPlans);
 router.post("/workouts", verifyUser, addWorkoutSession);
 router.put("/workouts/:id", verifyUser, updateWorkoutSession);
+router.put("/workouts/:id/start", verifyUser, startWorkoutSession);
 router.put("/workouts/:id/complete", verifyUser, completeSession);
 router.delete("/workouts/:id", verifyUser, deleteWorkoutSession);
 router.delete("/workouts/reset/week", verifyUser, resetWeek);

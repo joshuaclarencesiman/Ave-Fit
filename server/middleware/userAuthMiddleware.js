@@ -1,5 +1,6 @@
 const jwt = require("jsonwebtoken");
 const pool = require("../db");
+const { expireMemberships } = require("../db");
 
 const verifyUser = async (req, res, next) => {
   const authHeader = req.headers["authorization"];
@@ -11,6 +12,8 @@ const verifyUser = async (req, res, next) => {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     if (!decoded.user_id) return res.status(403).json({ success: false, message: "Invalid user token." });
+
+    await expireMemberships(decoded.user_id);
 
     const result = await pool.query(
       "SELECT user_id, account_status, email_verified, token_version FROM users WHERE user_id = $1",
@@ -37,13 +40,22 @@ const verifyUser = async (req, res, next) => {
         status: status || "Pending",
         message: status === "Rejected"
           ? "Your AveFit account was not approved. Please contact the gym administrator."
-          : "Your account is still pending approval. Please wait 1-3 working days while the gym administrator reviews your registration."
+          : status === "Inactive"
+            ? "Your membership has expired. Please contact the gym administrator to reactivate your account."
+            : "Your account is still pending approval. Please wait 1-3 working days while the gym administrator reviews your registration."
       });
     }
 
     req.user = decoded;
     next();
   } catch (err) {
+    if (!["JsonWebTokenError", "TokenExpiredError", "NotBeforeError"].includes(err.name)) {
+      console.error("verifyUser error:", err.message);
+      return res.status(500).json({
+        success: false,
+        message: "Unable to verify account status right now.",
+      });
+    }
     return res.status(403).json({ success: false, message: "Invalid or expired token." });
   }
 };
