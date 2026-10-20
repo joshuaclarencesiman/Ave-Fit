@@ -1,12 +1,7 @@
 import { useEffect, useState } from "react";
-<<<<<<< HEAD
 import { Search, CheckCircle, XCircle, Trash2, X, UserRoundCog, UserRound, Save, KeyRound, ShieldCheck } from "lucide-react";
 import api from "../services/api";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
-=======
-import { Search, CheckCircle, XCircle, Trash2, X, UserRoundCog, UserRound, Save } from "lucide-react";
-import api from "../services/api";
->>>>>>> origin/master
 
 const statusColors = {
   Active: "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-400",
@@ -15,7 +10,6 @@ const statusColors = {
 };
 
 const MEMBER_STATUS_OPTIONS = ["Active", "Inactive"];
-<<<<<<< HEAD
 const PROFILE_CHANGE_LABELS = {
   first_name: "First name",
   last_name: "Last name",
@@ -45,8 +39,6 @@ const formatChangeValue = (value) => {
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 };
-=======
->>>>>>> origin/master
 
 function getBMICategory(bmi) {
   if (!bmi) return { label: "N/A", color: "text-slate-400" };
@@ -108,11 +100,7 @@ function MemberPhoto({ member, large = false }) {
 }
 
 function MemberModal({ member, onClose, onSave }) {
-<<<<<<< HEAD
   const [form, setForm] = useState(member || { full_name: "", email: "", phone: "", gender: "", age: "", height: "", weight: "", fitness_goal: "", preferred_workout_time: "" });
-=======
-  const [form, setForm] = useState(member || { full_name: "", email: "", phone: "", gender: "", age: "", height: "", weight: "", fitness_goal: "" });
->>>>>>> origin/master
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   // Active/Inactive are the admin-selectable statuses; keep the member's current
@@ -146,10 +134,7 @@ function MemberModal({ member, onClose, onSave }) {
               {label:"Full Name *",key:"full_name",type:"text",span:true}, {label:"Email *",key:"email",type:"email",span:true},
               {label:"Phone",key:"phone",type:"text"}, {label:"Gender",key:"gender",type:"select",options:["","Male","Female"]},
               {label:"Age",key:"age",type:"number"}, {label:"Fitness Goal",key:"fitness_goal",type:"select",options:["","Weight Loss","Muscle Gain","General Fitness","Endurance"]},
-<<<<<<< HEAD
               {label:"Preferred Workout Time",key:"preferred_workout_time",type:"select",options:["","Morning","Afternoon","Evening","Flexible"]},
-=======
->>>>>>> origin/master
               {label:"Height (cm)",key:"height",type:"number"}, {label:"Weight (kg)",key:"weight",type:"number"},
             ].map(f => <div key={f.key} className={f.span ? "col-span-2" : ""}>
               <label className="block text-sm font-medium text-slate-600 dark:text-gray-300 mb-1">{f.label}</label>
@@ -186,14 +171,11 @@ function ViewModal({ member, trainers, onClose, onEdit, onAssign, onMembershipUp
   const assignedTrainer = trainers.find(t => Number(t.trainer_id) === Number(member.trainer_id));
   const canEditMembershipAndCoach = String(member.status || "").trim() === "Active";
 
-<<<<<<< HEAD
   useEffect(() => {
     setMembershipMonths(member.membership_months || "");
     setSelectedTrainer(member.trainer_id || "");
   }, [member.member_id, member.membership_months, member.trainer_id]);
 
-=======
->>>>>>> origin/master
   const saveCoach = async () => {
     setSaving(true); setError("");
     try { await onAssign(member, selectedTrainer || null); }
@@ -240,11 +222,7 @@ function ViewModal({ member, trainers, onClose, onEdit, onAssign, onMembershipUp
 
         <div className="p-6 space-y-5">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-<<<<<<< HEAD
             {[{label:"Email",value:member.email},{label:"Email Verified",value:member.email_verified?"Yes":"No"},{label:"Phone",value:member.phone},{label:"Gender",value:member.gender},{label:"Age",value:member.age?`${member.age} yrs`:"—"},{label:"Height",value:member.height?`${member.height} cm`:"—"},{label:"Weight",value:member.weight?`${member.weight} kg`:"—"},{label:"Fitness Goal",value:member.fitness_goal},{label:"Preferred Workout Time",value:member.preferred_workout_time},{label:"Status",value:member.status}].map(x=><div key={x.label} className="bg-slate-50 dark:bg-[#222] rounded-xl p-3"><p className="text-xs text-slate-400">{x.label}</p><p className="mt-1 font-semibold text-slate-700 dark:text-gray-200 break-words">{x.value || "—"}</p></div>)}
-=======
-            {[{label:"Email",value:member.email},{label:"Email Verified",value:member.email_verified?"Yes":"No"},{label:"Phone",value:member.phone},{label:"Gender",value:member.gender},{label:"Age",value:member.age?`${member.age} yrs`:"—"},{label:"Height",value:member.height?`${member.height} cm`:"—"},{label:"Weight",value:member.weight?`${member.weight} kg`:"—"},{label:"Fitness Goal",value:member.fitness_goal},{label:"Status",value:member.status}].map(x=><div key={x.label} className="bg-slate-50 dark:bg-[#222] rounded-xl p-3"><p className="text-xs text-slate-400">{x.label}</p><p className="mt-1 font-semibold text-slate-700 dark:text-gray-200 break-words">{x.value || "—"}</p></div>)}
->>>>>>> origin/master
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900 p-4 text-center">
@@ -288,11 +266,7 @@ function ViewModal({ member, trainers, onClose, onEdit, onAssign, onMembershipUp
               </label>
             </div>
             {membershipError && <p role="alert" className="mt-2 text-sm text-red-500">{membershipError}</p>}
-<<<<<<< HEAD
             {!canEditMembershipAndCoach && <p className="mt-2 text-xs text-slate-500">Membership editing is locked until this member is active. Approve or activate the member to edit.</p>}
-=======
-            {!canEditMembershipAndCoach && <p className="mt-2 text-xs text-slate-500">Membership editing is locked for rejected members. Set the member to active or approved to edit.</p>}
->>>>>>> origin/master
             <button
               type="button"
               onClick={saveMembership}
@@ -313,11 +287,7 @@ function ViewModal({ member, trainers, onClose, onEdit, onAssign, onMembershipUp
               {trainers.filter(t=>!t.status || t.status === "Active").map(t=><option key={t.trainer_id} value={t.trainer_id} className="bg-white text-gray-900 dark:bg-[#111] dark:text-white">{t.full_name} — {t.goal_specialty || "General Fitness"}</option>)}
             </select>
             {error && <p className="text-sm text-red-500 mt-2">{error}</p>}
-<<<<<<< HEAD
             {!canEditMembershipAndCoach && <p className="mt-2 text-xs text-slate-500">Coach assignment is locked until this member is active.</p>}
-=======
-            {!canEditMembershipAndCoach && <p className="mt-2 text-xs text-slate-500">Coach assignment is locked for rejected members. Set the member to active or approved to edit.</p>}
->>>>>>> origin/master
             <button onClick={saveCoach} disabled={!canEditMembershipAndCoach || saving} className="w-full mt-4 flex items-center justify-center gap-2 py-4 rounded-2xl bg-orange-500 hover:bg-orange-600 text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed"><Save size={18}/>{saving?"Saving...":"Save Designated Coach"}</button>
           </div>
         </div>
@@ -333,7 +303,6 @@ function ViewModal({ member, trainers, onClose, onEdit, onAssign, onMembershipUp
 
 export default function Members() {
   const [members,setMembers]=useState([]), [trainers,setTrainers]=useState([]), [loading,setLoading]=useState(true), [fetchError,setFetchError]=useState(""), [search,setSearch]=useState(""), [filter,setFilter]=useState("All"), [showAddModal,setShowAddModal]=useState(false), [viewMember,setViewMember]=useState(null), [editMember,setEditMember]=useState(null);
-<<<<<<< HEAD
   const [confirmMember, setConfirmMember] = useState(null);
   const [deletingMember, setDeletingMember] = useState(false);
   const [deleteError, setDeleteError] = useState("");
@@ -342,43 +311,32 @@ export default function Members() {
   const [reviewRequestToReject, setReviewRequestToReject] = useState(null);
   const [reviewMessage, setReviewMessage] = useState("");
   const [reviewError, setReviewError] = useState("");
-=======
->>>>>>> origin/master
 
   const fetchData = async () => {
     setLoading(true); setFetchError("");
     try {
-<<<<<<< HEAD
       const [m,t,requests] = await Promise.all([
         api.get("/members"),
         api.get("/trainers"),
         api.get("/members/change-requests"),
       ]);
-=======
-      const [m,t] = await Promise.all([api.get("/members"), api.get("/trainers")]);
->>>>>>> origin/master
 
       // The API returns arrays directly. Also support { data: [...] } responses.
       const memberRows = Array.isArray(m.data) ? m.data : (m.data?.data || []);
       const trainerRows = Array.isArray(t.data) ? t.data : (t.data?.data || []);
 
       setMembers(memberRows);
-<<<<<<< HEAD
       setViewMember((current) => {
         if (!current) return current;
         return memberRows.find((row) => Number(row.member_id) === Number(current.member_id)) || current;
       });
       setTrainers(trainerRows);
       setChangeRequests(requests.data?.data || []);
-=======
-      setTrainers(trainerRows);
->>>>>>> origin/master
     } catch (err) { console.error(err); setFetchError(err.response?.data?.message || err.message || "Couldn't load members."); }
     finally { setLoading(false); }
   };
   useEffect(()=>{fetchData();},[]);
 
-<<<<<<< HEAD
   const handleReviewChangeRequest = async (request, decision) => {
     setReviewingRequestId(request.request_id);
     setReviewMessage("");
@@ -417,11 +375,6 @@ export default function Members() {
       setDeletingMember(false);
     }
   };
-=======
-  const handleApprove=async id=>{try{await api.put(`/members/${id}/approve`);await fetchData();}catch(e){alert(e.response?.data?.message||"Failed to update member status.");}};
-  const handleReject=async id=>{try{await api.put(`/members/${id}/reject`);await fetchData();}catch(e){alert(e.response?.data?.message||"Failed to deactivate member.");}};
-  const handleDelete=async id=>{if(!window.confirm("Delete this member permanently?"))return;try{await api.delete(`/members/${id}`);await fetchData();}catch(e){alert(e.response?.data?.message||"Failed to delete member.");}};
->>>>>>> origin/master
   const handleAssign=async(member,trainer_id)=>{
     await api.put(`/members/${member.member_id}/trainer`,{trainer_id});
     await fetchData();
@@ -494,18 +447,14 @@ export default function Members() {
     {showAddModal&&<MemberModal onClose={()=>setShowAddModal(false)} onSave={handleMemberSave}/>} 
     {editMember&&<MemberModal member={editMember} onClose={()=>setEditMember(null)} onSave={handleMemberSave}/>} 
     {viewMember&&<ViewModal member={viewMember} trainers={trainers} onClose={()=>setViewMember(null)} onEdit={m=>setEditMember(m)} onAssign={handleAssign} onMembershipUpdate={handleMembershipUpdate}/>}
-<<<<<<< HEAD
     {confirmMember&&<ConfirmDialog title={`Delete ${confirmMember.full_name || "this member"} permanently?`} description="This action cannot be undone. The member’s account and associated records will be permanently deleted." confirmLabel="Delete member" isLoading={deletingMember} error={deleteError} onCancel={()=>{if(!deletingMember){setConfirmMember(null);setDeleteError("");}}} onConfirm={confirmDelete}/>}
     {reviewRequestToReject&&<ConfirmDialog title="Reject this change request?" description="The member's current profile and password will remain unchanged. The member will be notified by email." confirmLabel="Reject request" isLoading={reviewingRequestId === reviewRequestToReject.request_id} error={reviewError} onCancel={()=>{if(!reviewingRequestId)setReviewRequestToReject(null);}} onConfirm={()=>handleReviewChangeRequest(reviewRequestToReject, "reject")}/>}
-=======
->>>>>>> origin/master
 
     <header className="ave-page-hero rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8"><p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">People management</p><div className="mt-2 flex flex-wrap items-end justify-between gap-4"><div><h1 className="text-3xl font-black text-slate-900 dark:text-white">Members</h1><p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Manage accounts, approvals, fitness profiles, and coach assignments.</p></div></div></header>
     {fetchError&&<div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">⚠️ {fetchError}</div>}
     <section aria-label="Member summary" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
       {[{label:"Total members",value:members.length},{label:"Active members",value:activeCount},{label:"Pending approval",value:pendingCount}].map(item=><div key={item.label} className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-[#111]"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{item.label}</p><p className="mt-2 text-2xl font-black text-slate-900 dark:text-white">{loading?"—":item.value}</p></div>)}
     </section>
-<<<<<<< HEAD
     {(reviewMessage || reviewError) && <p role={reviewError ? "alert" : "status"} className={`rounded-xl border px-4 py-3 text-sm ${reviewError ? "border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300" : "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-200"}`}>{reviewError || reviewMessage}</p>}
     {changeRequests.length > 0 && (
       <section aria-labelledby="member-change-requests-title" className="space-y-4 rounded-2xl border border-orange-200 bg-orange-50/60 p-4 dark:border-orange-500/20 dark:bg-orange-500/[0.04] sm:p-5">
@@ -575,11 +524,6 @@ export default function Members() {
     <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-[#111] sm:flex-row sm:items-center sm:justify-between"><label className="flex min-h-10 w-full items-center gap-2 rounded-xl bg-slate-100 px-3 dark:bg-white/5 sm:max-w-xs"><Search size={16} className="shrink-0 text-slate-400"/><span className="sr-only">Search members</span><input type="search" placeholder="Search name or email..." value={search} onChange={e=>setSearch(e.target.value)} className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-500 dark:text-white"/></label><div role="group" aria-label="Filter  members by status" className="flex gap-2 overflow-x-auto">{["All","Active","Pending","Inactive","Rejected"].map(s=><button key={s} type="button" aria-pressed={filter===s} onClick={()=>setFilter(s)} className={`min-h-9 rounded-lg px-3 text-sm font-semibold transition ${filter===s?"bg-orange-500 text-white":"bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-white/5 dark:text-slate-300 dark:hover:bg-white/10"}`}>{s}{s==="Pending"&&pendingCount>0?` (${pendingCount})`:""}</button>)}</div></div>
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-white/10 dark:bg-[#111]">
       {loading?<div className="p-8 space-y-3">{[...Array(5)].map((_,i)=><div key={i} className="h-10 bg-slate-100 dark:bg-gray-800 rounded-lg animate-pulse"/>)}</div>:<div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-slate-50 dark:bg-[#202020] border-b border-slate-200 dark:border-gray-800"><tr>{["Member","Goal","Designated Coach","BMI","Status","Membership","Joined","Actions"].map(h=><th key={h} className="text-left px-6 py-4 font-semibold text-slate-600 dark:text-gray-300">{h}</th>)}</tr></thead><tbody className="divide-y divide-slate-100 dark:divide-gray-800">{filtered.length===0?<tr><td colSpan={8} className="text-center py-12 text-slate-400">No members found.</td></tr>:filtered.map(member=>{const bmiInfo=getBMICategory(member.bmi);const membershipStatus=getMembershipStatus(member);const memberStatus=member.status?.trim().toLowerCase();return <tr key={member.member_id} onClick={()=>setViewMember(member)} className="hover:bg-slate-50 dark:hover:bg-[#202020] transition cursor-pointer"><td className="px-6 py-4"><div className="flex items-center gap-3"><MemberPhoto member={member}/><div><p className="font-semibold text-slate-800 dark:text-white">{member.full_name}</p><p className="text-slate-400 text-xs">{member.email}</p><p className={`mt-0.5 text-[11px] font-semibold ${member.email_verified?"text-green-500":"text-orange-500"}`}>{member.email_verified?"✓ Email verified":"⚠ Email not verified"}</p></div></div></td><td className="px-6 py-4 text-slate-600 dark:text-gray-300">{member.fitness_goal||"—"}</td><td className="px-6 py-4">{member.trainer_id?<div className="flex items-center gap-2 text-slate-700 dark:text-gray-200">{member.trainer_photo_url?<img src={member.trainer_photo_url} alt="" className="w-8 h-8 rounded-full object-contain bg-black"/>:<div className="w-8 h-8 rounded-full bg-orange-100 dark:bg-orange-500/15 flex items-center justify-center text-orange-500 text-xs font-bold">{member.trainer_name?.charAt(0)||"?"}</div>}<span>{member.trainer_name||"Assigned Coach"}</span></div>:<span className="text-slate-400">Not assigned</span>}</td><td className="px-6 py-4"><span className="font-semibold text-slate-800 dark:text-white">{member.bmi?parseFloat(member.bmi).toFixed(1):"—"}</span><span className={`ml-2 text-xs font-medium ${bmiInfo.color}`}>{bmiInfo.label}</span></td><td className="px-6 py-4"><span className={`px-3 py-1 rounded-full text-xs font-semibold ${statusColors[member.status]||statusColors.Inactive}`}>{member.status||"Inactive"}</span></td><td className="px-6 py-4"><div className="space-y-1"><p className="font-semibold text-slate-800 dark:text-white">{member.membership_months ? `${member.membership_months === 12 ? "1 year" : `${member.membership_months} ${member.membership_months === 1 ? "month" : "months"}`}` : "Not recorded"}</p><span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${membershipStatus === "Active" ? "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-400" : membershipStatus === "Expired" ? "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400" : membershipStatus === "Upcoming" ? "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400" : "bg-slate-100 text-slate-600 dark:bg-slate-700/50 dark:text-slate-300"}`}>{membershipStatus}</span>{member.membership_start_date && member.membership_end_date && <p className="text-xs text-slate-500 dark:text-slate-400">{formatMembershipDate(member.membership_start_date)} – {formatMembershipDate(member.membership_end_date)}</p>}</div></td><td className="px-6 py-4 text-slate-500 dark:text-gray-400">{member.joined_date?formatMembershipDate(member.joined_date):"—"}</td><td className="px-6 py-4" onClick={e=>e.stopPropagation()}><div className="flex items-center gap-2"><button onClick={()=>setViewMember(member)} className="p-1.5 rounded-lg hover:bg-orange-50 dark:hover:bg-orange-500/10 text-orange-500 transition" title="View member / change coach"><UserRoundCog size={16}/></button>{memberStatus==="pending"&&<><button onClick={()=>handleApprove(member.member_id)} className="p-1.5 rounded-lg transition hover:bg-green-50 dark:hover:bg-green-500/10 text-green-500" title="Approve member"><CheckCircle size={16}/></button><button onClick={()=>handleReject(member.member_id)} className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10 text-red-400 transition" title="Reject"><XCircle size={16}/></button></>}{(memberStatus==="inactive"||memberStatus==="rejected")&&<button onClick={()=>handleApprove(member.member_id)} className="inline-flex items-center gap-1 rounded-lg bg-green-600 px-2 py-1.5 text-xs font-semibold text-white transition hover:bg-green-700" title={memberStatus==="rejected"?"Approve member":"Reactivate member"}><CheckCircle size={14}/>{memberStatus==="rejected"?"Approve":"Activate"}</button>}<button onClick={()=>handleDelete(member.member_id)} className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10 text-red-400 transition" title="Delete"><Trash2 size={16}/></button></div></td></tr>})}</tbody></table></div>}
-=======
-    <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-[#111] sm:flex-row sm:items-center sm:justify-between"><label className="flex min-h-10 w-full items-center gap-2 rounded-xl bg-slate-100 px-3 dark:bg-white/5 sm:max-w-xs"><Search size={16} className="shrink-0 text-slate-400"/><span className="sr-only">Search members</span><input type="search" placeholder="Search name or email..." value={search} onChange={e=>setSearch(e.target.value)} className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-500 dark:text-white"/></label><div role="group" aria-label="Filter members by status" className="flex gap-2 overflow-x-auto">{["All","Active","Pending","Inactive"].map(s=><button key={s} type="button" aria-pressed={filter===s} onClick={()=>setFilter(s)} className={`min-h-9 rounded-lg px-3 text-sm font-semibold transition ${filter===s?"bg-orange-500 text-white":"bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-white/5 dark:text-slate-300 dark:hover:bg-white/10"}`}>{s}{s==="Pending"&&pendingCount>0?` (${pendingCount})`:""}</button>)}</div></div>
-    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-white/10 dark:bg-[#111]">
-      {loading?<div className="p-8 space-y-3">{[...Array(5)].map((_,i)=><div key={i} className="h-10 bg-slate-100 dark:bg-gray-800 rounded-lg animate-pulse"/>)}</div>:<div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-slate-50 dark:bg-[#202020] border-b border-slate-200 dark:border-gray-800"><tr>{["Member","Goal","Designated Coach","BMI","Status","Membership","Joined","Actions"].map(h=><th key={h} className="text-left px-6 py-4 font-semibold text-slate-600 dark:text-gray-300">{h}</th>)}</tr></thead><tbody className="divide-y divide-slate-100 dark:divide-gray-800">{filtered.length===0?<tr><td colSpan={8} className="text-center py-12 text-slate-400">No members found.</td></tr>:filtered.map(member=>{const bmiInfo=getBMICategory(member.bmi);const membershipStatus=getMembershipStatus(member);const memberStatus=member.status?.trim().toLowerCase();return <tr key={member.member_id} onClick={()=>setViewMember(member)} className="hover:bg-slate-50 dark:hover:bg-[#202020] transition cursor-pointer"><td className="px-6 py-4"><div className="flex items-center gap-3"><MemberPhoto member={member}/><div><p className="font-semibold text-slate-800 dark:text-white">{member.full_name}</p><p className="text-slate-400 text-xs">{member.email}</p><p className={`mt-0.5 text-[11px] font-semibold ${member.email_verified?"text-green-500":"text-orange-500"}`}>{member.email_verified?"✓ Email verified":"⚠ Email not verified"}</p></div></div></td><td className="px-6 py-4 text-slate-600 dark:text-gray-300">{member.fitness_goal||"—"}</td><td className="px-6 py-4">{member.trainer_id?<div className="flex items-center gap-2 text-slate-700 dark:text-gray-200">{member.trainer_photo_url?<img src={member.trainer_photo_url} alt="" className="w-8 h-8 rounded-full object-contain bg-black"/>:<div className="w-8 h-8 rounded-full bg-orange-100 dark:bg-orange-500/15 flex items-center justify-center text-orange-500 text-xs font-bold">{member.trainer_name?.charAt(0)||"?"}</div>}<span>{member.trainer_name||"Assigned Coach"}</span></div>:<span className="text-slate-400">Not assigned</span>}</td><td className="px-6 py-4"><span className="font-semibold text-slate-800 dark:text-white">{member.bmi?parseFloat(member.bmi).toFixed(1):"—"}</span><span className={`ml-2 text-xs font-medium ${bmiInfo.color}`}>{bmiInfo.label}</span></td><td className="px-6 py-4"><span className={`px-3 py-1 rounded-full text-xs font-semibold ${statusColors[member.status]||statusColors.Inactive}`}>{member.status||"Inactive"}</span></td><td className="px-6 py-4"><div className="space-y-1"><p className="font-semibold text-slate-800 dark:text-white">{member.membership_months ? `${member.membership_months === 12 ? "1 year" : `${member.membership_months} ${member.membership_months === 1 ? "month" : "months"}`}` : "Not recorded"}</p><span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${membershipStatus === "Active" ? "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-400" : membershipStatus === "Expired" ? "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400" : membershipStatus === "Upcoming" ? "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400" : "bg-slate-100 text-slate-600 dark:bg-slate-700/50 dark:text-slate-300"}`}>{membershipStatus}</span>{member.membership_start_date && member.membership_end_date && <p className="text-xs text-slate-500 dark:text-slate-400">{formatMembershipDate(member.membership_start_date)} – {formatMembershipDate(member.membership_end_date)}</p>}</div></td><td className="px-6 py-4 text-slate-500 dark:text-gray-400">{member.joined_date?formatMembershipDate(member.joined_date):"—"}</td><td className="px-6 py-4" onClick={e=>e.stopPropagation()}><div className="flex items-center gap-2"><button onClick={()=>setViewMember(member)} className="p-1.5 rounded-lg hover:bg-orange-50 dark:hover:bg-orange-500/10 text-orange-500 transition" title="View member / change coach"><UserRoundCog size={16}/></button>{memberStatus==="pending"&&<><button onClick={()=>handleApprove(member.member_id)} className="p-1.5 rounded-lg transition hover:bg-green-50 dark:hover:bg-green-500/10 text-green-500" title="Approve member"><CheckCircle size={16}/></button><button onClick={()=>handleReject(member.member_id)} className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10 text-red-400 transition" title="Reject"><XCircle size={16}/></button></>}{memberStatus==="inactive"&&<button onClick={()=>handleApprove(member.member_id)} className="inline-flex items-center gap-1 rounded-lg bg-green-600 px-2 py-1.5 text-xs font-semibold text-white transition hover:bg-green-700" title="Reactivate member"><CheckCircle size={14}/>Activate</button>}<button onClick={()=>handleDelete(member.member_id)} className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10 text-red-400 transition" title="Delete"><Trash2 size={16}/></button></div></td></tr>})}</tbody></table></div>}
->>>>>>> origin/master
       <div className="px-6 py-3 border-t border-slate-100 dark:border-gray-800 text-sm text-slate-400">Showing {filtered.length} of {members.length} registered members</div>
     </div>
   </div>;

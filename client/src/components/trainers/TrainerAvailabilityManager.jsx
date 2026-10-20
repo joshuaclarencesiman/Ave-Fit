@@ -2,14 +2,9 @@ import { useEffect, useState } from "react";
 import { CalendarClock, Plus, Save, Trash2, X } from "lucide-react";
 import api from "../../services/api";
 import trainerApi from "../../trainerApi";
+import { AVAILABILITY_RANGES, findAvailabilityRange } from "../../utils/availabilityTime";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-const AVAILABILITY_RANGES = [
-  { value: "06:00|12:00", label: "Morning · 6:00 AM–12:00 PM", start_time: "06:00", end_time: "12:00" },
-  { value: "12:00|17:00", label: "Afternoon · 12:00 PM–5:00 PM", start_time: "12:00", end_time: "17:00" },
-  { value: "17:00|22:00", label: "Evening · 5:00 PM–10:00 PM", start_time: "17:00", end_time: "22:00" },
-  { value: "06:00|22:00", label: "Flexible · 6:00 AM–10:00 PM", start_time: "06:00", end_time: "22:00" },
-];
 
 const freshId = () => `${Date.now()}-${Math.random()}`;
 const MIN_AVAILABILITY_TIME = 6 * 60;
@@ -215,7 +210,7 @@ export default function TrainerAvailabilityManager({
                       <div key={slot.id} className="flex flex-wrap items-center gap-2">
                         {isAdmin ? (
                           <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
-                            {AVAILABILITY_RANGES.find((range) => range.start_time === slot.start_time && range.end_time === slot.end_time)?.label
+                            {findAvailabilityRange(`${slot.start_time}|${slot.end_time}`)?.label
                               || `${slot.start_time}–${slot.end_time}`}
                           </p>
                         ) : (
@@ -223,7 +218,7 @@ export default function TrainerAvailabilityManager({
                             <label className="sr-only" htmlFor={`range-${slot.id}`}>{day} availability time</label>
                             <select
                               id={`range-${slot.id}`}
-                              value={AVAILABILITY_RANGES.find((range) => range.start_time === slot.start_time && range.end_time === slot.end_time)?.value || "custom"}
+                              value={findAvailabilityRange(`${slot.start_time}|${slot.end_time}`)?.value || "custom"}
                               onChange={(event) => updateSlotRange(slot.id, event.target.value)}
                               className="max-w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 dark:border-gray-700 dark:bg-[#111] dark:text-white"
                             >

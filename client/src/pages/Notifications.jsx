@@ -1,21 +1,14 @@
-<<<<<<< HEAD
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Bell, CheckCheck, Trash2, Circle } from "lucide-react";
 import { Link } from "react-router-dom";
 import { createNotificationsApi } from "../services/notificationsApi";
 import BrowserPushSettings from "../components/notifications/BrowserPushSettings";
-=======
-import { useEffect, useState } from "react";
-import { Bell, CheckCheck, Trash2, Circle } from "lucide-react";
-import api from "../services/api";
->>>>>>> origin/master
 
 const typeColors = {
   workout: "border-green-200 bg-green-50 text-green-800 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-300",
   membership: "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300",
   payment: "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300",
   alert: "border-red-200 bg-red-50 text-red-800 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300",
-<<<<<<< HEAD
   bmi_reminder: "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300",
   general: "border-slate-200 bg-slate-100 text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-300",
 };
@@ -26,12 +19,6 @@ const notificationTypeLabel = (type) => ({
 
 export default function Notifications({ audience = "admin" }) {
   const notificationsApi = useMemo(() => createNotificationsApi(audience), [audience]);
-=======
-  general: "border-slate-200 bg-slate-100 text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-300",
-};
-
-export default function Notifications() {
->>>>>>> origin/master
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("All");
@@ -39,42 +26,25 @@ export default function Notifications() {
   const [actionError, setActionError] = useState("");
   const [busyAction, setBusyAction] = useState("");
 
-<<<<<<< HEAD
   const fetchNotifications = useCallback(() => {
     setLoading(true);
     setFetchError("");
     notificationsApi.get("/")
-=======
-  const fetchNotifications = () => {
-    setLoading(true);
-    setFetchError("");
-    api.get("/notifications")
->>>>>>> origin/master
       .then((res) => setNotifications(res.data.data))
       .catch((err) => {
         console.error(err);
         setFetchError(err.response?.data?.message || err.message || "Couldn't load notifications.");
       })
       .finally(() => setLoading(false));
-<<<<<<< HEAD
   }, [notificationsApi]);
 
   useEffect(() => { fetchNotifications(); }, [fetchNotifications]);
-=======
-  };
-
-  useEffect(() => { fetchNotifications(); }, []);
->>>>>>> origin/master
 
   const handleMarkRead = async (id) => {
     setActionError("");
     setBusyAction(String(id));
     try {
-<<<<<<< HEAD
       await notificationsApi.put(`/${id}/read`);
-=======
-      await api.put(`/notifications/${id}/read`);
->>>>>>> origin/master
       setNotifications((prev) => prev.map((n) => n.notification_id === id ? { ...n, is_read: true } : n));
     } catch (err) {
       setActionError(err.response?.data?.message || "Unable to mark this notification as read.");
@@ -87,11 +57,7 @@ export default function Notifications() {
     setActionError("");
     setBusyAction("all");
     try {
-<<<<<<< HEAD
       await notificationsApi.put("/mark-all-read");
-=======
-      await api.put("/notifications/mark-all-read");
->>>>>>> origin/master
       setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
     } catch (err) {
       setActionError(err.response?.data?.message || "Unable to mark notifications as read.");
@@ -104,11 +70,7 @@ export default function Notifications() {
     setActionError("");
     setBusyAction(String(id));
     try {
-<<<<<<< HEAD
       await notificationsApi.delete(`/${id}`);
-=======
-      await api.delete(`/notifications/${id}`);
->>>>>>> origin/master
       setNotifications((prev) => prev.filter((n) => n.notification_id !== id));
     } catch (err) {
       setActionError(err.response?.data?.message || "Unable to delete this notification.");
@@ -135,11 +97,7 @@ export default function Notifications() {
       {actionError && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">{actionError}</div>}
       <header className="ave-page-hero flex flex-wrap items-end justify-between gap-4 rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8">
         <div>
-<<<<<<< HEAD
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">{audience === "admin" ? "Admin inbox" : audience === "trainer" ? "Coach inbox" : "Member inbox"}</p>
-=======
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Admin inbox</p>
->>>>>>> origin/master
           <h1 className="mt-2 text-3xl font-black text-slate-900 dark:text-white">Notifications</h1>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
             {unreadCount > 0 ? `${unreadCount} unread notification${unreadCount > 1 ? "s" : ""}` : "All caught up!"}
@@ -157,11 +115,8 @@ export default function Notifications() {
         )}
       </header>
 
-<<<<<<< HEAD
       <BrowserPushSettings audience={audience} />
 
-=======
->>>>>>> origin/master
       {/* Filter tabs */}
       <div className="flex gap-2" role="group" aria-label="Filter notifications">
         {["All", "Unread", "Read"].map((f) => (
@@ -196,11 +151,7 @@ export default function Notifications() {
           <div className="py-20 text-center">
             <Bell size={40} className="mx-auto text-slate-200 mb-3" />
             <p className="font-semibold text-slate-700 dark:text-slate-200">{notifications.length ? `No ${filter.toLowerCase()} notifications.` : "You’re all caught up."}</p>
-<<<<<<< HEAD
             <p className="mt-1 text-sm text-slate-500">{notifications.length ? "Choose another filter to view your notifications." : "New updates will appear here."}</p>
-=======
-            <p className="mt-1 text-sm text-slate-500">{notifications.length ? "Choose another filter to view your notifications." : "New admin updates will appear here."}</p>
->>>>>>> origin/master
           </div>
         ) : (
           <div className="divide-y divide-slate-100">
@@ -232,18 +183,13 @@ export default function Notifications() {
                     )}
                     {notif.notification_type && (
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${typeColors[notif.notification_type] || typeColors.general}`}>
-<<<<<<< HEAD
                         {notificationTypeLabel(notif.notification_type)}
-=======
-                        {notif.notification_type}
->>>>>>> origin/master
                       </span>
                     )}
                     <span className="text-xs text-slate-400">
                       {new Date(notif.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Manila" })}
                     </span>
                   </div>
-<<<<<<< HEAD
                   {notif.target_url?.startsWith("/") && !notif.target_url.startsWith("//") && (
                     <Link
                       to={notif.target_url}
@@ -255,8 +201,6 @@ export default function Notifications() {
                       {notif.notification_type === "bmi_reminder" ? "Update BMI and progress" : "View"}
                     </Link>
                   )}
-=======
->>>>>>> origin/master
                 </div>
 
                 {/* Actions */}

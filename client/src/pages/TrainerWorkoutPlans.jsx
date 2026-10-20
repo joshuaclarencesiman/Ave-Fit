@@ -1,11 +1,26 @@
 import { useEffect, useState } from "react";
-<<<<<<< HEAD
-import { ChevronDown, ClipboardList, LockKeyhole, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { ChevronDown, ClipboardList, LockKeyhole, Pencil, Plus, Trash2, X } from "lucide-react";
 import trainerApi from "../trainerApi";
-import { WORKOUT_STATUS, WORKOUT_STATUSES, workoutStatusBadgeClass } from "../utils/workoutStatus";
+import {
+  WORKOUT_STATUS,
+  WORKOUT_STATUS_FILTERS,
+  workoutStatusLabel,
+  workoutStatusStyle,
+  workoutStatusDescription,
+} from "../utils/workoutStatus";
 
 const INTENSITY_LABELS = ["", "Light", "Easy", "Moderate", "Intense", "Very Intense"];
 const EXERCISE_DIFFICULTIES = ["Beginner", "Moderate", "Advanced"];
+
+// The order the statuses are listed in, reused for the status summary cards
+// and for the order the plan list is shown in.
+const STATUS_SORT_ORDER = {
+  [WORKOUT_STATUS.ACTIVE]: 0,
+  [WORKOUT_STATUS.COMPLETE]: 1,
+  [WORKOUT_STATUS.INCOMPLETE]: 2,
+  [WORKOUT_STATUS.ABSENT]: 3,
+  [WORKOUT_STATUS.SCHEDULED]: 4,
+};
 
 const difficultyRank = (value) => {
   const normalized = String(value || "").trim().toLowerCase();
@@ -20,15 +35,6 @@ const isExerciseAllowedForMember = (exercise, memberLevel) => {
   const memberRank = allowedDifficultyRank(memberLevel);
   const exerciseRank = difficultyRank(exercise?.difficulty);
   return memberRank > 0 && exerciseRank > 0 && exerciseRank <= memberRank;
-=======
-import { ChevronDown, ClipboardList, Plus, Search, Trash2, X } from "lucide-react";
-import trainerApi from "../trainerApi";
-
-const statusColors = {
-  Active: "border-green-200 bg-green-50 text-green-800 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-300",
-  Inactive: "border-slate-200 bg-slate-100 text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-300",
-  Completed: "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300",
->>>>>>> origin/master
 };
 
 const localDateString = (date) => {
@@ -38,7 +44,6 @@ const localDateString = (date) => {
   return `${year}-${month}-${day}`;
 };
 
-<<<<<<< HEAD
 const manilaDateString = () => {
   const parts = new Intl.DateTimeFormat("en", {
     timeZone: "Asia/Manila",
@@ -55,15 +60,12 @@ const isPastWorkoutPlan = (plan) => Boolean(
   String(plan.scheduled_date).slice(0, 10) < manilaDateString()
 );
 
-=======
->>>>>>> origin/master
 const toList = (value) => {
   if (Array.isArray(value)) return value.filter(Boolean);
   if (typeof value !== "string" || !value.trim()) return [];
   return value.replace(/^\{|\}$/g, "").split(",").map((item) => item.trim()).filter(Boolean);
 };
 
-<<<<<<< HEAD
 const formatPreferredWorkoutTime = (value) => ({
   Morning: "Morning (6:00 AM – 12:00 PM)",
   Afternoon: "Afternoon (12:00 PM – 5:00 PM)",
@@ -71,8 +73,6 @@ const formatPreferredWorkoutTime = (value) => ({
   Flexible: "Flexible (6:00 AM – 10:00 PM)",
 }[value] || "Not specified");
 
-=======
->>>>>>> origin/master
 const calculateBmi = (member) => {
   const weight = Number(member.latest_weight ?? member.weight);
   const height = Number(member.height);
@@ -80,7 +80,6 @@ const calculateBmi = (member) => {
   return (weight / ((height / 100) ** 2)).toFixed(1);
 };
 
-<<<<<<< HEAD
 const nextPreferredDate = (preferredDays, reservedDates = []) => {
   const today = new Date();
   const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -91,16 +90,6 @@ const nextPreferredDate = (preferredDays, reservedDates = []) => {
     if ((!preferences.length || preferences.includes(dayNames[candidate.getDay()].toLowerCase()))
       && !reservedDates.includes(date)) {
       return date;
-=======
-const nextPreferredDate = (preferredDays) => {
-  const today = new Date();
-  const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  const preferences = toList(preferredDays).map((day) => day.toLowerCase());
-  for (let offset = 0; offset < 7; offset += 1) {
-    const candidate = new Date(today.getFullYear(), today.getMonth(), today.getDate() + offset);
-    if (!preferences.length || preferences.includes(dayNames[candidate.getDay()].toLowerCase())) {
-      return localDateString(candidate);
->>>>>>> origin/master
     }
   }
   return localDateString(today);
@@ -114,7 +103,6 @@ const isPreferredWorkoutDate = (date, preferredDays) => {
   return preferences.includes(dayNames[weekday].toLowerCase());
 };
 
-<<<<<<< HEAD
 function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
   const [form, setForm] = useState(() => plan ? {
     user_id: String(plan.user_id),
@@ -127,10 +115,6 @@ function PlanModal({ members, exercises, plans, plan, onClose, onSave }) {
       reps: String(session.reps ?? ""),
     })),
   } : {
-=======
-function PlanModal({ members, exercises, onClose, onSave }) {
-  const [form, setForm] = useState({
->>>>>>> origin/master
     user_id: "",
     plan_name: "",
     goal: "",
@@ -141,7 +125,6 @@ function PlanModal({ members, exercises, onClose, onSave }) {
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
   const selectedMember = members.find((member) => String(member.user_id) === form.user_id);
-<<<<<<< HEAD
   const keepingExistingDate = plan
     && String(plan.scheduled_date || "").slice(0, 10) === form.session_date;
   const existingPlanOnDate = !keepingExistingDate && plans.find((item) =>
@@ -156,9 +139,6 @@ function PlanModal({ members, exercises, onClose, onSave }) {
   const matchingExercises = preferredDifficulty
     ? exercises.filter((exercise) => isExerciseAllowedForMember(exercise, selectedMember?.activity_level))
     : [];
-=======
-  const availableDays = toList(selectedMember?.preferred_days);
->>>>>>> origin/master
 
   const setFieldError = (field, message) => {
     setFieldErrors((current) => ({ ...current, [field]: message }));
@@ -177,14 +157,11 @@ function PlanModal({ members, exercises, onClose, onSave }) {
   const getSessionErrors = (session, index) => {
     const errors = {};
     if (!session.exercise_id) errors[`sessions.${index}.exercise_id`] = "Select an exercise.";
-<<<<<<< HEAD
     if (session.exercise_id && form.sessions.some((other, otherIndex) =>
       otherIndex !== index && String(other.exercise_id) === String(session.exercise_id)
     )) {
       errors[`sessions.${index}.exercise_id`] = "Choose an exercise that is not already in this day's plan.";
     }
-=======
->>>>>>> origin/master
     const setsError = integerRangeError(session.sets, "Sets", 1, 6);
     if (setsError) errors[`sessions.${index}.sets`] = setsError;
     const repsError = integerRangeError(session.reps, "Reps", 3, 16);
@@ -199,12 +176,9 @@ function PlanModal({ members, exercises, onClose, onSave }) {
     if (!planName) nextErrors.plan_name = "Plan name is required.";
     if (!form.goal.trim()) nextErrors.goal = "Goal is required. Enter the member's assessment goal.";
     if (!form.session_date) nextErrors.session_date = "Workout date is required.";
-<<<<<<< HEAD
     if (existingPlanOnDate) {
       nextErrors.session_date = "A workout plan already exists for this member on that date. Edit the existing plan instead.";
     }
-=======
->>>>>>> origin/master
     if (form.sessions.length === 0) nextErrors.sessions = "Add at least one exercise.";
 
     form.sessions.forEach((session, index) => {
@@ -220,11 +194,7 @@ function PlanModal({ members, exercises, onClose, onSave }) {
     setSaving(true);
     setError("");
     try {
-<<<<<<< HEAD
       const payload = {
-=======
-      await trainerApi.post("/me/workout-plans", {
->>>>>>> origin/master
         ...form,
         plan_name: planName,
         sessions: form.sessions.map(({ exercise_id, sets, reps }) => ({
@@ -232,7 +202,6 @@ function PlanModal({ members, exercises, onClose, onSave }) {
           sets,
           reps,
         })),
-<<<<<<< HEAD
       };
       if (plan) {
         await trainerApi.put(`/me/workout-plans/${plan.workout_plan_id}`, payload);
@@ -243,13 +212,6 @@ function PlanModal({ members, exercises, onClose, onSave }) {
       onClose();
     } catch (err) {
       setError(err.response?.data?.message || `Failed to ${plan ? "update" : "create"} workout plan.`);
-=======
-      });
-      await onSave();
-      onClose();
-    } catch (err) {
-      setError(err.response?.data?.message || "Failed to create workout plan.");
->>>>>>> origin/master
     } finally {
       setSaving(false);
     }
@@ -271,7 +233,6 @@ function PlanModal({ members, exercises, onClose, onSave }) {
     }));
     const key = `sessions.${index}.${field}`;
     const fieldError = field === "exercise_id"
-<<<<<<< HEAD
       ? !value
         ? "Select an exercise."
         : form.sessions.some((session, sessionIndex) =>
@@ -279,9 +240,6 @@ function PlanModal({ members, exercises, onClose, onSave }) {
         )
           ? "Choose an exercise that is not already in this day's plan."
           : ""
-=======
-      ? (value ? "" : "Select an exercise.")
->>>>>>> origin/master
       : field === "sets"
         ? integerRangeError(value, "Sets", 1, 6)
         : integerRangeError(value, "Reps", 3, 16);
@@ -293,11 +251,7 @@ function PlanModal({ members, exercises, onClose, onSave }) {
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/70 p-4">
       <div className="max-h-[94vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-[#111]">
         <div className="flex items-center justify-between border-b border-slate-200 p-6 dark:border-slate-800">
-<<<<<<< HEAD
           <h2 className="text-xl font-bold text-slate-800 dark:text-white">{plan ? "Edit Workout Plan" : "Create Workout Plan"}</h2>
-=======
-          <h2 className="text-xl font-bold text-slate-800 dark:text-white">Create Workout Plan</h2>
->>>>>>> origin/master
           <button type="button" onClick={onClose} aria-label="Close" className="text-slate-400 hover:text-slate-700 dark:hover:text-white">
             <X size={20} />
           </button>
@@ -311,7 +265,6 @@ function PlanModal({ members, exercises, onClose, onSave }) {
               <select
                 id="trainer-plan-member"
                 value={form.user_id}
-<<<<<<< HEAD
                 disabled={Boolean(plan)}
                 onChange={(event) => {
                   const member = members.find((item) => String(item.user_id) === event.target.value);
@@ -320,16 +273,10 @@ function PlanModal({ members, exercises, onClose, onSave }) {
                   const reservedDates = plans
                     .filter((item) => String(item.user_id) === event.target.value)
                     .map((item) => item.scheduled_date);
-=======
-                onChange={(event) => {
-                  const member = members.find((item) => String(item.user_id) === event.target.value);
-                  const goal = member?.fitness_goal || "";
->>>>>>> origin/master
                   setForm({
                     ...form,
                     user_id: event.target.value,
                     goal,
-<<<<<<< HEAD
                     session_date: member ? nextPreferredDate(member.preferred_days, reservedDates) : "",
                     plan_name: form.plan_name || (member ? `${member.first_name}'s Workout Routine` : ""),
                     sessions: form.sessions.map((session) => {
@@ -338,10 +285,6 @@ function PlanModal({ members, exercises, onClose, onSave }) {
                         ? session
                         : { ...session, exercise_id: "" };
                     }),
-=======
-                    session_date: member ? nextPreferredDate(member.preferred_days) : "",
-                    plan_name: form.plan_name || (member ? `${member.first_name}'s Workout Routine` : ""),
->>>>>>> origin/master
                   });
                   setFieldErrors((current) => ({
                     ...current,
@@ -417,16 +360,10 @@ function PlanModal({ members, exercises, onClose, onSave }) {
                   ["BMI", calculateBmi(selectedMember)],
                   ["Activity", selectedMember.activity_level || "Not specified"],
                   ["Preferred days", toList(selectedMember.preferred_days).join(", ") || "Not specified"],
-<<<<<<< HEAD
                   ["Preferred time", formatPreferredWorkoutTime(selectedMember.preferred_workout_time)],
                   ["Weekly frequency", selectedMember.workout_days_per_week ? `${selectedMember.workout_days_per_week} days` : "Not specified"],
                   ["Session length", selectedMember.workout_duration ? `${selectedMember.workout_duration} min` : "Not specified"],
                   ["Preferred intensity", INTENSITY_LABELS[Number(selectedMember.intensity)] || "Not specified"],
-=======
-                  ["Weekly frequency", selectedMember.workout_days_per_week ? `${selectedMember.workout_days_per_week} days` : "Not specified"],
-                  ["Session length", selectedMember.workout_duration ? `${selectedMember.workout_duration} min` : "Not specified"],
-                  ["Intensity", selectedMember.intensity || "Not specified"],
->>>>>>> origin/master
                 ].map(([label, value]) => (
                   <div key={label}>
                     <p className="text-xs text-slate-500">{label}</p>
@@ -449,11 +386,7 @@ function PlanModal({ members, exercises, onClose, onSave }) {
               id="trainer-plan-date"
               type="date"
               required
-<<<<<<< HEAD
               min={plan ? undefined : localDateString(new Date())}
-=======
-              min={localDateString(new Date())}
->>>>>>> origin/master
               value={form.session_date}
               onChange={(event) => {
                 const sessionDate = event.target.value;
@@ -470,14 +403,11 @@ function PlanModal({ members, exercises, onClose, onSave }) {
               className={inputClass("session_date")}
             />
             {renderFieldError("session_date")}
-<<<<<<< HEAD
             {existingPlanOnDate && (
               <p role="alert" className="mt-1 text-xs text-red-500">
                 This member already has a plan on this date. Edit that plan instead.
               </p>
             )}
-=======
->>>>>>> origin/master
             {selectedMember && availableDays.length > 0 && (
               <p className="mt-1 text-xs text-slate-500">
                 Only assessment days are allowed: {availableDays.join(", ")}.
@@ -488,7 +418,6 @@ function PlanModal({ members, exercises, onClose, onSave }) {
             <div className="mb-3 flex items-center justify-between">
               <div>
                 <p className="text-sm font-semibold text-slate-800 dark:text-white">Routine Exercises *</p>
-<<<<<<< HEAD
                 <p className="text-xs text-slate-500">
                   {selectedMember
                     ? preferredDifficulty
@@ -500,9 +429,6 @@ function PlanModal({ members, exercises, onClose, onSave }) {
                       : "This member has no supported experience level for exercise filtering."
                     : "Select a member to see exercises that match their experience level."}
                 </p>
-=======
-                <p className="text-xs text-slate-500">Choose exercises and set the prescription for this date.</p>
->>>>>>> origin/master
               </div>
               <button
                 type="button"
@@ -533,19 +459,14 @@ function PlanModal({ members, exercises, onClose, onSave }) {
             <div className="space-y-3">
               {form.sessions.map((session, index) => (
                 <div key={`session-${index}`} className="grid grid-cols-2 items-start gap-2 rounded-xl border border-slate-200 p-3 dark:border-slate-800 sm:grid-cols-[minmax(0,1fr)_104px_104px_36px]">
-<<<<<<< HEAD
                   <div className="col-span-2 min-w-0 sm:col-span-1">
                     <label htmlFor={`sessions-${index}-exercise_id`} className="mb-1 flex h-5 items-center whitespace-nowrap text-xs font-medium text-slate-500">Workout *</label>
                     <div className="relative">
-=======
-                  <div className="col-span-2 sm:col-span-1">
->>>>>>> origin/master
                     <select
                       id={`sessions-${index}-exercise_id`}
                       aria-label={`Exercise ${index + 1}`}
                       value={session.exercise_id}
                       required
-<<<<<<< HEAD
                       disabled={!selectedMember || !preferredDifficulty}
                       onChange={(event) => updateSessionField(index, "exercise_id", event.target.value)}
                       aria-invalid={Boolean(fieldErrors[`sessions.${index}.exercise_id`])}
@@ -587,22 +508,6 @@ function PlanModal({ members, exercises, onClose, onSave }) {
                   </div>
                   <div className="min-w-0">
                     <label htmlFor={`sessions-${index}-sets`} className="mb-1 flex h-5 items-center whitespace-nowrap text-xs font-medium text-slate-500">Sets (1–6)</label>
-=======
-                      onChange={(event) => updateSessionField(index, "exercise_id", event.target.value)}
-                      aria-invalid={Boolean(fieldErrors[`sessions.${index}.exercise_id`])}
-                      aria-describedby={fieldErrors[`sessions.${index}.exercise_id`] ? `sessions-${index}-exercise_id-error` : undefined}
-                      className={`${inputClass(`sessions.${index}.exercise_id`)} px-3 py-2`}
-                    >
-                      <option value="">Select exercise...</option>
-                      {exercises.map((exercise) => (
-                        <option key={exercise.exercise_id} value={exercise.exercise_id}>{exercise.exercise_name}</option>
-                      ))}
-                    </select>
-                    {renderFieldError(`sessions.${index}.exercise_id`)}
-                  </div>
-                  <div className="min-w-0">
-                    <label htmlFor={`sessions-${index}-sets`} className="mb-1 block text-xs font-medium text-slate-500">Sets <span className="text-slate-400">(1–6)</span></label>
->>>>>>> origin/master
                     <input
                       id={`sessions-${index}-sets`}
                       aria-label={`Exercise ${index + 1} sets`}
@@ -616,20 +521,12 @@ function PlanModal({ members, exercises, onClose, onSave }) {
                       onChange={(event) => updateSessionField(index, "sets", event.target.value)}
                       aria-invalid={Boolean(fieldErrors[`sessions.${index}.sets`])}
                       aria-describedby={fieldErrors[`sessions.${index}.sets`] ? `sessions-${index}-sets-error` : undefined}
-<<<<<<< HEAD
                       className={`${inputClass(`sessions.${index}.sets`)} h-11 px-3 py-2`}
-=======
-                      className={`${inputClass(`sessions.${index}.sets`)} px-3 py-2`}
->>>>>>> origin/master
                     />
                     {renderFieldError(`sessions.${index}.sets`)}
                   </div>
                   <div className="min-w-0">
-<<<<<<< HEAD
                     <label htmlFor={`sessions-${index}-reps`} className="mb-1 flex h-5 items-center whitespace-nowrap text-xs font-medium text-slate-500">Reps (3–16)</label>
-=======
-                    <label htmlFor={`sessions-${index}-reps`} className="mb-1 block text-xs font-medium text-slate-500">Reps <span className="text-slate-400">(3–16)</span></label>
->>>>>>> origin/master
                     <input
                       id={`sessions-${index}-reps`}
                       aria-label={`Exercise ${index + 1} reps`}
@@ -643,11 +540,7 @@ function PlanModal({ members, exercises, onClose, onSave }) {
                       onChange={(event) => updateSessionField(index, "reps", event.target.value)}
                       aria-invalid={Boolean(fieldErrors[`sessions.${index}.reps`])}
                       aria-describedby={fieldErrors[`sessions.${index}.reps`] ? `sessions-${index}-reps-error` : undefined}
-<<<<<<< HEAD
                       className={`${inputClass(`sessions.${index}.reps`)} h-11 px-3 py-2`}
-=======
-                      className={`${inputClass(`sessions.${index}.reps`)} px-3 py-2`}
->>>>>>> origin/master
                     />
                     {renderFieldError(`sessions.${index}.reps`)}
                   </div>
@@ -680,13 +573,8 @@ function PlanModal({ members, exercises, onClose, onSave }) {
           <button type="button" onClick={onClose} className="rounded-xl border border-slate-300 px-5 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
             Cancel
           </button>
-<<<<<<< HEAD
           <button type="button" onClick={handleSubmit} disabled={saving || Boolean(existingPlanOnDate)} className="rounded-xl bg-orange-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50">
             {saving ? (plan ? "Saving..." : "Creating...") : (plan ? "Save Changes" : "Create Plan")}
-=======
-          <button type="button" onClick={handleSubmit} disabled={saving} className="rounded-xl bg-orange-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-orange-700 disabled:opacity-50">
-            {saving ? "Creating..." : "Create Plan"}
->>>>>>> origin/master
           </button>
         </div>
       </div>
@@ -699,13 +587,10 @@ export default function TrainerWorkoutPlans() {
   const [members, setMembers] = useState([]);
   const [exercises, setExercises] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
+  const [memberFilter, setMemberFilter] = useState("All");
   const [showModal, setShowModal] = useState(false);
-<<<<<<< HEAD
   const [editingPlan, setEditingPlan] = useState(null);
-=======
->>>>>>> origin/master
   const [fetchError, setFetchError] = useState("");
 
   const fetchData = async () => {
@@ -743,25 +628,43 @@ export default function TrainerWorkoutPlans() {
     }
   };
 
-<<<<<<< HEAD
   const handleEdit = (plan) => {
     setEditingPlan(plan);
     setShowModal(true);
   };
 
-=======
->>>>>>> origin/master
-  const query = search.trim().toLowerCase();
-  const filtered = plans.filter((plan) =>
-    plan.plan_name?.toLowerCase().includes(query) ||
-    plan.goal?.toLowerCase().includes(query) ||
-    plan.member_name?.toLowerCase().includes(query)
-  ).filter((plan) => statusFilter === "All" || plan.status === statusFilter);
+  const filtered = plans
+    .filter((plan) => statusFilter === "All" || workoutStatusLabel(plan.workout_status) === statusFilter)
+    .filter((plan) => memberFilter === "All" || String(plan.user_id) === memberFilter);
+
+  // The roster members, so the trainer can filter by the same names they see
+  // on their roster page.
+  const rosterMembers = members
+    .map((member) => ({
+      userId: String(member.user_id),
+      name: `${member.first_name || ""} ${member.last_name || ""}`.trim() || `Member ${member.user_id}`,
+    }))
+    .sort((first, second) => first.name.localeCompare(second.name));
+
+  const countByStatus = (status) =>
+    plans.filter((plan) => workoutStatusLabel(plan.workout_status) === status).length;
+
+  // The name a plan is ordered by: the member it belongs to, or the plan name
+  // for templates that are not assigned to a member yet.
+  const sortName = (plan) => (plan.member_name || plan.plan_name || "").trim().toLowerCase();
+
+  // The list is ordered by workout status (Active first) and then by member
+  // name, so the plans that need attention stay on top.
+  const sorted = [...filtered].sort((first, second) => {
+    const statusFirst = STATUS_SORT_ORDER[workoutStatusLabel(first.workout_status)] ?? 99;
+    const statusSecond = STATUS_SORT_ORDER[workoutStatusLabel(second.workout_status)] ?? 99;
+    if (statusFirst !== statusSecond) return statusFirst - statusSecond;
+    return sortName(first).localeCompare(sortName(second));
+  });
 
   return (
     <div className="space-y-6 px-4 py-6 sm:px-6 sm:py-8">
       {showModal && (
-<<<<<<< HEAD
         <PlanModal
           key={editingPlan?.workout_plan_id ?? "new-plan"}
           members={members}
@@ -774,9 +677,6 @@ export default function TrainerWorkoutPlans() {
           }}
           onSave={fetchData}
         />
-=======
-        <PlanModal members={members} exercises={exercises} onClose={() => setShowModal(false)} onSave={fetchData} />
->>>>>>> origin/master
       )}
 
       <header className="ave-page-hero flex flex-wrap items-end justify-between gap-4 rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8">
@@ -787,14 +687,10 @@ export default function TrainerWorkoutPlans() {
         </div>
         <button
           type="button"
-<<<<<<< HEAD
           onClick={() => {
             setEditingPlan(null);
             setShowModal(true);
           }}
-=======
-          onClick={() => setShowModal(true)}
->>>>>>> origin/master
           className="flex min-h-11 items-center gap-2 rounded-xl bg-orange-500 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#080808]"
         >
           <Plus size={18} /> Create Plan
@@ -807,24 +703,13 @@ export default function TrainerWorkoutPlans() {
         </div>
       )}
 
-<<<<<<< HEAD
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {[
           { label: "Total plans", value: plans.length, color: "text-orange-600 dark:text-orange-400" },
-          { label: "Active plans", value: plans.filter((plan) => plan.status === WORKOUT_STATUS.ACTIVE).length, color: "text-green-600 dark:text-green-400" },
-          { label: "Completed plans", value: plans.filter((plan) => plan.status === WORKOUT_STATUS.COMPLETE).length, color: "text-emerald-600 dark:text-emerald-400" },
-          {
-            label: "Needs attention",
-            value: plans.filter((plan) => plan.status === WORKOUT_STATUS.INCOMPLETE || plan.status === WORKOUT_STATUS.ABSENT).length,
-            color: "text-amber-600 dark:text-amber-400",
-          },
-=======
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {[
-          { label: "Total plans", value: plans.length, color: "text-orange-600 dark:text-orange-400" },
-          { label: "Active plans", value: plans.filter((plan) => plan.status === "Active").length, color: "text-green-600 dark:text-green-400" },
-          { label: "Assigned to members", value: plans.filter((plan) => plan.member_name).length, color: "text-violet-600 dark:text-violet-400" },
->>>>>>> origin/master
+          { label: "Active", value: countByStatus(WORKOUT_STATUS.ACTIVE), color: "text-blue-600 dark:text-blue-400" },
+          { label: "Complete", value: countByStatus(WORKOUT_STATUS.COMPLETE), color: "text-green-600 dark:text-green-400" },
+          { label: "Incomplete", value: countByStatus(WORKOUT_STATUS.INCOMPLETE), color: "text-amber-600 dark:text-amber-400" },
+          { label: "Absent", value: countByStatus(WORKOUT_STATUS.ABSENT), color: "text-rose-600 dark:text-rose-400" },
         ].map((summary) => (
           <div key={summary.label} className="trainer-card rounded-2xl border p-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{summary.label}</p>
@@ -833,25 +718,17 @@ export default function TrainerWorkoutPlans() {
         ))}
       </div>
 
-      <div className="flex flex-col gap-3 sm:flex-row">
-      <label className="trainer-card flex min-h-11 flex-1 items-center gap-3 rounded-xl border px-4 py-3">
-        <Search size={18} className="text-slate-500" />
-        <input
-          type="search"
-          aria-label="Search workout plans"
-          placeholder="Search plan, goal, or member..."
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-500 dark:text-white"
-        />
-      </label>
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+      <label className="sr-only" htmlFor="trainer-plan-member">Filter plans by roster member</label>
+      <select id="trainer-plan-member" value={memberFilter} onChange={(event) => setMemberFilter(event.target.value)} className="trainer-field min-h-11 flex-1 rounded-xl px-4 text-sm sm:max-w-xs">
+        <option value="All">All roster members</option>
+        {rosterMembers.map((member) => (
+          <option key={member.userId} value={member.userId}>{member.name}</option>
+        ))}
+      </select>
       <label className="sr-only" htmlFor="trainer-plan-status">Filter plans by status</label>
-      <select id="trainer-plan-status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="trainer-field min-h-11 rounded-xl px-4 text-sm">
-<<<<<<< HEAD
-        {["All", ...WORKOUT_STATUSES].map((status) => <option key={status} value={status}>{status === "All" ? "All statuses" : status}</option>)}
-=======
-        {["All", "Active", "Inactive", "Completed"].map((status) => <option key={status} value={status}>{status === "All" ? "All statuses" : status}</option>)}
->>>>>>> origin/master
+      <select id="trainer-plan-status" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="trainer-field min-h-11 flex-1 rounded-xl px-4 text-sm sm:max-w-xs">
+        {["All", ...WORKOUT_STATUS_FILTERS].map((status) => <option key={status} value={status}>{status === "All" ? "All Status" : status}</option>)}
       </select>
       </div>
 
@@ -880,28 +757,41 @@ export default function TrainerWorkoutPlans() {
                     <td colSpan={7} className="py-16 text-center">
                       <ClipboardList size={36} className="mx-auto mb-2 text-slate-400" />
                       <p className="font-semibold text-slate-700 dark:text-slate-200">{plans.length ? "No plans match these filters." : "No workout plans yet."}</p>
-                      <p className="mt-1 text-sm text-slate-500">{plans.length ? "Try a different search or status." : "Create a plan to start building a member's routine."}</p>
+                      <p className="mt-1 text-sm text-slate-500">{plans.length ? "Try a different member or status." : "Create a plan to start building a member's routine."}</p>
                     </td>
                   </tr>
-<<<<<<< HEAD
-                ) : filtered.map((plan) => {
+                ) : sorted.map((plan) => {
                   const pastWorkoutDate = isPastWorkoutPlan(plan);
                   return (
-=======
-                ) : filtered.map((plan) => (
->>>>>>> origin/master
                   <tr key={plan.workout_plan_id} className="hover:bg-orange-500/5">
                     <td className="whitespace-nowrap px-5 py-4 font-semibold text-slate-800 dark:text-white">{plan.plan_name}</td>
                     <td className="px-5 py-4 text-slate-600 dark:text-slate-300">{plan.goal || "—"}</td>
-                    <td className="px-5 py-4 text-slate-600 dark:text-slate-300">{plan.member_name || "Template"}</td>
+                    <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
+                      {plan.user_id ? (
+                        <>
+                          <span className="block font-medium text-slate-700 dark:text-slate-200">
+                            {plan.member_name || "—"}
+                          </span>
+                          {plan.member_email && (
+                            <span className="block text-xs text-slate-400">{plan.member_email}</span>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-slate-300">Template</span>
+                      )}
+                    </td>
                     <td className="whitespace-nowrap px-5 py-4 text-slate-500">
                       {plan.scheduled_date ? new Date(`${plan.scheduled_date}T00:00:00`).toLocaleDateString() : "—"}
                     </td>
-                    <td className="px-5 py-4 text-slate-600 dark:text-slate-300">{plan.exercise_count || 0} exercises</td>
+                    <td className="px-5 py-4 text-slate-600 dark:text-slate-300">
+                      {plan.completed_exercises || 0}/{plan.exercise_count || 0} exercises done
+                    </td>
                     <td className="px-5 py-4">
-<<<<<<< HEAD
-                      <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${workoutStatusBadgeClass(plan.status)}`}>
-                        {plan.status || WORKOUT_STATUS.ACTIVE}
+                      <span
+                        title={workoutStatusDescription(plan.workout_status)}
+                        className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${workoutStatusStyle(plan.workout_status)}`}
+                      >
+                        {workoutStatusLabel(plan.workout_status)}
                       </span>
                     </td>
                     <td className="px-5 py-4">
@@ -941,24 +831,6 @@ export default function TrainerWorkoutPlans() {
                   </tr>
                   );
                 })}
-=======
-                      <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${statusColors[plan.status] || statusColors.Inactive}`}>
-                        {plan.status || "Inactive"}
-                      </span>
-                    </td>
-                    <td className="px-5 py-4">
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(plan)}
-                        aria-label={`Delete ${plan.plan_name}`}
-                        className="rounded-lg p-2 text-red-400 transition hover:bg-red-500/10 hover:text-red-500"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
->>>>>>> origin/master
               </tbody>
             </table>
           </div>

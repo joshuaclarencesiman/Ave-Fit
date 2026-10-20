@@ -1,5 +1,15 @@
 const pool = require("../db");
 
+// The gym's availability windows. These are the exact hours a coach can be
+// available and the exact hours a member can pick for a workout, and they are
+// the same windows the trainer availability editor offers.
+const EQUIPMENT_TIME_RANGES = {
+  morning: { start_hour: 6, end_hour: 12 },
+  afternoon: { start_hour: 12, end_hour: 17 },
+  evening: { start_hour: 17, end_hour: 22 },
+  flexible: { start_hour: 6, end_hour: 22 },
+};
+
 // GET dashboard summary stats
 const getDashboardStats = async (req, res) => {
   try {
@@ -42,7 +52,6 @@ const getDashboardStats = async (req, res) => {
 // GET full analytics
 const getAnalytics = async (req, res) => {
   try {
-<<<<<<< HEAD
     const equipmentDay = req.query.equipment_day || "";
     const equipmentHour = req.query.equipment_hour || "";
     const parsedEquipmentDay = typeof equipmentDay === "string" && /^\d{4}-\d{2}-\d{2}$/.test(equipmentDay)
@@ -61,9 +70,17 @@ const getAnalytics = async (req, res) => {
     )) {
       return res.status(400).json({ success: false, message: "Equipment hour must be between 0 and 23." });
     }
+    const equipmentTimeRange = typeof req.query.equipment_time_range === "string"
+      ? req.query.equipment_time_range.trim().toLowerCase()
+      : "";
+    const timeRange = equipmentTimeRange ? EQUIPMENT_TIME_RANGES[equipmentTimeRange] : null;
+    if (equipmentTimeRange && !timeRange) {
+      return res.status(400).json({
+        success: false,
+        message: "Equipment time range must be morning, afternoon, evening, or flexible.",
+      });
+    }
 
-=======
->>>>>>> origin/master
     const growthPeriods = {
       week: { granularity: "day", offset: "6 days", step: "1 day", labelFormat: "Dy" },
       month: { granularity: "day", offset: "29 days", step: "1 day", labelFormat: "Mon FMDD" },
@@ -232,7 +249,6 @@ const getAnalytics = async (req, res) => {
       ORDER BY weekdays.day_order
     `);
 
-<<<<<<< HEAD
     const equipmentCompletedAtManila = `CASE
       WHEN pg_typeof(ws.completed_at) = 'timestamp with time zone'::regtype
         THEN ws.completed_at AT TIME ZONE 'Asia/Manila'
@@ -253,13 +269,24 @@ const getAnalytics = async (req, res) => {
           ws.completed_at IS NOT NULL
           AND EXTRACT(HOUR FROM (${equipmentCompletedAtManila}))::integer = $2::integer
         ))
+        AND ($3::integer IS NULL OR (
+          ws.completed_at IS NOT NULL
+          AND EXTRACT(HOUR FROM (${equipmentCompletedAtManila}))::integer >= $3::integer
+        ))
+        AND ($4::integer IS NULL OR (
+          ws.completed_at IS NOT NULL
+          AND EXTRACT(HOUR FROM (${equipmentCompletedAtManila}))::integer < $4::integer
+        ))
       GROUP BY BTRIM(e.equipment)
       ORDER BY COUNT(*) DESC, BTRIM(e.equipment) ASC
       LIMIT 10
-    `, [equipmentDay || null, equipmentHour === "" ? null : Number(equipmentHour)]);
+    `, [
+      equipmentDay || null,
+      equipmentHour === "" ? null : Number(equipmentHour),
+      timeRange ? timeRange.start_hour : null,
+      timeRange ? timeRange.end_hour : null,
+    ]);
 
-=======
->>>>>>> origin/master
     // Summary
     const totalMembers = await pool.query("SELECT COUNT(*) AS count FROM users WHERE LOWER(COALESCE(account_status, 'pending')) = 'active'");
     const avgBmi = await pool.query(`
@@ -287,10 +314,7 @@ const getAnalytics = async (req, res) => {
         attendance: attendance.rows,
         peakHours: peakHours.rows,
         dayAvailability: dayAvailability.rows,
-<<<<<<< HEAD
         mostUsedEquipment: mostUsedEquipment.rows,
-=======
->>>>>>> origin/master
         peakMonths: memberGrowth.rows,
       },
     });

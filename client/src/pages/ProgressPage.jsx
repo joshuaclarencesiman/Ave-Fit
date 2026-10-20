@@ -4,22 +4,12 @@ import { Line } from "react-chartjs-2";
 import { Activity, ArrowDownRight, ArrowUpRight, Calendar, CheckCircle2, Scale, Target, TrendingUp } from "lucide-react";
 import userApi from "../userApi";
 import { useUserAuth } from "../context/UserAuthContext";
-import { formatPhilippinesDate, philippinesDateKey, philippinesDateString, philippinesMondayString, philippinesPeriodRange } from "../utils/philippinesDate";
-<<<<<<< HEAD
-import { getWorkoutDayGroups } from "../utils/workoutSessions";
+import { addPhilippinesDays, describeDateRange, formatPhilippinesDate, philippinesDateKey, philippinesDateString, philippinesWeekStart } from "../utils/philippinesDate";
+import { getWorkoutDayGroups, getWorkoutCompletionStats, getWorkoutWeekGroups } from "../utils/workoutSessions";
+import CalendarRangePicker from "../components/ui/CalendarRangePicker";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler);
 
-=======
-
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler);
-
-const getWorkoutDate = (session) => {
-  const value = session.completed_at || session.session_date;
-  return philippinesDateKey(value);
-};
-
->>>>>>> origin/master
 const weightInput = (val, prev = "") => {
   const cleaned = String(val || "").replace(/[^0-9.]/g, "").replace(/(\..*)\./g, "$1");
   if (!cleaned) return "";
@@ -35,7 +25,16 @@ export default function ProgressPage() {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
-  const [analyticsPeriod, setAnalyticsPeriod] = useState("weekly");
+  const [analyticsRange, setAnalyticsRange] = useState(() => {
+    const today = philippinesDateString();
+    const weekStart = philippinesWeekStart(today);
+    return {
+      start: weekStart < today ? weekStart : addPhilippinesDays(today, -1),
+      end: today,
+    };
+  });
+  const [workoutWeeks, setWorkoutWeeks] = useState(8);
+  const [lastSyncedAt, setLastSyncedAt] = useState(null);
 
   // Log form
   const [logForm, setLogForm] = useState({ weight: "", bmi: "" });
@@ -49,8 +48,8 @@ export default function ProgressPage() {
   const [predicting, setPredicting] = useState(false);
   const [predError, setPredError] = useState("");
 
-  const fetchProgress = useCallback(async () => {
-    setLoading(true);
+  const fetchProgress = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
     setLoadError("");
     try {
       const [progressRes, workoutsRes, profileRes] = await Promise.all([
@@ -61,15 +60,33 @@ export default function ProgressPage() {
       setLogs(progressRes.data.data || []);
       setSessions(workoutsRes.data.data || []);
       setProfile(profileRes.data.data || null);
+      setLastSyncedAt(new Date());
     } catch (err) {
       console.error(err);
       setLoadError(err.response?.data?.message || "Unable to load your progress right now. Please try again.");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => { fetchProgress(); }, [fetchProgress]);
+
+  // Keep the workout numbers live: refresh when the member comes back to the
+  // tab and once a minute while the page stays open.
+  useEffect(() => {
+    const refresh = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      fetchProgress({ silent: true });
+    };
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
+    const timer = window.setInterval(refresh, 60 * 1000);
+    return () => {
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
+      window.clearInterval(timer);
+    };
+  }, [fetchProgress]);
 
   // Auto-calc BMI when weight changes
   const handleWeightChange = (val) => {
@@ -175,27 +192,54 @@ export default function ProgressPage() {
     ? Math.max(0, Math.min(100, (goalChange / Math.abs(firstWeight - targetWeight)) * 100))
     : null;
 
-  const analyticsRange = philippinesPeriodRange(analyticsPeriod);
+  const rangeStart = analyticsRange?.start || "";
+  const rangeEnd = analyticsRange?.end || "";
   const periodLogs = logs.filter((log) => {
+    if (!analyticsRange) return true;
     const date = philippinesDateKey(log.log_date);
-    return date && date >= analyticsRange.start && date <= analyticsRange.end;
+    return date && date >= rangeStart && date <= rangeEnd;
   });
   const periodWeightedLogs = periodLogs.filter((log) => log.weight != null && Number.isFinite(Number(log.weight)));
   const periodWeightChange = periodWeightedLogs.length > 1
     ? Number((Number(periodWeightedLogs[periodWeightedLogs.length - 1].weight) - Number(periodWeightedLogs[0].weight)).toFixed(1))
     : null;
-<<<<<<< HEAD
   const workoutDayGroups = getWorkoutDayGroups(sessions);
   const completedWorkoutDays = workoutDayGroups.filter((group) => group.isComplete);
   const periodCompletedWorkouts = completedWorkoutDays.filter((group) => (
-    group.completionDate >= analyticsRange.start && group.completionDate <= analyticsRange.end
+    !analyticsRange || (group.scheduledDate >= rangeStart && group.scheduledDate <= rangeEnd)
   )).length;
-=======
-  const periodCompletedWorkouts = sessions.filter((session) => {
-    const date = getWorkoutDate(session);
-    return session.completed && date && date >= analyticsRange.start && date <= analyticsRange.end;
-  }).length;
->>>>>>> origin/master
+
+  // The earliest day the member has any progress on. The calendar uses it as
+  // the earliest day a period may start from.
+  const earliestDataDate = [
+    ...logs.map((log) => philippinesDateKey(log.log_date)),
+    ...workoutDayGroups.map((group) => group.scheduledDate),
+  ].filter(Boolean).sort()[0] || "";
+
+  const today = philippinesDateString();
+  const weekStats = getWorkoutCompletionStats(sessions, { referenceDate: today });
+  const weekGroups = getWorkoutWeekGroups(sessions, { weeks: workoutWeeks, referenceDate: today });
+  const weeklyTarget = Number(profile?.workout_days_per_week) ||
+    (Array.isArray(profile?.preferred_days) ? profile.preferred_days.length : 0);
+
+  const rangeTotals = weekGroups.reduce((totals, week) => ({
+    scheduledDays: totals.scheduledDays + week.scheduledDays,
+    completedDays: totals.completedDays + week.completedDays,
+    incompleteDays: totals.incompleteDays + week.incompleteDays,
+    absentDays: totals.absentDays + week.absentDays,
+    workoutsScheduled: totals.workoutsScheduled + week.workoutsScheduled,
+    workoutsCompleted: totals.workoutsCompleted + week.workoutsCompleted,
+  }), {
+    scheduledDays: 0,
+    completedDays: 0,
+    incompleteDays: 0,
+    absentDays: 0,
+    workoutsScheduled: 0,
+    workoutsCompleted: 0,
+  });
+  const rangeRate = rangeTotals.workoutsScheduled
+    ? Math.round((rangeTotals.workoutsCompleted / rangeTotals.workoutsScheduled) * 100)
+    : null;
 
   const chartData = {
     labels: periodLogs.map((l) => formatPhilippinesDate(l.log_date, { month: "short", day: "numeric" })),
@@ -225,51 +269,60 @@ export default function ProgressPage() {
     ],
   };
 
-  const today = philippinesDateString();
-  const weekStartString = philippinesMondayString();
-<<<<<<< HEAD
-  const scheduledThisWeek = workoutDayGroups.filter((group) => (
-    group.scheduledDate >= weekStartString && group.scheduledDate <= today
-  ));
-  const completedThisWeek = completedWorkoutDays.filter((group) => (
-    group.completionDate >= weekStartString && group.completionDate <= today
-  ));
-=======
-  const scheduledThisWeek = sessions.filter((session) => {
-    const date = philippinesDateKey(session.session_date);
-    return date && date >= weekStartString && date <= today;
-  });
-  const completedThisWeek = sessions.filter((session) => {
-    const date = getWorkoutDate(session);
-    return session.completed && date >= weekStartString && date <= today;
-  });
-  const completedSessions = sessions.filter((session) => session.completed);
->>>>>>> origin/master
-  const weeklyTarget = Number(profile?.workout_days_per_week) ||
-    (Array.isArray(profile?.preferred_days) ? profile.preferred_days.length : 0);
-  const workoutRate = scheduledThisWeek.length
-    ? Math.round((completedThisWeek.length / scheduledThisWeek.length) * 100)
-    : null;
+  const workoutChart = {
+    labels: weekGroups.map((week) => formatPhilippinesDate(week.weekStart, { month: "short", day: "numeric" })),
+    datasets: [
+      {
+        label: "Completed days",
+        data: weekGroups.map((week) => week.completedDays),
+        borderColor: "#f97316",
+        backgroundColor: "rgba(249,115,22,0.12)",
+        fill: true, tension: 0.35,
+        pointBackgroundColor: "#f97316", pointRadius: 4,
+      },
+      {
+        label: "Scheduled days",
+        data: weekGroups.map((week) => week.scheduledDays),
+        borderColor: "#94a3b8",
+        backgroundColor: "transparent",
+        borderDash: [6, 4], fill: false, tension: 0.35,
+        pointBackgroundColor: "#94a3b8", pointRadius: 3,
+      },
+      ...(weeklyTarget > 0
+        ? [{
+            label: "Weekly goal",
+            data: weekGroups.map(() => weeklyTarget),
+            borderColor: "#22c55e",
+            backgroundColor: "transparent",
+            borderDash: [3, 3], fill: false, tension: 0,
+            pointRadius: 0,
+          }]
+        : []),
+    ],
+  };
+
+  const workoutChartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: "index", intersect: false },
+    plugins: { legend: { position: "top", labels: { color: "#737373", usePointStyle: true, boxWidth: 8 } } },
+    scales: {
+      y: { beginAtZero: true, grid: { color: "rgba(148,163,184,0.15)" }, ticks: { color: "#94a3b8", precision: 0, stepSize: 1 } },
+      x: { grid: { display: false }, ticks: { color: "#94a3b8" } },
+    },
+  };
 
   return (
     <div className="min-h-screen bg-[#fffaf5] dark:bg-[#080808] text-slate-900 dark:text-white">
       {/* Header */}
-<<<<<<< HEAD
       <div className="ave-page-hero px-4 pt-8 pb-6 border-b border-orange-100 dark:border-white/5 sm:px-6 sm:pt-10 sm:pb-7">
-=======
-      <div className="ave-page-hero px-6 pt-10 pb-7 border-b border-orange-100 dark:border-white/5">
->>>>>>> origin/master
         <h1 className="text-2xl font-black text-slate-900 dark:text-white">Your Progress</h1>
         <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">
           Your training, body metrics, and progress toward your goals in one place.
         </p>
       </div>
 
-<<<<<<< HEAD
       <div className="space-y-6 px-4 py-5 sm:px-6 sm:py-6">
-=======
-      <div className="px-6 py-6 space-y-6">
->>>>>>> origin/master
         {loadError && (
           <div role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-300">
             {loadError}
@@ -289,40 +342,21 @@ export default function ProgressPage() {
                 <div>
                   <h2 className="font-bold text-slate-900 dark:text-white">Progress analytics</h2>
                   <p className="mt-1 text-xs text-slate-500">
-                    {formatPhilippinesDate(analyticsRange.start, { month: "short", day: "numeric", year: "numeric" })}
-                    {" – "}
-                    {formatPhilippinesDate(analyticsRange.end, { month: "short", day: "numeric", year: "numeric" })}
+                    {describeDateRange(analyticsRange)}
                     {" · Philippines time"}
                   </p>
                 </div>
-                <div role="group" aria-label="Filter progress period" className="grid grid-cols-3 gap-1 rounded-xl bg-slate-100 p-1 dark:bg-white/5">
-                  {[
-                    { id: "weekly", label: "Weekly" },
-                    { id: "monthly", label: "Monthly" },
-                    { id: "yearly", label: "Yearly" },
-                  ].map((period) => (
-                    <button
-                      key={period.id}
-                      type="button"
-                      aria-pressed={analyticsPeriod === period.id}
-                      onClick={() => setAnalyticsPeriod(period.id)}
-                      className={`min-h-9 rounded-lg px-3 text-xs font-semibold transition ${
-                        analyticsPeriod === period.id
-                          ? "bg-orange-500 text-white shadow-sm"
-                          : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
-                      }`}
-                    >
-                      {period.label}
-                    </button>
-                  ))}
-                </div>
+                <CalendarRangePicker
+                  value={analyticsRange}
+                  onChange={setAnalyticsRange}
+                  checkInDates={logs.map((log) => philippinesDateKey(log.log_date)).filter(Boolean)}
+                  workoutDates={workoutDayGroups.map((group) => group.scheduledDate).filter(Boolean)}
+                  minDate={earliestDataDate}
+                  className="w-full sm:w-80"
+                />
               </div>
 
-<<<<<<< HEAD
               <div className="mt-4 grid grid-cols-1 gap-3 min-[480px]:grid-cols-3">
-=======
-              <div className="mt-4 grid grid-cols-3 gap-3">
->>>>>>> origin/master
                 <div className="rounded-xl bg-slate-50 p-3 dark:bg-white/[0.04]">
                   <p className="text-lg font-bold text-slate-900 dark:text-white">{periodLogs.length}</p>
                   <p className="text-[11px] leading-snug text-slate-500">Progress check-ins</p>
@@ -335,11 +369,7 @@ export default function ProgressPage() {
                 </div>
                 <div className="rounded-xl bg-slate-50 p-3 dark:bg-white/[0.04]">
                   <p className="text-lg font-bold text-slate-900 dark:text-white">{periodCompletedWorkouts}</p>
-<<<<<<< HEAD
                   <p className="text-[11px] leading-snug text-slate-500">Workout days completed</p>
-=======
-                  <p className="text-[11px] leading-snug text-slate-500">Workouts completed</p>
->>>>>>> origin/master
                 </div>
               </div>
 
@@ -391,25 +421,95 @@ export default function ProgressPage() {
               </div>
               <div className="rounded-2xl border border-orange-100 bg-white p-4 shadow-sm dark:border-white/5 dark:bg-[#111]">
                 <CheckCircle2 size={19} className="mb-3 text-orange-500" />
-                <p className="text-2xl font-black">{completedThisWeek.length}</p>
-<<<<<<< HEAD
+                <p className="text-2xl font-black">{weekStats.completedDays}</p>
                 <p className="mt-1 text-xs text-slate-500">Workout days completed this week</p>
                 <p className="mt-2 text-xs text-slate-500">
                   {weeklyTarget ? `Goal: ${weeklyTarget} per week` : `${completedWorkoutDays.length} completed all time`}
-=======
-                <p className="mt-1 text-xs text-slate-500">Workouts completed this week</p>
-                <p className="mt-2 text-xs text-slate-500">
-                  {weeklyTarget ? `Goal: ${weeklyTarget} per week` : `${completedSessions.length} completed all time`}
->>>>>>> origin/master
+                </p>
+                <p className="mt-1 text-xs font-medium text-slate-600 dark:text-slate-300">
+                  {weekStats.workoutsScheduled
+                    ? `${weekStats.workoutsCompleted} of ${weekStats.workoutsScheduled} workouts done`
+                    : "No workouts scheduled yet this week"}
                 </p>
               </div>
               <div className="rounded-2xl border border-orange-100 bg-white p-4 shadow-sm dark:border-white/5 dark:bg-[#111]">
                 <Calendar size={19} className="mb-3 text-orange-500" />
-                <p className="text-2xl font-black">{workoutRate === null ? "—" : `${workoutRate}%`}</p>
+                <p className="text-2xl font-black">{weekStats.dayRate === null ? "—" : `${weekStats.dayRate}%`}</p>
                 <p className="mt-1 text-xs text-slate-500">Weekly workout completion</p>
                 <p className="mt-2 text-xs text-slate-500">
-                  {scheduledThisWeek.length ? `${completedThisWeek.length} of ${scheduledThisWeek.length} scheduled` : "No dated workouts scheduled this week"}
+                  {weekStats.scheduledDays ? `${weekStats.completedDays} of ${weekStats.scheduledDays} scheduled days completed` : "No dated workouts scheduled this week"}
                 </p>
+                <p className="mt-1 text-xs font-medium text-slate-600 dark:text-slate-300">
+                  {weekStats.workoutRate === null
+                    ? "No completion rate yet"
+                    : `${weekStats.workoutRate}% of this week's workouts completed`}
+                </p>
+              </div>
+            </section>
+
+            {/* Workout completion analytics */}
+            <section aria-label="Workout completion analytics" className="rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/5 dark:bg-[#111]">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h2 className="font-bold text-slate-900 dark:text-white">Workout completion</h2>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Completed and scheduled workout days per week · Philippines time
+                    {lastSyncedAt ? ` · updated ${lastSyncedAt.toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" })}` : ""}
+                  </p>
+                </div>
+                <div role="group" aria-label="Select weekly range" className="grid grid-cols-3 gap-1 rounded-xl bg-slate-100 p-1 dark:bg-white/5">
+                  {[4, 8, 12].map((weeks) => (
+                    <button
+                      key={weeks}
+                      type="button"
+                      aria-pressed={workoutWeeks === weeks}
+                      onClick={() => setWorkoutWeeks(weeks)}
+                      className={`min-h-9 rounded-lg px-3 text-xs font-semibold transition ${
+                        workoutWeeks === weeks
+                          ? "bg-orange-500 text-white shadow-sm"
+                          : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+                      }`}
+                    >
+                      {weeks} weeks
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 gap-3 min-[480px]:grid-cols-3">
+                <div className="rounded-xl bg-slate-50 p-3 dark:bg-white/[0.04]">
+                  <p className="text-lg font-bold text-slate-900 dark:text-white">{rangeRate === null ? "—" : `${rangeRate}%`}</p>
+                  <p className="text-[11px] leading-snug text-slate-500">Workout completion rate</p>
+                  <p className="mt-1 text-[11px] leading-snug text-slate-500">
+                    {rangeTotals.workoutsScheduled
+                      ? `${rangeTotals.workoutsCompleted} of ${rangeTotals.workoutsScheduled} workouts completed`
+                      : "No workouts in this range"}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-3 dark:bg-white/[0.04]">
+                  <p className="text-lg font-bold text-slate-900 dark:text-white">{rangeTotals.completedDays}</p>
+                  <p className="text-[11px] leading-snug text-slate-500">Workout days completed</p>
+                  <p className="mt-1 text-[11px] leading-snug text-slate-500">
+                    of {rangeTotals.scheduledDays} scheduled days
+                  </p>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-3 dark:bg-white/[0.04]">
+                  <p className="text-lg font-bold text-slate-900 dark:text-white">{rangeTotals.incompleteDays + rangeTotals.absentDays}</p>
+                  <p className="text-[11px] leading-snug text-slate-500">Unfinished or missed days</p>
+                  <p className="mt-1 text-[11px] leading-snug text-slate-500">
+                    {rangeTotals.incompleteDays} unfinished · {rangeTotals.absentDays} missed
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-5 h-72">
+                {weekGroups.some((week) => week.scheduledDays > 0) ? (
+                  <Line data={workoutChart} options={workoutChartOptions} />
+                ) : (
+                  <p className="flex h-full items-center justify-center text-center text-sm text-slate-500">
+                    No scheduled workouts in this range yet. Your coach's plans will show up here.
+                  </p>
+                )}
               </div>
             </section>
 

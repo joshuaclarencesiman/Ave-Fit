@@ -1,10 +1,9 @@
 const pool = require("../db");
-<<<<<<< HEAD
 const { createNotification } = require("../utils/notifications");
 const {
   WORKOUT_STATUS,
-  sessionColumns,
-  sessionStatusSql,
+  statusSql,
+  applySessionStatuses,
   refreshWorkoutStatuses,
 } = require("../utils/workoutStatus");
 
@@ -20,29 +19,37 @@ const SCHEDULED_FOR_TODAY_SQL = `(
 )`;
 
 const getOwnedSessionSchedule = async (sessionId, userId) => pool.query(`
-  SELECT ws.session_id, ws.session_date, ${SCHEDULED_FOR_TODAY_SQL} AS scheduled_today
+  SELECT ws.session_id, ws.session_date, ws.completed, ws.completed_at, ws.started_at,
+         ${SCHEDULED_FOR_TODAY_SQL} AS scheduled_today
   FROM workout_sessions ws
   JOIN workout_plans wp ON ws.workout_plan_id = wp.workout_plan_id
   WHERE ws.session_id = $1 AND wp.user_id = $2
 `, [sessionId, userId]);
-=======
->>>>>>> origin/master
 
 // GET user's workout plan
 const getUserWorkoutPlan = async (req, res) => {
   try {
-<<<<<<< HEAD
-    // Settle the statuses of finished days before the plan is reported.
-    await refreshWorkoutStatuses({ userId: req.user.user_id });
+    // Keep the stored status in step with the scheduled day. The query below
+    // already evaluates the live status, this only persists it.
+    refreshWorkoutStatuses().catch((err) => {
+      console.error("Workout status refresh failed:", err.message);
+    });
 
     const result = await pool.query(`
-      SELECT ${sessionColumns("ws")},
-        ${sessionStatusSql("ws")} AS status,
+      SELECT
+        ws.session_id,
+        ws.workout_plan_id,
+        ws.exercise_id,
+        ws.sets,
+        ws.reps,
+        ws.duration_minutes,
+        ws.calories_burned,
+        ws.completed,
+        ws.session_date,
+        ws.completed_at,
+        ws.started_at,
+        ${statusSql("ws")} AS status,
         e.exercise_name, e.muscle_group, e.difficulty, e.equipment, e.description
-=======
-    const result = await pool.query(`
-      SELECT ws.*, e.exercise_name, e.muscle_group, e.difficulty, e.equipment, e.description
->>>>>>> origin/master
       FROM workout_sessions ws
       LEFT JOIN exercises e ON ws.exercise_id = e.exercise_id
       WHERE ws.workout_plan_id IN (
@@ -91,7 +98,14 @@ const addWorkoutSession = async (req, res) => {
       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *
     `, [planId, exercise_id || null, sets || null, reps || null, duration_minutes || null, session_date || new Date()]);
 
-    res.status(201).json({ success: true, data: result.rows[0] });
+    // Keep the stored status in step with the scheduled day right away.
+    await applySessionStatuses(result.rows[0].session_id);
+    const stored = await pool.query(
+      "SELECT * FROM workout_sessions WHERE session_id = $1",
+      [result.rows[0].session_id]
+    );
+
+    res.status(201).json({ success: true, data: stored.rows[0] });
   } catch (err) {
     console.error("addWorkoutSession error:", err.message);
     res.status(500).json({ success: false, message: err.message });
@@ -103,12 +117,7 @@ const updateWorkoutSession = async (req, res) => {
   try {
     const { id } = req.params;
     const { sets, reps, duration_minutes, completed } = req.body;
-<<<<<<< HEAD
-    // `completed` stays undefined when the request only updates the details
-    // of a workout, so a confirmed completion is never cleared by accident.
-    const completedValue = completed === true ? true : completed === false ? false : null;
-
-    if (completedValue === true) {
+    if (completed === true) {
       const scheduledSession = await getOwnedSessionSchedule(id, req.user.user_id);
       if (!scheduledSession.rowCount) {
         return res.status(404).json({ success: false, message: "Workout not found." });
@@ -121,39 +130,29 @@ const updateWorkoutSession = async (req, res) => {
       }
     }
 
+    // A confirmed completion is never downgraded, so an edit of the logged
+    // sets/reps cannot silently turn a finished workout back into an open one.
     const result = await pool.query(`
       UPDATE workout_sessions ws
-      SET sets = COALESCE($1, ws.sets),
-          reps = COALESCE($2, ws.reps),
-          duration_minutes = COALESCE($3, ws.duration_minutes),
-          completed = COALESCE($4, ws.completed),
-          completed_at = CASE
-            WHEN $4 IS TRUE THEN COALESCE(ws.completed_at, NOW())
-            WHEN $4 IS FALSE THEN NULL
+      SET sets=$1, reps=$2, duration_minutes=$3,
+          completed=COALESCE(ws.completed, FALSE) OR COALESCE($4, FALSE),
+          completed_at=CASE
+            WHEN COALESCE(ws.completed, FALSE) OR COALESCE($4, FALSE)
+              THEN COALESCE(ws.completed_at, NOW())
             ELSE ws.completed_at
           END,
-          status = CASE
-            WHEN $4 IS TRUE THEN '${WORKOUT_STATUS.COMPLETE}'
-            WHEN $4 IS FALSE THEN '${WORKOUT_STATUS.ACTIVE}'
+          status=CASE
+            WHEN COALESCE(ws.completed, FALSE) OR COALESCE($4, FALSE)
+              THEN '${WORKOUT_STATUS.COMPLETE}'
             ELSE ws.status
           END
-=======
-    const result = await pool.query(`
-      UPDATE workout_sessions ws
-      SET sets=$1, reps=$2, duration_minutes=$3, completed=$4
->>>>>>> origin/master
       FROM workout_plans wp
       WHERE ws.session_id=$5
         AND ws.workout_plan_id = wp.workout_plan_id
         AND wp.user_id = $6
-<<<<<<< HEAD
         AND ($4 IS NOT TRUE OR (ws.started_at IS NOT NULL AND ${SCHEDULED_FOR_TODAY_SQL}))
       RETURNING ws.session_id
-    `, [sets, reps, duration_minutes, completedValue, id, req.user.user_id]);
-=======
-      RETURNING ws.session_id
     `, [sets, reps, duration_minutes, completed || false, id, req.user.user_id]);
->>>>>>> origin/master
 
     if (result.rowCount === 0) {
       return res.status(404).json({ success: false, message: "Workout not found." });
@@ -169,7 +168,6 @@ const updateWorkoutSession = async (req, res) => {
 // PUT record the member's workout start/check-in time.
 const startWorkoutSession = async (req, res) => {
   try {
-<<<<<<< HEAD
     const scheduledSession = await getOwnedSessionSchedule(req.params.id, req.user.user_id);
     if (!scheduledSession.rowCount) {
       return res.status(404).json({ success: false, message: "Workout not found." });
@@ -185,29 +183,17 @@ const startWorkoutSession = async (req, res) => {
       UPDATE workout_sessions ws
       SET started_at = COALESCE(ws.started_at, NOW()),
           status = '${WORKOUT_STATUS.ACTIVE}'
-=======
-    const result = await pool.query(`
-      UPDATE workout_sessions ws
-      SET started_at = COALESCE(ws.started_at, NOW())
->>>>>>> origin/master
       FROM workout_plans wp
       WHERE ws.session_id = $1
         AND ws.workout_plan_id = wp.workout_plan_id
         AND wp.user_id = $2
         AND ws.completed = false
-<<<<<<< HEAD
         AND ${SCHEDULED_FOR_TODAY_SQL}
-=======
->>>>>>> origin/master
       RETURNING ws.session_id, ws.started_at
     `, [req.params.id, req.user.user_id]);
 
     if (result.rowCount === 0) {
-<<<<<<< HEAD
       return res.status(400).json({ success: false, message: "This workout can only be started on its scheduled day." });
-=======
-      return res.status(404).json({ success: false, message: "Workout not found or already completed." });
->>>>>>> origin/master
     }
 
     res.json({ success: true, data: result.rows[0] });
@@ -220,16 +206,32 @@ const startWorkoutSession = async (req, res) => {
 // PUT mark session as complete
 const completeSession = async (req, res) => {
   try {
-<<<<<<< HEAD
     const scheduledSession = await getOwnedSessionSchedule(req.params.id, req.user.user_id);
     if (!scheduledSession.rowCount) {
       return res.status(404).json({ success: false, message: "Workout not found." });
     }
-    if (!scheduledSession.rows[0].scheduled_today) {
+    const session = scheduledSession.rows[0];
+
+    // Repeating the request is a no-op: the first completion already stored the
+    // timestamp, so no duplicate completion record and no duplicate notice.
+    const alreadyCompleted = session.completed === true || session.completed_at !== null;
+    if (alreadyCompleted) {
+      return res.json({
+        success: true,
+        message: "Session completed.",
+        data: { session_id: session.session_id, completed_at: session.completed_at },
+      });
+    }
+
+    if (!session.scheduled_today) {
       return res.status(400).json({
         success: false,
         message: "You can only complete this workout on its scheduled day.",
       });
+    }
+
+    if (!session.started_at) {
+      return res.status(400).json({ success: false, message: "This workout cannot be completed. Start it on its scheduled day first." });
     }
 
     const result = await pool.query(`
@@ -237,44 +239,16 @@ const completeSession = async (req, res) => {
       SET completed = true,
           completed_at = COALESCE(ws.completed_at, NOW()),
           status = '${WORKOUT_STATUS.COMPLETE}'
-=======
-    const result = await pool.query(`
-      UPDATE workout_sessions ws
-      SET completed = true, completed_at = NOW()
->>>>>>> origin/master
       FROM workout_plans wp
       WHERE ws.session_id = $1
         AND ws.workout_plan_id = wp.workout_plan_id
         AND wp.user_id = $2
         AND ws.started_at IS NOT NULL
-<<<<<<< HEAD
-        AND ws.completed = false
         AND ${SCHEDULED_FOR_TODAY_SQL}
       RETURNING ws.session_id, ws.workout_plan_id, ws.completed_at
     `, [req.params.id, req.user.user_id]);
 
     if (result.rowCount === 0) {
-      // The member may submit the same completion twice. A workout that is
-      // already complete stays complete and no second record is created.
-      const alreadyCompleted = await pool.query(`
-        SELECT ws.session_id, ws.completed_at
-        FROM workout_sessions ws
-        JOIN workout_plans wp ON ws.workout_plan_id = wp.workout_plan_id
-        WHERE ws.session_id = $1 AND wp.user_id = $2 AND ws.completed = true
-      `, [req.params.id, req.user.user_id]);
-
-      if (alreadyCompleted.rowCount > 0) {
-        return res.json({
-          success: true,
-          message: "Session already completed.",
-          data: {
-            session_id: alreadyCompleted.rows[0].session_id,
-            status: WORKOUT_STATUS.COMPLETE,
-            completed_at: alreadyCompleted.rows[0].completed_at,
-          },
-        });
-      }
-
       return res.status(400).json({ success: false, message: "This workout cannot be completed. Start it on its scheduled day first." });
     }
 
@@ -308,25 +282,7 @@ const completeSession = async (req, res) => {
       });
     }
 
-    res.json({
-      success: true,
-      message: "Session completed.",
-      data: {
-        session_id: result.rows[0].session_id,
-        status: WORKOUT_STATUS.COMPLETE,
-        completed_at: result.rows[0].completed_at,
-      },
-    });
-=======
-      RETURNING ws.session_id
-    `, [req.params.id, req.user.user_id]);
-
-    if (result.rowCount === 0) {
-      return res.status(404).json({ success: false, message: "Start this workout before marking it complete." });
-    }
-
     res.json({ success: true, message: "Session completed." });
->>>>>>> origin/master
   } catch (err) {
     console.error("completeSession error:", err.message);
     res.status(500).json({ success: false, message: err.message });
@@ -344,15 +300,11 @@ const deleteWorkoutSession = async (req, res) => {
       WHERE ws.session_id = $1
         AND ws.workout_plan_id = wp.workout_plan_id
         AND wp.user_id = $2
-<<<<<<< HEAD
         AND ws.completed = false
-=======
->>>>>>> origin/master
       RETURNING ws.session_id
     `, [id, req.user.user_id]);
 
     if (result.rowCount === 0) {
-<<<<<<< HEAD
       const existing = await pool.query(`
         SELECT ws.completed
         FROM workout_sessions ws
@@ -362,8 +314,6 @@ const deleteWorkoutSession = async (req, res) => {
       if (existing.rows[0]?.completed) {
         return res.status(409).json({ success: false, message: "Completed workouts cannot be deleted." });
       }
-=======
->>>>>>> origin/master
       return res.status(404).json({ success: false, message: "Workout not found." });
     }
 
@@ -382,10 +332,7 @@ const resetWeek = async (req, res) => {
       WHERE workout_plan_id IN (
         SELECT workout_plan_id FROM workout_plans WHERE user_id=$1
       )
-<<<<<<< HEAD
       AND completed = false
-=======
->>>>>>> origin/master
       AND (
         session_date = ANY(ARRAY['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']::text[])
         OR (

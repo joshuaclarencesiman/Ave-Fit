@@ -5,7 +5,6 @@ const {
   getMembers, getMemberById, createMember, updateMember, assignTrainer,
   updateMemberMembership, approveMember, rejectMember, deleteMember, getMemberProgress
 } = require("../controllers/memberController");
-<<<<<<< HEAD
 const {
   getAdminChangeRequests,
   reviewChangeRequest,
@@ -13,9 +12,6 @@ const {
 
 router.get("/change-requests", verifyToken, getAdminChangeRequests);
 router.put("/change-requests/:requestId/:decision", verifyToken, reviewChangeRequest);
-=======
-
->>>>>>> origin/master
 router.get("/", verifyToken, getMembers);
 router.get("/:id", verifyToken, getMemberById);
 router.post("/", verifyToken, createMember);

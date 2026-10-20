@@ -4,12 +4,9 @@ import {
   LineElement, BarElement, ArcElement, Title, Tooltip, Legend, Filler,
 } from "chart.js";
 import { Line, Bar, Doughnut } from "react-chartjs-2";
-<<<<<<< HEAD
 import { Users, TrendingUp, Dumbbell, Clock3, CalendarDays, Filter } from "lucide-react";
-=======
-import { Users, TrendingUp, Dumbbell, Clock3, CalendarDays } from "lucide-react";
->>>>>>> origin/master
 import api from "../services/api";
+import { AVAILABILITY_RANGES } from "../utils/availabilityTime";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Title, Tooltip, Legend, Filler);
 
@@ -46,17 +43,16 @@ export default function Analytics() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState("");
-<<<<<<< HEAD
   const [equipmentDay, setEquipmentDay] = useState("");
-  const [equipmentHour, setEquipmentHour] = useState("");
-  const [appliedEquipmentFilters, setAppliedEquipmentFilters] = useState({ day: "", hour: "" });
+  const [equipmentTimeRange, setEquipmentTimeRange] = useState("");
+  const [appliedEquipmentFilters, setAppliedEquipmentFilters] = useState({ day: "", timeRange: "" });
 
   useEffect(() => {
     let active = true;
     const fetchAnalytics = () => {
       const params = {};
       if (appliedEquipmentFilters.day) params.equipment_day = appliedEquipmentFilters.day;
-      if (appliedEquipmentFilters.hour !== "") params.equipment_hour = appliedEquipmentFilters.hour;
+      if (appliedEquipmentFilters.timeRange) params.equipment_time_range = appliedEquipmentFilters.timeRange;
       api.get("/analytics", { params })
         .then((res) => {
           if (!active) return;
@@ -81,18 +77,6 @@ export default function Analytics() {
       window.clearInterval(refreshTimer);
     };
   }, [appliedEquipmentFilters]);
-=======
-
-  useEffect(() => {
-    api.get("/analytics")
-      .then((res) => setData(res.data.data))
-      .catch((err) => {
-        console.error(err);
-        setFetchError(err.response?.data?.message || err.message || "Couldn't load analytics.");
-      })
-      .finally(() => setLoading(false));
-  }, []);
->>>>>>> origin/master
 
   if (loading) {
     return (
@@ -150,10 +134,7 @@ export default function Analytics() {
   const peakMonths = data?.peakMonths || [];
   const peakHourValue = getPeakLabel(peakHours, (row) => formatHour(row.hour));
   const dayAvailability = data?.dayAvailability || [];
-<<<<<<< HEAD
   const mostUsedEquipment = data?.mostUsedEquipment || [];
-=======
->>>>>>> origin/master
   const peakDayValue = getPeakLabel(dayAvailability, (row) => row.day);
   const peakMonthValue = getPeakLabel(peakMonths, (row) => row.label);
 
@@ -188,10 +169,7 @@ export default function Analytics() {
   };
 
   const bmiMap = Object.fromEntries((data?.bmiDistribution || []).map((b) => [b.category, parseInt(b.count)]));
-<<<<<<< HEAD
   const maxEquipmentUsage = Math.max(0, ...mostUsedEquipment.map((item) => Number(item.count) || 0));
-=======
->>>>>>> origin/master
 
   return (
     <div className="space-y-6">
@@ -223,17 +201,16 @@ export default function Analytics() {
         ))}
       </div>
 
-<<<<<<< HEAD
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111]" aria-labelledby="equipment-heading">
         <div className="mb-4">
           <h2 id="equipment-heading" className="text-base font-bold text-slate-900 dark:text-white">Most used equipment</h2>
-          <p className="mt-1 text-xs text-slate-500">Equipment from completed member workouts, ranked by use. Refreshes automatically every hour.</p>
+          <p className="mt-1 text-xs text-slate-500">Equipment from completed member workouts, ranked by use. Filter by day and by the same availability time windows used for coach and member availability. Refreshes automatically every hour.</p>
         </div>
         <form
           className="mb-5 flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-white/10 dark:bg-white/[0.03]"
           onSubmit={(event) => {
             event.preventDefault();
-            setAppliedEquipmentFilters({ day: equipmentDay, hour: equipmentHour });
+            setAppliedEquipmentFilters({ day: equipmentDay, timeRange: equipmentTimeRange });
           }}
         >
           <label className="flex min-w-40 flex-1 flex-col gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
@@ -246,28 +223,28 @@ export default function Analytics() {
             />
           </label>
           <label className="flex min-w-40 flex-1 flex-col gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
-            Hour (Philippines time)
+            Availability time (Philippines time)
             <select
-              value={equipmentHour}
-              onChange={(event) => setEquipmentHour(event.target.value)}
+              value={equipmentTimeRange}
+              onChange={(event) => setEquipmentTimeRange(event.target.value)}
               className="min-h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal text-slate-800 dark:border-white/10 dark:bg-[#111] dark:text-slate-200"
             >
               <option value="">All hours</option>
-              {Array.from({ length: 24 }, (_, hour) => (
-                <option key={hour} value={hour}>{formatHour(hour)}</option>
+              {AVAILABILITY_RANGES.map((range) => (
+                <option key={range.key} value={range.key}>{range.label}</option>
               ))}
             </select>
           </label>
           <button type="submit" className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-orange-500 px-4 text-sm font-bold text-white transition hover:bg-orange-600">
             <Filter size={15} /> Apply filters
           </button>
-          {(equipmentDay || equipmentHour) && (
+          {(equipmentDay || equipmentTimeRange) && (
             <button
               type="button"
               onClick={() => {
                 setEquipmentDay("");
-                setEquipmentHour("");
-                setAppliedEquipmentFilters({ day: "", hour: "" });
+                setEquipmentTimeRange("");
+                setAppliedEquipmentFilters({ day: "", timeRange: "" });
               }}
               className="min-h-10 rounded-lg px-3 text-sm font-semibold text-slate-600 hover:bg-slate-200 dark:text-slate-300 dark:hover:bg-white/10"
             >
@@ -301,8 +278,6 @@ export default function Analytics() {
         )}
       </section>
 
-=======
->>>>>>> origin/master
       <section aria-labelledby="gym-peak-heading" className="space-y-4">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">When members train</p>

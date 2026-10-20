@@ -1,11 +1,6 @@
 const pool = require("../db");
-<<<<<<< HEAD
 const { validateImageDataUrl } = require("../utils/security");
 const { getConfiguredAdminEmail } = require("../utils/adminAccess");
-=======
-const bcrypt = require("bcrypt");
-const { validatePassword, validateImageDataUrl } = require("../utils/security");
->>>>>>> origin/master
 
 // GET admin profile
 const getProfile = async (req, res) => {
@@ -27,7 +22,6 @@ const getProfile = async (req, res) => {
 const updateProfile = async (req, res) => {
   try {
     const { full_name, email } = req.body;
-<<<<<<< HEAD
     const adminEmail = getConfiguredAdminEmail();
     if (!adminEmail) {
       console.error("Admin profile update is disabled because ADMIN_EMAIL is not configured with a valid email address.");
@@ -42,11 +36,6 @@ const updateProfile = async (req, res) => {
     await pool.query(
       "UPDATE admins SET full_name=$1, updated_at=NOW() WHERE admin_id=$2 AND LOWER(email)=$3",
       [full_name, req.admin.admin_id, adminEmail]
-=======
-    await pool.query(
-      "UPDATE admins SET full_name=$1, email=$2, updated_at=NOW() WHERE admin_id=$3",
-      [full_name, email, req.admin.admin_id]
->>>>>>> origin/master
     );
     res.json({ success: true, message: "Profile updated." });
   } catch (err) {
@@ -73,36 +62,4 @@ const updatePhoto = async (req, res) => {
   }
 };
 
-<<<<<<< HEAD
 module.exports = { getProfile, updateProfile, updatePhoto };
-=======
-// PUT update password
-const updatePassword = async (req, res) => {
-  try {
-    const { current_password, new_password } = req.body;
-    if (!current_password || !validatePassword(new_password)) return res.status(400).json({ success: false, message: "Use 8–12 characters with a letter, a number, and a symbol. Avoid common passwords." });
-
-    const result = await pool.query(
-      "SELECT password FROM admins WHERE admin_id = $1",
-      [req.admin.admin_id]
-    );
-
-    const valid = await bcrypt.compare(current_password, result.rows[0].password);
-    if (!valid)
-      return res.status(401).json({ success: false, message: "Current password is incorrect." });
-
-    const hashed = await bcrypt.hash(new_password, 12);
-    await pool.query(
-      "UPDATE admins SET password=$1, token_version=token_version+1, updated_at=NOW() WHERE admin_id=$2",
-      [hashed, req.admin.admin_id]
-    );
-
-    res.json({ success: true, message: "Password updated." });
-  } catch (err) {
-    console.error("updatePassword error:", err.message);
-    res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-module.exports = { getProfile, updateProfile, updatePhoto, updatePassword };
->>>>>>> origin/master

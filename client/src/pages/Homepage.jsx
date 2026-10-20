@@ -2,24 +2,17 @@ import { Link } from "react-router-dom";
 import {
   ArrowRight,
   ArrowUpRight,
-<<<<<<< HEAD
   Clock3,
   Dumbbell,
   ExternalLink,
   MapPin,
-=======
-  Dumbbell,
->>>>>>> origin/master
   TrendingUp,
   Users,
 } from "lucide-react";
 import "./Homepage.css";
 
-<<<<<<< HEAD
 const GYM_ADDRESS = "34 A Mabini Tanauan Batangas, Mabini Ave, Tanauan City, Batangas";
 
-=======
->>>>>>> origin/master
 const FEATURES = [
   {
     icon: Dumbbell,
@@ -55,10 +48,7 @@ export default function Homepage() {
             <a href="#training">Training</a>
             <a href="#coaching">Coaching</a>
             <a href="#club">The club</a>
-<<<<<<< HEAD
             <a href="#about">About Us</a>
-=======
->>>>>>> origin/master
           </nav>
 
         </div>
@@ -138,7 +128,6 @@ export default function Homepage() {
           </div>
         </section>
 
-<<<<<<< HEAD
         <section className="home-about" id="about" aria-labelledby="home-about-title">
           <div className="home-about-inner">
             <div className="home-about-copy">
@@ -175,8 +164,6 @@ export default function Homepage() {
           </div>
         </section>
 
-=======
->>>>>>> origin/master
         <section className="home-coaching" id="coaching">
           <div className="home-coaching-inner">
             <div className="home-coaching-heading">

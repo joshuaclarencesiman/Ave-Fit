@@ -40,38 +40,17 @@ const validateText = (value, label) => {
   return "";
 };
 
-<<<<<<< HEAD
-=======
-const validateCalories = (value) => {
-  const raw = String(value ?? "").trim();
-  if (!raw) return "Calories per minute is required.";
-  if (!/^\d+(\.\d{1,2})?$/.test(raw)) return "Calories per minute must be a number only (no symbols).";
-  const n = Number(raw);
-  if (n < 2) return "Calories per minute must be at least 2.00.";
-  if (n > 12) return "Calories per minute cannot be more than 12.00.";
-  return "";
-};
-
->>>>>>> origin/master
 const emptySteps = () => [
   { title: "Starting Position", description: "" },
   { title: "Movement", description: "" },
   { title: "Finish", description: "" },
 ];
 
-<<<<<<< HEAD
 function ExerciseModal({ exercise, onClose, onSave }) {
   const [form, setForm] = useState(
     exercise
       ? { ...exercise }
       : { exercise_name: "", muscle_group: "", difficulty: "Beginner", description: "", equipment: "" }
-=======
-function ExerciseModal({ exercise, categories, onClose, onSave }) {
-  const [form, setForm] = useState(
-    exercise
-      ? { ...exercise }
-      : { exercise_name: "", category_id: "", muscle_group: "", difficulty: "Beginner", calories_per_minute: "", description: "", equipment: "" }
->>>>>>> origin/master
   );
   const [steps, setSteps] = useState(
     exercise?.movement_steps && Array.isArray(exercise.movement_steps) && exercise.movement_steps.length === 3
@@ -94,16 +73,8 @@ function ExerciseModal({ exercise, categories, onClose, onSave }) {
     const next = {};
     const nameError = validateName(form.exercise_name);
     if (nameError) next.exercise_name = nameError;
-<<<<<<< HEAD
     if (!form.muscle_group) next.muscle_group = "Muscle group is required.";
     if (!form.equipment) next.equipment = "Equipment is required.";
-=======
-    if (!form.category_id) next.category_id = "Category is required.";
-    if (!form.muscle_group) next.muscle_group = "Muscle group is required.";
-    if (!form.equipment) next.equipment = "Equipment is required.";
-    const calorieError = validateCalories(form.calories_per_minute);
-    if (calorieError) next.calories_per_minute = calorieError;
->>>>>>> origin/master
     const descriptionError = validateText(form.description, "Description");
     if (descriptionError) next.description = descriptionError;
     steps.forEach((step, i) => {
@@ -123,24 +94,12 @@ function ExerciseModal({ exercise, categories, onClose, onSave }) {
       // The exercise visuals now come from the bundled Workout Guide repository.
       // Keep only AveFit's exercise metadata and coaching notes in the database.
       const {
-<<<<<<< HEAD
         exercise_name, muscle_group, difficulty, description, equipment
       } = form;
       const payload = {
         exercise_name: exercise_name.trim(),
         muscle_group,
         difficulty,
-=======
-        exercise_name, category_id, muscle_group, difficulty,
-        calories_per_minute, description, equipment
-      } = form;
-      const payload = {
-        exercise_name: exercise_name.trim(),
-        category_id,
-        muscle_group,
-        difficulty,
-        calories_per_minute,
->>>>>>> origin/master
         description: description.trim(),
         equipment,
         movement_steps: steps.map((step, i) => ({
@@ -183,19 +142,6 @@ function ExerciseModal({ exercise, categories, onClose, onSave }) {
               {errors.exercise_name && <p className="mt-1 text-xs text-red-500">{errors.exercise_name}</p>}
             </div>
             <div>
-<<<<<<< HEAD
-=======
-              <label className="block text-sm font-medium text-slate-600 mb-1">Category *</label>
-              <select value={form.category_id || ""} onChange={(e) => setForm({ ...form, category_id: e.target.value })}
-                aria-invalid={Boolean(errors.category_id)}
-                className={inputClass(errors.category_id)}>
-                <option value="">Select category...</option>
-                {categories.map((c) => <option key={c.category_id} value={c.category_id}>{c.category_name}</option>)}
-              </select>
-              {errors.category_id && <p className="mt-1 text-xs text-red-500">{errors.category_id}</p>}
-            </div>
-            <div>
->>>>>>> origin/master
               <label className="block text-sm font-medium text-slate-600 mb-1">Muscle Group *</label>
               <select value={form.muscle_group || ""}
                 onChange={(e) => setForm({ ...form, muscle_group: e.target.value })}
@@ -226,17 +172,6 @@ function ExerciseModal({ exercise, categories, onClose, onSave }) {
                 <option>Advanced</option>
               </select>
             </div>
-<<<<<<< HEAD
-=======
-            <div>
-              <label className="block text-sm font-medium text-slate-600 mb-1">Calories / min *</label>
-              <input type="number" min="2" max="12" step="0.01" inputMode="decimal" value={form.calories_per_minute ?? ""}
-                onChange={(e) => setForm({ ...form, calories_per_minute: e.target.value })}
-                aria-invalid={Boolean(errors.calories_per_minute)}
-                className={inputClass(errors.calories_per_minute)} />
-              {errors.calories_per_minute && <p className="mt-1 text-xs text-red-500">{errors.calories_per_minute}</p>}
-            </div>
->>>>>>> origin/master
           </div>
 
           <div>
@@ -299,17 +234,9 @@ function ExerciseModal({ exercise, categories, onClose, onSave }) {
 
 export default function Workouts() {
   const [exercises, setExercises] = useState([]);
-<<<<<<< HEAD
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState("");
   const [search, setSearch] = useState("");
-=======
-  const [categories, setCategories] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [fetchError, setFetchError] = useState("");
-  const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState("All");
->>>>>>> origin/master
   const [filterDifficulty, setFilterDifficulty] = useState("All");
   const [showModal, setShowModal] = useState(false);
   const [editExercise, setEditExercise] = useState(null);
@@ -317,19 +244,9 @@ export default function Workouts() {
   const fetchData = () => {
     setLoading(true);
     setFetchError("");
-<<<<<<< HEAD
     api.get("/workouts")
       .then((exRes) => {
         setExercises(exRes.data.data);
-=======
-    Promise.all([
-      api.get("/workouts"),
-      api.get("/workouts/categories"),
-    ])
-      .then(([exRes, catRes]) => {
-        setExercises(exRes.data.data);
-        setCategories(catRes.data.data || []);
->>>>>>> origin/master
       })
       .catch((err) => {
         console.error(err);
@@ -352,23 +269,12 @@ export default function Workouts() {
     }
   };
 
-<<<<<<< HEAD
-=======
-  const categoryNames = ["All", ...new Set(exercises.map((e) => e.category_name).filter(Boolean))];
-
->>>>>>> origin/master
   const filtered = exercises.filter((e) => {
     const matchSearch =
       e.exercise_name?.toLowerCase().includes(search.toLowerCase()) ||
       e.muscle_group?.toLowerCase().includes(search.toLowerCase());
-<<<<<<< HEAD
     const matchDifficulty = filterDifficulty === "All" || e.difficulty === filterDifficulty;
     return matchSearch && matchDifficulty;
-=======
-    const matchFilter = filter === "All" || e.category_name === filter;
-    const matchDifficulty = filterDifficulty === "All" || e.difficulty === filterDifficulty;
-    return matchSearch && matchFilter && matchDifficulty;
->>>>>>> origin/master
   });
 
   return (
@@ -376,10 +282,6 @@ export default function Workouts() {
       {showModal && (
         <ExerciseModal
           exercise={editExercise}
-<<<<<<< HEAD
-=======
-          categories={categories}
->>>>>>> origin/master
           onClose={() => setShowModal(false)}
           onSave={fetchData}
         />
@@ -421,28 +323,6 @@ export default function Workouts() {
         <div className="mt-4">
           <div className="space-y-3">
             <div>
-<<<<<<< HEAD
-=======
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Category</p>
-              <div className="flex flex-wrap justify-start gap-2">
-                {categoryNames.map((c) => (
-                  <button
-                    key={c}
-                    onClick={() => setFilter(c)}
-                    aria-pressed={filter === c}
-                    className={`whitespace-nowrap rounded-lg border px-3.5 py-2 text-sm font-medium transition ${
-                      filter === c
-                        ? "border-orange-600 bg-orange-600 text-white shadow-sm"
-                        : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300 hover:bg-slate-100 dark:border-slate-700 dark:bg-[#1b1b1b] dark:text-slate-200 dark:hover:bg-[#252525]"
-                    }`}
-                  >
-                    {c}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
->>>>>>> origin/master
               <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Difficulty</p>
               <div className="flex flex-wrap gap-2">
                 {["All", "Beginner", "Intermediate", "Advanced"].map((difficulty) => (
@@ -467,11 +347,7 @@ export default function Workouts() {
 
       <div className="flex items-center justify-between gap-3">
         <p aria-live="polite" className="text-xs font-medium text-slate-500">{loading ? "Loading exercises..." : `${filtered.length} of ${exercises.length} exercises`}</p>
-<<<<<<< HEAD
         {(search || filterDifficulty !== "All") && <button type="button" onClick={() => { setSearch(""); setFilterDifficulty("All"); }} className="text-xs font-semibold text-orange-700 hover:underline dark:text-orange-300">Clear filters</button>}
-=======
-        {(search || filter !== "All" || filterDifficulty !== "All") && <button type="button" onClick={() => { setSearch(""); setFilter("All"); setFilterDifficulty("All"); }} className="text-xs font-semibold text-orange-700 hover:underline dark:text-orange-300">Clear filters</button>}
->>>>>>> origin/master
       </div>
 
       {loading ? (
@@ -506,11 +382,7 @@ export default function Workouts() {
               <div className="min-w-0 flex-1">
                 <p className="font-semibold text-slate-900">{exercise.exercise_name}</p>
                 <p className="mt-0.5 text-xs text-slate-500">
-<<<<<<< HEAD
                   {exercise.muscle_group}
-=======
-                  {exercise.muscle_group} • {exercise.category_name || "General"}
->>>>>>> origin/master
                 </p>
                 {exercise.equipment && (
                   <p className="mt-1 text-xs text-slate-500">🏋️ {exercise.equipment}</p>

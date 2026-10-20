@@ -382,17 +382,13 @@ tbody tr:hover { background: #fff7ed; }
 .ave-portal-shell {
   background: #fffaf5;
   color: #171717;
-<<<<<<< HEAD
   min-width: 0;
-=======
->>>>>>> origin/master
 }
 .dark .ave-portal-shell {
   background: #080808;
   color: #f5f5f5;
 }
 
-<<<<<<< HEAD
 .portal-content,
 .portal-content > div {
   min-width: 0;
@@ -408,8 +404,6 @@ tbody tr:hover { background: #fff7ed; }
   max-width: 100%;
 }
 
-=======
->>>>>>> origin/master
 .ave-sidebar {
   background: #ffffff;
   border-color: #f0e1d3;
@@ -582,7 +576,6 @@ tbody tr:hover { background: #fff7ed; }
 /* =========================================================
    10. Motion
    ========================================================= */
-<<<<<<< HEAD
 .coach-scroll-reveal {
   opacity: 0;
   transform: translate3d(0, 28px, 0);
@@ -605,8 +598,6 @@ tbody tr:hover { background: #fff7ed; }
   }
 }
 
-=======
->>>>>>> origin/master
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -616,12 +607,9 @@ tbody tr:hover { background: #fff7ed; }
     transition-duration: .01ms !important;
     scroll-behavior: auto !important;
   }
-<<<<<<< HEAD
   .coach-scroll-reveal {
     opacity: 1;
     transform: none;
   }
-=======
->>>>>>> origin/master
   .hover\:scale-105:hover { transform: none !important; }
 }

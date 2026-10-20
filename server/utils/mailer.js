@@ -1,14 +1,9 @@
 const nodemailer = require("nodemailer");
 const dns = require("dns");
-<<<<<<< HEAD
 const path = require("path");
 const { VERIFICATION_CODE_TTL_MINUTES } = require("./emailVerification");
 
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
-=======
-
-require("dotenv").config();
->>>>>>> origin/master
 
 const BRAND_COLOR = "#f97316";
 
@@ -27,12 +22,9 @@ function smtpConfig() {
   return {
     host,
     port: Number(process.env.SMTP_PORT || 465),
-<<<<<<< HEAD
     connectionTimeout: 10000,
     greetingTimeout: 10000,
     socketTimeout: 15000,
-=======
->>>>>>> origin/master
 
     // Force IPv4 because some hosted environments
     // may have unreliable IPv6 connectivity.
@@ -85,11 +77,7 @@ function fromAddress() {
   return process.env.SMTP_FROM || process.env.SMTP_USER;
 }
 
-<<<<<<< HEAD
 async function sendMail({ to, subject, text, html, replyTo }) {
-=======
-async function sendMail({ to, subject, text, html }) {
->>>>>>> origin/master
   const transport = getTransporter();
 
   if (!transport) {
@@ -117,7 +105,6 @@ async function sendMail({ to, subject, text, html }) {
     subject,
     text,
     html,
-<<<<<<< HEAD
     ...(replyTo ? { replyTo } : {}),
   });
 
@@ -127,12 +114,6 @@ async function sendMail({ to, subject, text, html }) {
 
   console.log(
     "📧 Email sent to " +
-=======
-  });
-
-  console.log(
-    "📧 Verification email sent to " +
->>>>>>> origin/master
       to +
       " (" +
       info.messageId +
@@ -235,7 +216,6 @@ async function sendVerificationEmail({ to, firstName, code }) {
   });
 }
 
-<<<<<<< HEAD
 async function sendWorkoutPlanReadyEmail({ to, firstName }) {
   const name = escapeHtml(firstName || "there");
   const workoutUrl = `${(process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "")}/user/workout`;
@@ -625,13 +605,10 @@ async function sendProfileChangeDecisionEmail({ to, memberName, requestType, app
   });
 }
 
-=======
->>>>>>> origin/master
 module.exports = {
   isMailConfigured,
   sendMail,
   sendVerificationEmail,
-<<<<<<< HEAD
   sendWorkoutPlanReadyEmail,
   sendCoachAssignmentEmail,
   sendNoWorkoutReminderEmail,
@@ -642,6 +619,3 @@ module.exports = {
   sendProfileChangeRequestEmail,
   sendProfileChangeDecisionEmail,
 };
-=======
-};
->>>>>>> origin/master

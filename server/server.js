@@ -1,20 +1,13 @@
-<<<<<<< HEAD
 require("dotenv").config({ path: require("path").join(__dirname, ".env") });
-=======
-require("dotenv").config();
->>>>>>> origin/master
 const express = require("express");
 const cors = require("cors");
 
 const { initializeDatabase, expireMemberships } = require("./db");
-<<<<<<< HEAD
 const {
   sendWeeklyBmiReminders,
   sendUnassignedWorkoutReminders,
 } = require("./utils/notifications");
-const { refreshWorkoutStatuses } = require("./utils/workoutStatus");
-=======
->>>>>>> origin/master
+const { evaluateWorkoutStatuses } = require("./utils/workoutStatus");
 
 // Admin routes
 const adminRoutes = require("./routes/adminRoutes");
@@ -103,7 +96,6 @@ initializeDatabase()
       });
     }, 60 * 1000);
     membershipExpiryTimer.unref();
-<<<<<<< HEAD
     const bmiReminderTimer = setInterval(() => {
       sendWeeklyBmiReminders().catch((err) => {
         console.error("❌ Weekly BMI reminder check failed:", err.message);
@@ -122,18 +114,19 @@ initializeDatabase()
     sendUnassignedWorkoutReminders().catch((err) => {
       console.error("❌ Initial no-workout reminder check failed:", err.message);
     });
-    // Workouts of a finished day are settled as Incomplete or Absent.
+    // Workout status lifecycle (Active / Complete / Incomplete / Absent).
+    // Runs on startup so days that ended while the backend was down are
+    // picked up, then every five minutes so members who never open the app
+    // still get their scheduled workouts evaluated.
     const workoutStatusTimer = setInterval(() => {
-      refreshWorkoutStatuses().catch((err) => {
-        console.error("❌ Workout status check failed:", err.message);
+      evaluateWorkoutStatuses().catch((err) => {
+        console.error("❌ Workout status evaluation failed:", err.message);
       });
-    }, 15 * 60 * 1000);
+    }, 5 * 60 * 1000);
     workoutStatusTimer.unref();
-    refreshWorkoutStatuses().catch((err) => {
-      console.error("❌ Initial workout status check failed:", err.message);
+    evaluateWorkoutStatuses().catch((err) => {
+      console.error("❌ Initial workout status evaluation failed:", err.message);
     });
-=======
->>>>>>> origin/master
     app.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));
   })
   .catch((err) => {

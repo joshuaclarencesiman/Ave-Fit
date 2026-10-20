@@ -2,10 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { Activity, Save, LogOut, ChevronRight, Camera, CircleUserRound, Dumbbell } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useUserAuth } from "../context/UserAuthContext";
-<<<<<<< HEAD
 import { PasswordField } from "../components/ui/Form";
-=======
->>>>>>> origin/master
 import userApi from "../userApi";
 import { fileToCompressedDataUrl } from "../utils/imageUpload";
 
@@ -13,10 +10,7 @@ export default function ProfilePage() {
   const navigate = useNavigate();
   const { user, updateUser, logoutUser } = useUserAuth();
   const fileInputRef = useRef(null);
-<<<<<<< HEAD
   const originalFormRef = useRef(null);
-=======
->>>>>>> origin/master
   const [form, setForm] = useState({
     first_name: "", last_name: "", email: "", phone: "",
     gender: "", birth_date: "", height: "", weight: "",
@@ -29,7 +23,6 @@ export default function ProfilePage() {
   const [msg, setMsg] = useState("");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
-<<<<<<< HEAD
   const [passwordForm, setPasswordForm] = useState({ code: "", password: "", confirmPassword: "" });
   const [passwordCodeSent, setPasswordCodeSent] = useState(false);
   const [passwordLoading, setPasswordLoading] = useState(false);
@@ -45,14 +38,6 @@ export default function ProfilePage() {
       .then(([profileResponse, requestResponse]) => {
         const d = profileResponse.data.data;
         const profileForm = {
-=======
-
-  useEffect(() => {
-    userApi.get("/profile")
-      .then((res) => {
-        const d = res.data.data;
-        setForm({
->>>>>>> origin/master
           first_name: d.first_name || "",
           last_name: d.last_name || "",
           email: d.email || "",
@@ -63,7 +48,6 @@ export default function ProfilePage() {
           weight: d.weight || "",
           fitness_goal: d.fitness_goal || "",
           activity_level: d.activity_level || "",
-<<<<<<< HEAD
           preferred_workout_time: d.preferred_workout_time || "",
         };
         originalFormRef.current = profileForm;
@@ -78,29 +62,18 @@ export default function ProfilePage() {
           weight: d.weight,
           profile_image: d.profile_image || null,
         });
-=======
-        });
-        setPhoto(d.profile_image || null);
->>>>>>> origin/master
         if (d.height && d.weight) {
           const h = parseFloat(d.height) / 100;
           setBmi((parseFloat(d.weight) / (h * h)).toFixed(1));
         }
-<<<<<<< HEAD
         setChangeRequests(requestResponse.data?.data || []);
-=======
->>>>>>> origin/master
       })
       .catch((err) => {
         console.error(err);
         setLoadError(err.response?.data?.message || "Unable to load your profile. Please refresh and try again.");
       })
       .finally(() => setLoading(false));
-<<<<<<< HEAD
   }, [updateUser]);
-=======
-  }, []);
->>>>>>> origin/master
 
   const handlePhotoChange = async (e) => {
     const file = e.target.files?.[0];
@@ -109,7 +82,6 @@ export default function ProfilePage() {
     setMsg("");
     try {
       const dataUrl = await fileToCompressedDataUrl(file);
-<<<<<<< HEAD
       const response = await userApi.put("/profile/photo", { profile_image: dataUrl });
       if (response.data.request) {
         setChangeRequests((current) => [response.data.request, ...current]);
@@ -117,11 +89,6 @@ export default function ProfilePage() {
         setPhoto(dataUrl);
       }
       setMsg(response.data.message || "Profile photo update submitted.");
-=======
-      await userApi.put("/profile/photo", { profile_image: dataUrl });
-      setPhoto(dataUrl);
-      setMsg("Photo updated!");
->>>>>>> origin/master
     } catch (err) {
       setMsg(err.response?.data?.message || err.message || "Failed to upload photo.");
     } finally {
@@ -147,7 +114,6 @@ export default function ProfilePage() {
     setMsg("");
     try {
       const res = await userApi.put("/profile", form);
-<<<<<<< HEAD
       if (res.data.request) {
         setChangeRequests((current) => [res.data.request, ...current]);
         if (originalFormRef.current) {
@@ -164,12 +130,6 @@ export default function ProfilePage() {
         updateUser({ first_name: form.first_name, last_name: form.last_name, email: form.email });
       }
       setMsg(res.data.message || "Profile changes saved successfully.");
-=======
-      updateUser({ first_name: form.first_name, last_name: form.last_name, email: form.email });
-      setMsg(res.data.email_verification_required
-        ? res.data.message
-        : "Profile changes saved successfully.");
->>>>>>> origin/master
     } catch (err) {
       setMsg(err.response?.data?.message || "Unable to save your profile. Please try again.");
     } finally {
@@ -178,7 +138,6 @@ export default function ProfilePage() {
     }
   };
 
-<<<<<<< HEAD
   const handleRequestPasswordCode = async () => {
     setPasswordLoading(true);
     setPasswordError("");
@@ -234,8 +193,6 @@ export default function ProfilePage() {
     }
   };
 
-=======
->>>>>>> origin/master
   const handleLogout = () => {
     logoutUser();
     navigate("/user/login");
@@ -249,7 +206,6 @@ export default function ProfilePage() {
     );
   }
 
-<<<<<<< HEAD
   const hasPendingPasswordChange = changeRequests.some(
     (request) => request.request_type === "password" && request.status === "Pending"
   );
@@ -257,8 +213,6 @@ export default function ProfilePage() {
     (request) => request.request_type === "profile" && request.status === "Pending"
   );
 
-=======
->>>>>>> origin/master
   return (
     <div className="min-h-screen bg-[#fffaf5] dark:bg-[#080808] text-slate-900 dark:text-white">
       {/* Header */}
@@ -266,13 +220,8 @@ export default function ProfilePage() {
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-<<<<<<< HEAD
           disabled={uploadingPhoto || hasPendingProfileChange}
           aria-label={uploadingPhoto ? "Uploading profile photo" : hasPendingProfileChange ? "Profile changes awaiting admin approval" : "Change profile photo"}
-=======
-          disabled={uploadingPhoto}
-          aria-label={uploadingPhoto ? "Uploading profile photo" : "Change profile photo"}
->>>>>>> origin/master
           className="relative mx-auto mb-3 block h-20 w-20 rounded-full ring-4 ring-white/70 transition hover:ring-orange-200 focus-visible:outline-none focus-visible:ring-orange-400 dark:ring-white/10 dark:hover:ring-orange-500/30 disabled:opacity-70"
         >
           <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-orange-500">
@@ -321,7 +270,6 @@ export default function ProfilePage() {
           </p>
         )}
 
-<<<<<<< HEAD
         {changeRequests.filter((request) => request.status === "Pending").length > 0 && (
           <section aria-label="Pending account changes" className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 dark:border-orange-500/20 dark:bg-orange-500/[0.08]">
             <h2 className="text-sm font-bold text-orange-900 dark:text-orange-200">Changes awaiting admin approval</h2>
@@ -336,19 +284,13 @@ export default function ProfilePage() {
           </section>
         )}
 
-=======
->>>>>>> origin/master
         {/* Personal Info */}
         <section className="space-y-4 rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/5 dark:bg-[#111] sm:p-6">
           <div className="flex items-center gap-3">
             <span className="grid h-10 w-10 place-items-center rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400"><CircleUserRound size={19} /></span>
             <div>
               <h2 className="font-bold text-slate-900 dark:text-white">Personal information</h2>
-<<<<<<< HEAD
               <p className="text-xs text-slate-500">Changes are reviewed by the gym administrator before taking effect.</p>
-=======
-              <p className="text-xs text-slate-500">Keep your account details up to date.</p>
->>>>>>> origin/master
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -397,11 +339,7 @@ export default function ProfilePage() {
         </section>
 
         {/* Body Metrics */}
-<<<<<<< HEAD
         <section id="profile-body-metrics" className="scroll-mt-24 space-y-4 rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/5 dark:bg-[#111] sm:p-6">
-=======
-        <section className="space-y-4 rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/5 dark:bg-[#111] sm:p-6">
->>>>>>> origin/master
           <div className="flex items-center gap-3">
             <span className="grid h-10 w-10 place-items-center rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400"><Activity size={19} /></span>
             <div>
@@ -431,11 +369,7 @@ export default function ProfilePage() {
         </section>
 
         {/* Fitness Settings */}
-<<<<<<< HEAD
         <section id="profile-fitness-settings" className="scroll-mt-24 space-y-4 rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/5 dark:bg-[#111] sm:p-6">
-=======
-        <section className="space-y-4 rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/5 dark:bg-[#111] sm:p-6">
->>>>>>> origin/master
           <div className="flex items-center gap-3">
             <span className="grid h-10 w-10 place-items-center rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400"><Dumbbell size={19} /></span>
             <div>
@@ -468,7 +402,6 @@ export default function ProfilePage() {
               ))}
             </div>
           </div>
-<<<<<<< HEAD
           <div>
             <label htmlFor="profile-preferred-workout-time" className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Preferred workout time</label>
             <select
@@ -579,15 +512,12 @@ export default function ProfilePage() {
             </form>
           </>
           )}
-=======
->>>>>>> origin/master
         </section>
 
         {/* Quick Links */}
         <section className="overflow-hidden rounded-2xl border border-orange-100 bg-white shadow-sm dark:border-white/5 dark:bg-[#111]">
           <div className="border-b border-slate-200 px-5 py-4 dark:border-white/10">
             <h2 className="font-bold text-slate-900 dark:text-white">Fitness setup</h2>
-<<<<<<< HEAD
             <p className="mt-1 text-xs text-slate-500">Edit your settings below. Changes need admin approval before taking effect.</p>
           </div>
           {[
@@ -595,15 +525,6 @@ export default function ProfilePage() {
             { label: "Change fitness goal", target: "profile-fitness-settings" },
           ].map((item) => (
             <button key={item.label} type="button" onClick={() => document.getElementById(item.target)?.scrollIntoView({ behavior: "smooth", block: "start" })}
-=======
-            <p className="mt-1 text-xs text-slate-500">Update your plan if your goals or routine change.</p>
-          </div>
-          {[
-            { label: "Redo Assessment", to: "/user/assessment" },
-            { label: "Change Goal", to: "/user/goal" },
-          ].map((item) => (
-            <button key={item.label} type="button" onClick={() => navigate(item.to)}
->>>>>>> origin/master
               className="flex w-full items-center justify-between border-b border-slate-200 px-5 py-4 text-left transition hover:bg-slate-50 last:border-0 dark:border-white/10 dark:hover:bg-white/[0.03]">
               <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{item.label}</span>
               <ChevronRight size={16} className="text-slate-500" />
@@ -612,17 +533,10 @@ export default function ProfilePage() {
         </section>
 
         {/* Save + Logout */}
-<<<<<<< HEAD
         <button type="button" onClick={handleSave} disabled={saving || Boolean(loadError) || hasPendingProfileChange}
           className="flex w-full items-center justify-center gap-2 rounded-xl bg-orange-500 py-3.5 font-bold text-white transition hover:bg-orange-600 disabled:opacity-50">
           <Save size={18} />
           {saving ? "Submitting..." : hasPendingProfileChange ? "Profile Request Pending" : "Submit Profile Changes"}
-=======
-        <button type="button" onClick={handleSave} disabled={saving || Boolean(loadError)}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-orange-500 py-3.5 font-bold text-white transition hover:bg-orange-600 disabled:opacity-50">
-          <Save size={18} />
-          {saving ? "Saving..." : "Save Changes"}
->>>>>>> origin/master
         </button>
 
         <button type="button" onClick={handleLogout}

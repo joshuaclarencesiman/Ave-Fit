@@ -1,5 +1,37 @@
-<<<<<<< HEAD
 # AveFit Server
+
+## Workout status lifecycle
+
+Every scheduled workout in `workout_sessions` carries a `status`:
+
+| Status      | Meaning                                                                     |
+| ----------- | --------------------------------------------------------------------------- |
+| `Scheduled` | Booked for a future day.                                                     |
+| `Active`    | The scheduled day is ongoing and the workout is not finished yet.            |
+| `Complete`  | The member finished the scheduled workout.                                   |
+| `Incomplete`| The member started the workout but the day ended before it was finished.     |
+| `Absent`    | The scheduled day ended without any recorded workout activity.               |
+
+The rules are evaluated on the server from the scheduled workout date and the
+application timezone, never from the member's browser clock:
+
+- A workout becomes `Active` on its scheduled day and stays `Active` until the
+  member completes it or the day ends.
+- Completing a workout stores the completion timestamp and sets `Complete`
+  immediately. Repeating the request is a no-op, so no duplicate completion
+  record or notification is created.
+- When the scheduled day ends, a workout with recorded activity becomes
+  `Incomplete` and a workout without any activity becomes `Absent`.
+- `Complete` is never downgraded to `Incomplete` or `Absent`.
+
+`server/utils/workoutStatus.js` owns the evaluation. It runs once at server
+startup (so days that ended while the server was down are picked up), every
+five minutes, and on demand when the member or trainer lists workouts. Only
+rows whose status actually changed are written, so repeated runs are safe.
+
+Set `APP_TIMEZONE` in the server environment to override the timezone used for
+the evaluation. It defaults to `Asia/Manila`, the timezone the rest of the app
+uses.
 
 ## Admin access allowlist
 
@@ -29,23 +61,3 @@ node -e "console.log(require('web-push').generateVAPIDKeys())"
 ```
 
 Set the returned values as `WEB_PUSH_VAPID_PUBLIC_KEY` and `WEB_PUSH_VAPID_PRIVATE_KEY`, and set `WEB_PUSH_CONTACT` to a monitored `mailto:` address. Add these only to `server/.env` for local development or to the server's deployment secrets/environment; do not commit the private key or put it in a `VITE_` variable. Restart/redeploy the API after setting them. In-app notifications continue to work when browser push is not configured.
-=======
-# React + Vite
-
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
-
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is enabled on this template. See [this documentation](https://react.dev/learn/react-compiler) for more information.
-
-Note: This will impact Vite dev & build performances.
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
->>>>>>> origin/master

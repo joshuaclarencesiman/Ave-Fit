@@ -1,161 +1,215 @@
 const pool = require("../db");
 
-// Every date in the product is evaluated on Philippine Standard Time.
-const APP_TIME_ZONE = "Asia/Manila";
+/**
+ * Workout session status lifecycle.
+ *
+ *   Scheduled -> the workout is booked for a future day.
+ *   Active    -> the scheduled day is ongoing and the workout is not finished.
+ *   Complete  -> the member finished the scheduled workout.
+ *   Incomplete-> the member started the workout but the day ended before finishing.
+ *   Absent    -> the scheduled day ended without any recorded workout activity.
+ *
+ * Every rule below is evaluated against the scheduled workout date and the
+ * application timezone (Asia/Manila by default), never against the member's
+ * browser clock, so the backend, the database and the UI always agree.
+ */
 
-// The four workout statuses shown on the member dashboard and the trainer's
-// workout plans.
-const WORKOUT_STATUS = {
+const APP_TIME_ZONE = (process.env.APP_TIMEZONE || "Asia/Manila").trim() || "Asia/Manila";
+
+const WORKOUT_STATUS = Object.freeze({
+  SCHEDULED: "Scheduled",
   ACTIVE: "Active",
   COMPLETE: "Complete",
   INCOMPLETE: "Incomplete",
   ABSENT: "Absent",
+});
+
+const ISO_DATE_PATTERN = "^[0-9]{4}-[0-9]{2}-[0-9]{2}$";
+
+// 2000-01-02 was a Sunday, so these anchors give us a stable weekday lookup.
+const weekdayAnchorSql = (alias) => `
+  CASE LOWER(BTRIM(${alias}.session_date))
+    WHEN 'monday' THEN DATE '2000-01-03'
+    WHEN 'tuesday' THEN DATE '2000-01-04'
+    WHEN 'wednesday' THEN DATE '2000-01-05'
+    WHEN 'thursday' THEN DATE '2000-01-06'
+    WHEN 'friday' THEN DATE '2000-01-07'
+    WHEN 'saturday' THEN DATE '2000-01-08'
+    ELSE DATE '2000-01-02'
+  END`;
+
+/**
+ * The calendar day a session is scheduled on.
+ * Concrete dates use the stored value, weekday based (recurring) sessions use
+ * the occurrence inside the current Monday-based week.
+ */
+const scheduledOnSql = (alias) => `
+  CASE
+    WHEN ${alias}.session_date ~ '${ISO_DATE_PATTERN}'
+      THEN TO_DATE(${alias}.session_date, 'YYYY-MM-DD')
+    ELSE (
+      DATE_TRUNC('week', (NOW() AT TIME ZONE '${APP_TIME_ZONE}')::date::timestamp)::date
+      + ((EXTRACT(DOW FROM ${weekdayAnchorSql(alias)})::int + 6) % 7)
+    )
+  END`;
+
+/**
+ * A session counts as completed when it was flagged as completed or carries a
+ * completion timestamp. Recurring weekday sessions only count as completed for
+ * the occurrence they were completed in, so a new week starts a fresh attempt.
+ */
+const isCompleteSql = (alias) => `
+  (
+    COALESCE(${alias}.completed, FALSE) = TRUE
+    OR ${alias}.completed_at IS NOT NULL
+  )
+  AND (
+    ${alias}.session_date ~ '${ISO_DATE_PATTERN}'
+    OR ${alias}.completed_at IS NULL
+    OR (${alias}.completed_at AT TIME ZONE '${APP_TIME_ZONE}')::date = ${scheduledOnSql(alias)}
+  )`;
+
+/**
+ * The status a session should have right now, derived from its scheduled day
+ * and the recorded activity. Shared by the read queries and the persisted
+ * evaluation so both can never disagree.
+ */
+const statusSql = (alias) => `
+  CASE
+    WHEN ${isCompleteSql(alias)} THEN '${WORKOUT_STATUS.COMPLETE}'
+    WHEN ${scheduledOnSql(alias)} = (NOW() AT TIME ZONE '${APP_TIME_ZONE}')::date
+      THEN '${WORKOUT_STATUS.ACTIVE}'
+    WHEN ${scheduledOnSql(alias)} < (NOW() AT TIME ZONE '${APP_TIME_ZONE}')::date
+      THEN CASE
+        WHEN ${alias}.started_at IS NOT NULL THEN '${WORKOUT_STATUS.INCOMPLETE}'
+        ELSE '${WORKOUT_STATUS.ABSENT}'
+      END
+    ELSE '${WORKOUT_STATUS.SCHEDULED}'
+  END`;
+
+/**
+ * Persist the evaluated status for every session whose scheduled day already
+ * started. Only rows whose status actually changed are written, so repeated
+ * runs are cheap and idempotent.
+ */
+const evaluateWorkoutStatuses = async (client = pool) => {
+  const result = await client.query(`
+    WITH evaluated AS (
+      SELECT
+        ws.session_id,
+        ${statusSql("ws")} AS target_status
+      FROM workout_sessions ws
+      WHERE ${scheduledOnSql("ws")} <= (NOW() AT TIME ZONE '${APP_TIME_ZONE}')::date
+    )
+    UPDATE workout_sessions ws
+    SET status = evaluated.target_status,
+        completed = CASE
+          WHEN evaluated.target_status = '${WORKOUT_STATUS.COMPLETE}' THEN TRUE
+          ELSE ws.completed
+        END
+    FROM evaluated
+    WHERE ws.session_id = evaluated.session_id
+      AND (
+        ws.status IS DISTINCT FROM evaluated.target_status
+        OR (
+          evaluated.target_status = '${WORKOUT_STATUS.COMPLETE}'
+          AND COALESCE(ws.completed, FALSE) = FALSE
+        )
+      )
+    RETURNING ws.session_id, ws.status
+  `);
+
+  return result.rowCount;
 };
 
-const WORKOUT_STATUSES = Object.values(WORKOUT_STATUS);
-
-// Offset of every weekday inside a Monday based week.
-const WEEKDAY_OFFSETS = [
-  ["monday", 0],
-  ["tuesday", 1],
-  ["wednesday", 2],
-  ["thursday", 3],
-  ["friday", 4],
-  ["saturday", 5],
-  ["sunday", 6],
-];
-
 /**
- * Resolves the calendar day a workout session is scheduled for.
- *
- * `workout_sessions.session_date` holds either an ISO date (a one off workout)
- * or a weekday name (a recurring workout). Recurring workouts resolve to their
- * day inside the current Monday based week, so they roll over every week.
+ * Apply the evaluated status to a known set of sessions, used right after a
+ * session is created or edited so the stored status is correct immediately.
  */
-const scheduledDateSql = (alias = "ws") => `(
-  CASE
-    WHEN ${alias}.session_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-      THEN TO_DATE(${alias}.session_date, 'YYYY-MM-DD')
-    ${WEEKDAY_OFFSETS.map(([day, offset]) => `WHEN LOWER(BTRIM(${alias}.session_date)) = '${day}'
-      THEN (DATE_TRUNC('week', (NOW() AT TIME ZONE '${APP_TIME_ZONE}')::date))::date + ${offset}`).join("\n    ")}
-    ELSE NULL
-  END
-)`;
+const applySessionStatuses = async (sessionIds, client = pool) => {
+  const ids = (Array.isArray(sessionIds) ? sessionIds : [sessionIds])
+    .map((value) => Number(value))
+    .filter((value) => Number.isInteger(value) && value > 0);
 
-/**
- * The status of a single scheduled workout.
- *
- * Active     -> the workout is scheduled (or started) and its day has not ended
- * Complete   -> the member finished the workout
- * Incomplete -> the member started/logged the workout but the day ended first
- * Absent     -> the day ended without any recorded workout
- */
-const sessionStatusSql = (alias = "ws") => `(
-  CASE
-    WHEN ${alias}.completed IS TRUE THEN '${WORKOUT_STATUS.COMPLETE}'
-    WHEN ${scheduledDateSql(alias)} IS NULL THEN '${WORKOUT_STATUS.ACTIVE}'
-    WHEN ${scheduledDateSql(alias)} >= (NOW() AT TIME ZONE '${APP_TIME_ZONE}')::date THEN '${WORKOUT_STATUS.ACTIVE}'
-    WHEN ${alias}.started_at IS NOT NULL THEN '${WORKOUT_STATUS.INCOMPLETE}'
-    ELSE '${WORKOUT_STATUS.ABSENT}'
-  END
-)`;
+  if (!ids.length) return 0;
 
-/**
- * The status of every session that belongs to one plan.
- *
- * A plan is only Complete when every one of its workouts is complete. While a
- * workout is still scheduled or ongoing the plan stays Active, otherwise the
- * first unfinished workout decides whether the plan is Incomplete or Absent.
- */
-const planStatusSql = (alias = "ws") => `(
-  CASE
-    WHEN COUNT(${alias}.session_id) = 0 THEN '${WORKOUT_STATUS.ACTIVE}'
-    WHEN COUNT(${alias}.session_id) FILTER (WHERE ${alias}.completed IS TRUE) = COUNT(${alias}.session_id)
-      THEN '${WORKOUT_STATUS.COMPLETE}'
-    WHEN COUNT(${alias}.session_id) FILTER (WHERE ${sessionStatusSql(alias)} = '${WORKOUT_STATUS.ACTIVE}') > 0
-      THEN '${WORKOUT_STATUS.ACTIVE}'
-    WHEN COUNT(${alias}.session_id) FILTER (WHERE ${sessionStatusSql(alias)} = '${WORKOUT_STATUS.INCOMPLETE}') > 0
-      THEN '${WORKOUT_STATUS.INCOMPLETE}'
-    WHEN COUNT(${alias}.session_id) FILTER (WHERE ${sessionStatusSql(alias)} = '${WORKOUT_STATUS.ABSENT}') > 0
-      THEN '${WORKOUT_STATUS.ABSENT}'
-    ELSE '${WORKOUT_STATUS.COMPLETE}'
-  END
-)`;
-
-// Columns returned for a workout session. The stored `status` column is left
-// out on purpose so the live status below is the only one the API reports.
-const sessionColumns = (alias = "ws") => [
-  `${alias}.session_id`,
-  `${alias}.workout_plan_id`,
-  `${alias}.exercise_id`,
-  `${alias}.sets`,
-  `${alias}.reps`,
-  `${alias}.duration_minutes`,
-  `${alias}.calories_burned`,
-  `${alias}.completed`,
-  `${alias}.session_date`,
-  `${alias}.completed_at`,
-  `${alias}.started_at`,
-].join(", ");
-
-/**
- * Keeps the stored `workout_sessions.status` column in sync with the live
- * status rules. Only the status column is written, every recorded workout
- * detail (sets, reps, duration, completion time) is left untouched and a
- * confirmed completion is never overwritten.
- *
- * @param {{ userId?: number, trainerId?: number, planId?: number }} scope
- * @returns {Promise<number>} the number of sessions whose status changed
- */
-const refreshWorkoutStatuses = async (scope = {}) => {
-  const values = [];
-  const clauses = [];
-
-  if (Number.isInteger(scope.userId)) {
-    values.push(scope.userId);
-    clauses.push(`wp.user_id = $${values.length}`);
-  }
-  if (Number.isInteger(scope.trainerId)) {
-    values.push(scope.trainerId);
-    clauses.push(`wp.trainer_id = $${values.length}`);
-  }
-  if (Number.isInteger(scope.planId)) {
-    values.push(scope.planId);
-    clauses.push(`ws.workout_plan_id = $${values.length}`);
-  }
-
-  try {
-    const result = await pool.query(`
-      WITH computed AS (
-        SELECT ws.session_id, ${sessionStatusSql("ws")} AS next_status
-        FROM workout_sessions ws
-        JOIN workout_plans wp ON wp.workout_plan_id = ws.workout_plan_id
-        ${clauses.length ? `WHERE ${clauses.join(" AND ")}` : ""}
+  const result = await client.query(`
+    WITH evaluated AS (
+      SELECT
+        ws.session_id,
+        ${statusSql("ws")} AS target_status
+      FROM workout_sessions ws
+      WHERE ws.session_id = ANY($1::int[])
+    )
+    UPDATE workout_sessions ws
+    SET status = evaluated.target_status,
+        completed = CASE
+          WHEN evaluated.target_status = '${WORKOUT_STATUS.COMPLETE}' THEN TRUE
+          ELSE ws.completed
+        END
+    FROM evaluated
+    WHERE ws.session_id = evaluated.session_id
+      AND (
+        ws.status IS DISTINCT FROM evaluated.target_status
+        OR (
+          evaluated.target_status = '${WORKOUT_STATUS.COMPLETE}'
+          AND COALESCE(ws.completed, FALSE) = FALSE
+        )
       )
-      UPDATE workout_sessions ws
-      SET status = computed.next_status
-      FROM computed
-      WHERE computed.session_id = ws.session_id
-        AND ws.status IS DISTINCT FROM computed.next_status
-        AND NOT (ws.status = '${WORKOUT_STATUS.COMPLETE}' AND ws.completed_at IS NOT NULL)
-    `, values);
+    RETURNING ws.session_id, ws.status
+  `, [ids]);
 
-    return result.rowCount;
+  return result.rowCount;
+};
+
+/**
+ * Aggregate the sessions of a plan into the status shown on the trainer's
+ * workout plan list. Every session of a plan belongs to the same day.
+ */
+const planStatusSql = (alias) => `
+  CASE
+    WHEN COUNT(${alias}.session_id) = 0 THEN '${WORKOUT_STATUS.SCHEDULED}'
+    WHEN COUNT(${alias}.session_id) FILTER (WHERE ${isCompleteSql(alias)}) = COUNT(${alias}.session_id)
+      THEN '${WORKOUT_STATUS.COMPLETE}'
+    WHEN MIN(${scheduledOnSql(alias)}) = (NOW() AT TIME ZONE '${APP_TIME_ZONE}')::date
+      THEN '${WORKOUT_STATUS.ACTIVE}'
+    WHEN MIN(${scheduledOnSql(alias)}) < (NOW() AT TIME ZONE '${APP_TIME_ZONE}')::date
+      THEN CASE
+        WHEN BOOL_OR(${alias}.started_at IS NOT NULL) THEN '${WORKOUT_STATUS.INCOMPLETE}'
+        ELSE '${WORKOUT_STATUS.ABSENT}'
+      END
+    ELSE '${WORKOUT_STATUS.SCHEDULED}'
+  END`;
+
+let lastEvaluationAt = 0;
+const EVALUATION_THROTTLE_MS = 60 * 1000;
+
+/**
+ * Refresh the stored statuses at most once a minute. This keeps the database
+ * in step with the evaluated status even on hosts where the background timer
+ * cannot run (for example a serverless deployment that is only alive while a
+ * request is being served).
+ */
+const refreshWorkoutStatuses = async (client = pool) => {
+  const now = Date.now();
+  if (now - lastEvaluationAt < EVALUATION_THROTTLE_MS) return 0;
+  lastEvaluationAt = now;
+  try {
+    return await evaluateWorkoutStatuses(client);
   } catch (err) {
-    // The status column is created when the database is initialised. If it is
-    // not available yet the live status is still reported by the API.
-    console.warn("Workout status refresh skipped:", err.message);
-    return 0;
+    lastEvaluationAt = 0;
+    throw err;
   }
 };
 
 module.exports = {
   APP_TIME_ZONE,
   WORKOUT_STATUS,
-  WORKOUT_STATUSES,
-  scheduledDateSql,
-  sessionStatusSql,
+  statusSql,
+  scheduledOnSql,
+  isCompleteSql,
   planStatusSql,
-  sessionColumns,
+  evaluateWorkoutStatuses,
+  applySessionStatuses,
   refreshWorkoutStatuses,
 };

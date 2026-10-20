@@ -5,7 +5,6 @@ import { CheckCircle2, TrendingUp, User } from "lucide-react";
 import { useUserAuth } from "../context/UserAuthContext";
 import userApi from "../userApi";
 
-<<<<<<< HEAD
 const preferredWorkoutTimeLabels = {
   Morning: "Morning (6:00 AM – 12:00 PM)",
   Afternoon: "Afternoon (12:00 PM – 5:00 PM)",
@@ -13,8 +12,6 @@ const preferredWorkoutTimeLabels = {
   Flexible: "Flexible (6:00 AM – 10:00 PM)",
 };
 
-=======
->>>>>>> origin/master
 function Row({ label, value }) {
   return (
     <div className="flex items-center justify-between py-2 border-b border-slate-200 last:border-0">
@@ -48,7 +45,6 @@ export default function SetupConfirmation() {
     setTrainer(coach);
 
     userApi.get("/profile")
-<<<<<<< HEAD
       .then(async (res) => {
         const p = res.data.data;
         setProfile(p);
@@ -76,26 +72,6 @@ export default function SetupConfirmation() {
           err.response?.data?.message ||
           "Your profile could not be loaded. Please refresh before saving your setup."
         );
-=======
-      .then((res) => {
-        const p = res.data.data;
-        setProfile(p);
-
-        return userApi.post("/progress/auto-predict", {
-          goal: goal.goal,
-          current_weight: p.weight,
-          target_weight: goal.targetWeight,
-          height: p.height,
-          days_per_week: avail.daysPerWeek,
-          intensity: health.intensity,
-          experience: health.experience,
-        });
-      })
-      .then((res) => setPrediction(res?.data?.data || null))
-      .catch((err) => {
-        console.error(err);
-        setError("Some of your info couldn't load — you can still continue.");
->>>>>>> origin/master
       })
       .finally(() => setLoading(false));
   }, []);
@@ -111,10 +87,7 @@ export default function SetupConfirmation() {
         workout_days_per_week: availability.daysPerWeek ? parseInt(availability.daysPerWeek) : null,
         workout_duration: availability.duration ? parseInt(String(availability.duration), 10) : null,
         preferred_days: availability.days || [],
-<<<<<<< HEAD
         preferred_workout_time: availability.preferredWorkoutTime || null,
-=======
->>>>>>> origin/master
         intensity: healthData.intensity || null,
         injuries: healthData.injuries || [],
         health_conditions: healthData.healthConditions || [],
@@ -130,16 +103,11 @@ export default function SetupConfirmation() {
       updateUser({ setup_completed: true });
       navigate("/user/workout");
     } catch (err) {
-<<<<<<< HEAD
       console.error("Setup save failed:", err);
       setError(
         err.response?.data?.message ||
         "Something went wrong saving your setup. Please try again."
       );
-=======
-      console.error(err);
-      setError("Something went wrong saving your setup. Please try again.");
->>>>>>> origin/master
     } finally {
       setSaving(false);
     }
@@ -192,13 +160,10 @@ export default function SetupConfirmation() {
           <Row label="Days Per Week" value={availability.daysPerWeek || "—"} />
           <Row label="Session Duration" value={availability.duration || "—"} />
           <Row label="Workout Days" value={(availability.days || []).join(", ") || "—"} />
-<<<<<<< HEAD
           <Row
             label="Preferred Workout Time"
             value={preferredWorkoutTimeLabels[availability.preferredWorkoutTime] || "—"}
           />
-=======
->>>>>>> origin/master
         </div>
 
         {/* Coach */}
@@ -235,11 +200,7 @@ export default function SetupConfirmation() {
 
     <button
       onClick={handleConfirm}
-<<<<<<< HEAD
       disabled={saving || loading || !profile}
-=======
-      disabled={saving || loading}
->>>>>>> origin/master
       className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2"
     >
       <CheckCircle2 size={18} />

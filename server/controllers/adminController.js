@@ -1,6 +1,5 @@
 const db = require("../db");
 const bcrypt = require("bcrypt");
-<<<<<<< HEAD
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const { validateEmail, validatePassword, normalizeEmail } = require("../utils/security");
@@ -10,10 +9,6 @@ const { isMailConfigured, sendAdminPasswordResetEmail } = require("../utils/mail
 
 const PASSWORD_RESET_TTL_MINUTES = 30;
 const PASSWORD_RESET_MESSAGE = "If the email matches the configured admin account, a password reset link has been sent.";
-=======
-const jwt = require("jsonwebtoken");
-const { validateEmail, normalizeEmail } = require("../utils/security");
->>>>>>> origin/master
 
 const loginAdmin = async (req, res) => {
   try {
@@ -21,7 +16,6 @@ const loginAdmin = async (req, res) => {
     if (!validateEmail(email) || typeof password !== "string" || password.length === 0)
       return res.status(400).json({ success: false, message: "Please provide a valid email and password." });
 
-<<<<<<< HEAD
     const adminEmail = getConfiguredAdminEmail();
     if (!adminEmail) {
       console.error("Admin login is disabled because ADMIN_EMAIL is not configured with a valid email address.");
@@ -34,11 +28,6 @@ const loginAdmin = async (req, res) => {
     const result = await db.query(
       "SELECT admin_id, full_name, email, password, role, photo_url, account_status, token_version FROM admins WHERE LOWER(email) = $1",
       [adminEmail]
-=======
-    const result = await db.query(
-      "SELECT admin_id, full_name, email, password, role, photo_url, account_status, token_version FROM admins WHERE LOWER(email) = $1",
-      [normalizeEmail(email)]
->>>>>>> origin/master
     );
 
     if (result.rows.length === 0) {
@@ -81,7 +70,6 @@ const loginAdmin = async (req, res) => {
   }
 };
 
-<<<<<<< HEAD
 const requestAdminPasswordReset = async (req, res) => {
   const configuredEmail = getConfiguredAdminEmail();
   if (!configuredEmail) {
@@ -189,6 +177,3 @@ const resetAdminPassword = async (req, res) => {
 };
 
 module.exports = { loginAdmin, requestAdminPasswordReset, resetAdminPassword };
-=======
-module.exports = { loginAdmin };
->>>>>>> origin/master

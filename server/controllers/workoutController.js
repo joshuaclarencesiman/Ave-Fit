@@ -1,10 +1,7 @@
 const pool = require("../db");
 const getExerciseCatalog = require("../utils/exerciseCatalog");
-<<<<<<< HEAD
 const { createNotification } = require("../utils/notifications");
-const { sessionColumns, sessionStatusSql } = require("../utils/workoutStatus");
-=======
->>>>>>> origin/master
+const { statusSql, applySessionStatuses } = require("../utils/workoutStatus");
 
 const getWorkouts = async (req, res) => {
   try {
@@ -43,14 +40,9 @@ const updateWorkout = async (req, res) => {
     const { id } = req.params;
     const { exercise_name, category_id, muscle_group, difficulty, calories_per_minute, description, equipment, movement_steps } = req.body;
     await pool.query(`
-<<<<<<< HEAD
       UPDATE exercises SET exercise_name=$1, category_id=COALESCE($2, category_id),
       muscle_group=$3, difficulty=$4, calories_per_minute=COALESCE($5, calories_per_minute),
       description=$6, equipment=$7, movement_steps=$8 WHERE exercise_id=$9
-=======
-      UPDATE exercises SET exercise_name=$1, category_id=$2, muscle_group=$3, difficulty=$4,
-      calories_per_minute=$5, description=$6, equipment=$7, movement_steps=$8 WHERE exercise_id=$9
->>>>>>> origin/master
     `, [exercise_name, category_id || null, muscle_group, difficulty, calories_per_minute || null, description, equipment, movement_steps ? JSON.stringify(movement_steps) : null, id]);
     res.json({ success: true, message: "Exercise updated." });
   } catch (err) {
@@ -91,7 +83,6 @@ const createWorkoutPlan = async (req, res) => {
       INSERT INTO workout_plans (user_id, trainer_id, plan_name, goal)
       VALUES ($1,$2,$3,$4) RETURNING *
     `, [user_id || null, trainer_id || null, plan_name, goal]);
-<<<<<<< HEAD
     if (user_id) {
       await createNotification({
         audience: "user",
@@ -103,8 +94,6 @@ const createWorkoutPlan = async (req, res) => {
         console.error("Workout plan notification failed:", err.message);
       });
     }
-=======
->>>>>>> origin/master
     res.status(201).json({ success: true, data: result.rows[0] });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -125,13 +114,20 @@ const getMemberSessions = async (req, res) => {
   try {
     const { userId } = req.params;
     const result = await pool.query(`
-<<<<<<< HEAD
-      SELECT ${sessionColumns("ws")},
-        ${sessionStatusSql("ws")} AS status,
+      SELECT
+        ws.session_id,
+        ws.workout_plan_id,
+        ws.exercise_id,
+        ws.sets,
+        ws.reps,
+        ws.duration_minutes,
+        ws.calories_burned,
+        ws.completed,
+        ws.session_date,
+        ws.completed_at,
+        ws.started_at,
+        ${statusSql("ws")} AS status,
         e.exercise_name, e.muscle_group, e.equipment
-=======
-      SELECT ws.*, e.exercise_name, e.muscle_group, e.equipment
->>>>>>> origin/master
       FROM workout_sessions ws
       JOIN workout_plans wp ON ws.workout_plan_id = wp.workout_plan_id
       LEFT JOIN exercises e ON ws.exercise_id = e.exercise_id
@@ -180,7 +176,13 @@ const assignSessionToMember = async (req, res) => {
       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *
     `, [planId, exercise_id, sets || null, reps || null, duration_minutes || null, session_date]);
 
-<<<<<<< HEAD
+    // Store the status that matches the scheduled day straight away.
+    await applySessionStatuses(result.rows[0].session_id);
+    const stored = await pool.query(
+      "SELECT * FROM workout_sessions WHERE session_id = $1",
+      [result.rows[0].session_id]
+    );
+
     await createNotification({
       audience: "user",
       recipientId: Number(user_id),
@@ -191,9 +193,7 @@ const assignSessionToMember = async (req, res) => {
       console.error("Assigned workout notification failed:", err.message);
     });
 
-=======
->>>>>>> origin/master
-    res.status(201).json({ success: true, data: result.rows[0] });
+    res.status(201).json({ success: true, data: stored.rows[0] });
   } catch (err) {
     console.error("assignSessionToMember error:", err.message);
     res.status(500).json({ success: false, message: err.message });

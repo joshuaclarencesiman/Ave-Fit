@@ -26,41 +26,52 @@ export function philippinesDateKey(value) {
 }
 
 export function philippinesMondayString(date = new Date()) {
-  const today = philippinesDateString(date);
-  const [year, month, day] = today.split("-").map(Number);
-  const utcDate = new Date(Date.UTC(year, month - 1, day));
-  const daysSinceMonday = (utcDate.getUTCDay() + 6) % 7;
-  utcDate.setUTCDate(utcDate.getUTCDate() - daysSinceMonday);
+  return philippinesWeekStart(philippinesDateString(date));
+}
+
+/** Add (or subtract) whole days from a "YYYY-MM-DD" key. */
+export function addPhilippinesDays(dateKey, days) {
+  const [year, month, day] = String(dateKey).split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
   return [
-    utcDate.getUTCFullYear(),
-    String(utcDate.getUTCMonth() + 1).padStart(2, "0"),
-    String(utcDate.getUTCDate()).padStart(2, "0"),
+    date.getUTCFullYear(),
+    String(date.getUTCMonth() + 1).padStart(2, "0"),
+    String(date.getUTCDate()).padStart(2, "0"),
   ].join("-");
 }
 
-export function philippinesPeriodRange(period, date = new Date()) {
-  const end = philippinesDateString(date);
-  const [year, month, day] = end.split("-").map(Number);
-  const startDate = new Date(Date.UTC(year, month - 1, day));
+/** The Monday of the week that contains the given "YYYY-MM-DD" key. */
+export function philippinesWeekStart(dateKey = philippinesDateString()) {
+  const [year, month, day] = String(dateKey).split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  const daysSinceMonday = (date.getUTCDay() + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - daysSinceMonday);
+  return [
+    date.getUTCFullYear(),
+    String(date.getUTCMonth() + 1).padStart(2, "0"),
+    String(date.getUTCDate()).padStart(2, "0"),
+  ].join("-");
+}
 
-  if (period === "weekly") {
-    startDate.setUTCDate(startDate.getUTCDate() - ((startDate.getUTCDay() + 6) % 7));
-  } else if (period === "monthly") {
-    startDate.setUTCDate(1);
-  } else if (period === "yearly") {
-    startDate.setUTCMonth(0, 1);
-  } else {
-    throw new RangeError(`Unsupported progress period: ${period}`);
-  }
+const WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
-  return {
-    start: [
-      startDate.getUTCFullYear(),
-      String(startDate.getUTCMonth() + 1).padStart(2, "0"),
-      String(startDate.getUTCDate()).padStart(2, "0"),
-    ].join("-"),
-    end,
-  };
+/** The weekday name of a "YYYY-MM-DD" key, Monday first. */
+export function philippinesWeekdayName(dateKey) {
+  const [year, month, day] = String(dateKey).split("-").map(Number);
+  return WEEKDAY_NAMES[(new Date(Date.UTC(year, month - 1, day)).getUTCDay() + 6) % 7];
+}
+
+/** Human readable label for a selected date range. */
+export function describeDateRange(range) {
+  if (!range || !range.start) return "All time";
+  const sameYear = range.start.slice(0, 4) === range.end.slice(0, 4);
+  const startLabel = formatPhilippinesDate(range.start, {
+    month: "short",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+  const endLabel = formatPhilippinesDate(range.end, { month: "short", day: "numeric", year: "numeric" });
+  return `${startLabel} – ${endLabel}`;
 }
 
 export function formatPhilippinesDate(value, options = {}) {
