@@ -1,13 +1,20 @@
+<<<<<<< HEAD
 require("dotenv").config({ path: require("path").join(__dirname, ".env") });
+=======
+require("dotenv").config();
+>>>>>>> origin/master
 const express = require("express");
 const cors = require("cors");
 
 const { initializeDatabase, expireMemberships } = require("./db");
+<<<<<<< HEAD
 const {
   sendWeeklyBmiReminders,
   sendUnassignedWorkoutReminders,
 } = require("./utils/notifications");
 const { refreshWorkoutStatuses } = require("./utils/workoutStatus");
+=======
+>>>>>>> origin/master
 
 // Admin routes
 const adminRoutes = require("./routes/adminRoutes");
@@ -96,6 +103,7 @@ initializeDatabase()
       });
     }, 60 * 1000);
     membershipExpiryTimer.unref();
+<<<<<<< HEAD
     const bmiReminderTimer = setInterval(() => {
       sendWeeklyBmiReminders().catch((err) => {
         console.error("❌ Weekly BMI reminder check failed:", err.message);
@@ -124,6 +132,8 @@ initializeDatabase()
     refreshWorkoutStatuses().catch((err) => {
       console.error("❌ Initial workout status check failed:", err.message);
     });
+=======
+>>>>>>> origin/master
     app.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));
   })
   .catch((err) => {

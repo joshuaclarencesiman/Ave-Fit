@@ -2,6 +2,7 @@ const pool = require("../db");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const loadExerciseCatalog = require("../utils/exerciseCatalog");
+<<<<<<< HEAD
 const { createNotification } = require("../utils/notifications");
 const { sendWorkoutPlanReadyEmail } = require("../utils/mailer");
 const {
@@ -11,6 +12,8 @@ const {
   sessionStatusSql,
   refreshWorkoutStatuses,
 } = require("../utils/workoutStatus");
+=======
+>>>>>>> origin/master
 
 const {
   validateEmail,
@@ -764,6 +767,7 @@ const getActiveTrainers = async (req, res) => {
         goal_specialty,
         photo_url,
         bio,
+<<<<<<< HEAD
         phone,
         (
           SELECT COALESCE(
@@ -780,6 +784,9 @@ const getActiveTrainers = async (req, res) => {
           FROM trainer_availability ta
           WHERE ta.trainer_id = trainers.trainer_id
         ) AS availability
+=======
+        phone
+>>>>>>> origin/master
       FROM trainers
       WHERE status = 'Active'
       ORDER BY full_name ASC
@@ -833,7 +840,10 @@ const getTrainerRoster = async (req, res) => {
         u.injuries,
         u.health_conditions,
         u.preferred_days,
+<<<<<<< HEAD
         u.preferred_workout_time,
+=======
+>>>>>>> origin/master
         u.workout_days_per_week,
         u.workout_duration,
         pl.weight AS latest_weight,
@@ -1035,7 +1045,10 @@ const getMyRoster = async (req, res) => {
         u.injuries,
         u.health_conditions,
         u.preferred_days,
+<<<<<<< HEAD
         u.preferred_workout_time,
+=======
+>>>>>>> origin/master
         u.workout_days_per_week,
         u.workout_duration,
         pl.weight AS latest_weight,
@@ -1112,16 +1125,23 @@ const getMyRoster = async (req, res) => {
 
 const getMyWorkoutPlans = async (req, res) => {
   try {
+<<<<<<< HEAD
     // Settle the statuses of finished days before the plans are reported.
     await refreshWorkoutStatuses({ trainerId: req.trainer.trainer_id });
 
+=======
+>>>>>>> origin/master
     const result = await pool.query(
       `
       SELECT
         wp.workout_plan_id,
         wp.plan_name,
         wp.goal,
+<<<<<<< HEAD
         wp.status AS plan_status,
+=======
+        wp.status,
+>>>>>>> origin/master
         wp.created_at,
         u.user_id,
         plan_sessions.scheduled_date,
@@ -1129,10 +1149,14 @@ const getMyWorkoutPlans = async (req, res) => {
         CASE
           WHEN u.user_id IS NULL THEN NULL
           ELSE CONCAT_WS(' ', u.first_name, u.last_name)
+<<<<<<< HEAD
         END AS member_name,
         plan_sessions.sessions,
         plan_sessions.has_started,
         COALESCE(plan_sessions.status, '${WORKOUT_STATUS.ACTIVE}') AS status
+=======
+        END AS member_name
+>>>>>>> origin/master
       FROM workout_plans wp
       LEFT JOIN users u ON u.user_id = wp.user_id
       LEFT JOIN LATERAL (
@@ -1140,6 +1164,7 @@ const getMyWorkoutPlans = async (req, res) => {
           MIN(ws.session_date) FILTER (
             WHERE ws.session_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
           ) AS scheduled_date,
+<<<<<<< HEAD
           COUNT(ws.session_id)::int AS exercise_count,
           COALESCE(
             JSON_AGG(
@@ -1154,6 +1179,9 @@ const getMyWorkoutPlans = async (req, res) => {
           ) AS sessions,
           COALESCE(BOOL_OR(ws.started_at IS NOT NULL OR ws.completed = TRUE), FALSE) AS has_started,
           ${planStatusSql("ws")} AS status
+=======
+          COUNT(ws.session_id)::int AS exercise_count
+>>>>>>> origin/master
         FROM workout_sessions ws
         WHERE ws.workout_plan_id = wp.workout_plan_id
       ) plan_sessions ON true
@@ -1218,12 +1246,15 @@ const createMyWorkoutPlan = async (req, res) => {
       message: "Every exercise must have an exercise, sets from 1 to 6, and reps from 3 to 16.",
     });
   }
+<<<<<<< HEAD
   if (new Set(sessions.map((session) => Number(session.exercise_id))).size !== sessions.length) {
     return res.status(400).json({
       success: false,
       message: "An exercise can only appear once in a day's workout plan.",
     });
   }
+=======
+>>>>>>> origin/master
 
   let client;
   let transactionStarted = false;
@@ -1232,9 +1263,13 @@ const createMyWorkoutPlan = async (req, res) => {
     await client.query("BEGIN");
     transactionStarted = true;
 
+<<<<<<< HEAD
     const today = await client.query(
       "SELECT TO_CHAR((NOW() AT TIME ZONE 'Asia/Manila')::date, 'YYYY-MM-DD') AS today"
     );
+=======
+    const today = await client.query("SELECT TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD') AS today");
+>>>>>>> origin/master
     if (sessionDate < today.rows[0].today) {
       await client.query("ROLLBACK");
       transactionStarted = false;
@@ -1243,7 +1278,11 @@ const createMyWorkoutPlan = async (req, res) => {
 
     const member = await client.query(
       `
+<<<<<<< HEAD
       SELECT user_id, first_name, email, preferred_days
+=======
+      SELECT user_id, preferred_days
+>>>>>>> origin/master
       FROM users
       WHERE user_id = $1
         AND trainer_id = $2
@@ -1272,6 +1311,7 @@ const createMyWorkoutPlan = async (req, res) => {
       });
     }
 
+<<<<<<< HEAD
     const existingPlan = await client.query(
       `
       SELECT wp.workout_plan_id
@@ -1292,6 +1332,8 @@ const createMyWorkoutPlan = async (req, res) => {
       });
     }
 
+=======
+>>>>>>> origin/master
     const exerciseIds = [...new Set(sessions.map((session) => Number(session.exercise_id)))];
     const exercises = await client.query(
       "SELECT exercise_id FROM exercises WHERE exercise_id = ANY($1::int[])",
@@ -1332,6 +1374,7 @@ const createMyWorkoutPlan = async (req, res) => {
 
     await client.query("COMMIT");
     transactionStarted = false;
+<<<<<<< HEAD
     await createNotification({
       audience: "user",
       recipientId: userId,
@@ -1355,6 +1398,8 @@ const createMyWorkoutPlan = async (req, res) => {
     }).catch((err) => {
       console.error("Workout plan email failed:", err.message);
     });
+=======
+>>>>>>> origin/master
     res.status(201).json({ success: true, data: { ...plan.rows[0], session_date: sessionDate, exercise_count: sessions.length } });
   } catch (err) {
     if (transactionStarted) await client.query("ROLLBACK");
@@ -1365,6 +1410,7 @@ const createMyWorkoutPlan = async (req, res) => {
   }
 };
 
+<<<<<<< HEAD
 const updateMyWorkoutPlan = async (req, res) => {
   const trainerId = req.trainer.trainer_id;
   const planId = Number(req.params.planId);
@@ -1569,6 +1615,8 @@ const updateMyWorkoutPlan = async (req, res) => {
   }
 };
 
+=======
+>>>>>>> origin/master
 const deleteMyWorkoutPlan = async (req, res) => {
   let client;
   let transactionStarted = false;
@@ -1605,6 +1653,7 @@ const deleteMyWorkoutPlan = async (req, res) => {
       });
     }
 
+<<<<<<< HEAD
     const planDate = await client.query(
       `SELECT MIN(session_date) FILTER (
          WHERE session_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
@@ -1623,6 +1672,8 @@ const deleteMyWorkoutPlan = async (req, res) => {
       });
     }
 
+=======
+>>>>>>> origin/master
     await client.query(
       "DELETE FROM workout_sessions WHERE workout_plan_id = $1",
       [plan.rows[0].workout_plan_id]
@@ -1814,8 +1865,12 @@ const getRosterMemberSessions = async (req, res) => {
     const result = await pool.query(
       `
       SELECT
+<<<<<<< HEAD
         ${sessionColumns("ws")},
         ${sessionStatusSql("ws")} AS status,
+=======
+        ws.*,
+>>>>>>> origin/master
         e.exercise_name,
         e.muscle_group,
         e.equipment
@@ -1852,8 +1907,11 @@ const getRosterMemberSessions = async (req, res) => {
 // =========================================================
 
 const assignSessionAsTrainer = async (req, res) => {
+<<<<<<< HEAD
   let client;
   let transactionStarted = false;
+=======
+>>>>>>> origin/master
   try {
     const trainerId = req.trainer.trainer_id;
 
@@ -1912,6 +1970,7 @@ const assignSessionAsTrainer = async (req, res) => {
       });
     }
 
+<<<<<<< HEAD
     client = await pool.connect();
     await client.query("BEGIN");
     transactionStarted = true;
@@ -1922,27 +1981,43 @@ const assignSessionAsTrainer = async (req, res) => {
     if (session_date < currentDate.rows[0].today) {
       await client.query("ROLLBACK");
       transactionStarted = false;
+=======
+    const currentDate = await pool.query(
+      "SELECT TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD') AS today"
+    );
+    if (session_date < currentDate.rows[0].today) {
+>>>>>>> origin/master
       return res.status(400).json({
         success: false,
         message: "Workout date can't be in the past.",
       });
     }
 
+<<<<<<< HEAD
     const memberAvailability = await client.query(
+=======
+    const memberAvailability = await pool.query(
+>>>>>>> origin/master
       `
       SELECT preferred_days
       FROM users
       WHERE user_id = $1
         AND trainer_id = $2
         AND COALESCE(account_status, 'Pending') = 'Active'
+<<<<<<< HEAD
       FOR UPDATE
+=======
+>>>>>>> origin/master
       `,
       [user_id, trainerId]
     );
 
     if (!memberAvailability.rowCount) {
+<<<<<<< HEAD
       await client.query("ROLLBACK");
       transactionStarted = false;
+=======
+>>>>>>> origin/master
       return res.status(403).json({
         success: false,
         message: "This member isn't on your roster.",
@@ -1966,14 +2041,18 @@ const assignSessionAsTrainer = async (req, res) => {
         (day) => String(day).trim().toLowerCase() === weekday.toLowerCase()
       )
     ) {
+<<<<<<< HEAD
       await client.query("ROLLBACK");
       transactionStarted = false;
+=======
+>>>>>>> origin/master
       return res.status(400).json({
         success: false,
         message: "The selected date is not part of this client's availability.",
       });
     }
 
+<<<<<<< HEAD
     const existingSession = await client.query(
       `
       SELECT wp.workout_plan_id,
@@ -1999,6 +2078,9 @@ const assignSessionAsTrainer = async (req, res) => {
     }
 
     const planRes = await client.query(
+=======
+    const planRes = await pool.query(
+>>>>>>> origin/master
       `
       SELECT workout_plan_id
       FROM workout_plans
@@ -2014,7 +2096,11 @@ const assignSessionAsTrainer = async (req, res) => {
     if (planRes.rows.length > 0) {
       planId = planRes.rows[0].workout_plan_id;
 
+<<<<<<< HEAD
       await client.query(
+=======
+      await pool.query(
+>>>>>>> origin/master
         `
         UPDATE workout_plans
         SET trainer_id = $1
@@ -2023,7 +2109,11 @@ const assignSessionAsTrainer = async (req, res) => {
         [trainerId, planId]
       );
     } else {
+<<<<<<< HEAD
       const created = await client.query(
+=======
+      const created = await pool.query(
+>>>>>>> origin/master
         `
         INSERT INTO workout_plans
           (
@@ -2047,7 +2137,11 @@ const assignSessionAsTrainer = async (req, res) => {
       planId = created.rows[0].workout_plan_id;
     }
 
+<<<<<<< HEAD
     const result = await client.query(
+=======
+    const result = await pool.query(
+>>>>>>> origin/master
       `
       INSERT INTO workout_sessions
         (
@@ -2072,6 +2166,7 @@ const assignSessionAsTrainer = async (req, res) => {
       ]
     );
 
+<<<<<<< HEAD
     await client.query("COMMIT");
     transactionStarted = false;
 
@@ -2085,12 +2180,17 @@ const assignSessionAsTrainer = async (req, res) => {
       console.error("Assigned workout notification failed:", err.message);
     });
 
+=======
+>>>>>>> origin/master
     res.status(201).json({
       success: true,
       data: result.rows[0],
     });
   } catch (err) {
+<<<<<<< HEAD
     if (transactionStarted) await client.query("ROLLBACK");
+=======
+>>>>>>> origin/master
     console.error(
       "assignSessionAsTrainer error:",
       err.message
@@ -2100,8 +2200,11 @@ const assignSessionAsTrainer = async (req, res) => {
       success: false,
       message: err.message,
     });
+<<<<<<< HEAD
   } finally {
     client?.release();
+=======
+>>>>>>> origin/master
   }
 };
 
@@ -2180,7 +2283,10 @@ module.exports = {
   updateMyPhoto,
   getMyWorkoutPlans,
   createMyWorkoutPlan,
+<<<<<<< HEAD
   updateMyWorkoutPlan,
+=======
+>>>>>>> origin/master
   deleteMyWorkoutPlan,
   getExerciseCatalog,
   getRosterMemberSessions,

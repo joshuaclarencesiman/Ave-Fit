@@ -1,10 +1,16 @@
 import { useEffect, useState, useRef } from "react";
+<<<<<<< HEAD
 import { UserCheck, Plus, Search, Edit2, XCircle, Users, UserCircle, X, Camera, Check, Eye, EyeOff, CalendarClock } from "lucide-react";
 import api from "../services/api";
 import { fileToCompressedDataUrl } from "../utils/imageUpload";
 import TrainerAvailabilityManager from "../components/trainers/TrainerAvailabilityManager";
 import ScrollReveal from "../components/ScrollReveal";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
+=======
+import { UserCheck, Plus, Search, Edit2, XCircle, Users, UserCircle, X, Camera, Check, Eye, EyeOff } from "lucide-react";
+import api from "../services/api";
+import { fileToCompressedDataUrl } from "../utils/imageUpload";
+>>>>>>> origin/master
 
 const SPECIALIZATION_OPTIONS = [
   "High-Intensity Interval Training (HIIT)",
@@ -430,6 +436,7 @@ function TrainerProfileModal({ trainer, onClose, onEdit }) {
   const expertise = [...new Set([...specializations, trainer.goal_specialty].filter(Boolean))];
 
   return (
+<<<<<<< HEAD
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 sm:p-6" onClick={onClose}>
       <div
         role="dialog"
@@ -503,15 +510,136 @@ function TrainerProfileModal({ trainer, onClose, onEdit }) {
               type="button"
               onClick={onClose}
               className="min-h-11 rounded-xl border border-slate-300 font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900"
+=======
+    <div
+      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white dark:bg-[#111] rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto border border-slate-200 dark:border-slate-800"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="relative h-[55vh] min-h-[360px] max-h-[650px] bg-slate-950 overflow-hidden flex items-center justify-center">
+          {trainer.photo_url ? (
+            <>
+              <img
+                src={trainer.photo_url}
+                alt=""
+                aria-hidden="true"
+                className="absolute inset-0 w-full h-full object-cover scale-110 blur-2xl opacity-40"
+              />
+              <div className="absolute inset-0 bg-black/20" />
+              <img
+                src={trainer.photo_url}
+                alt={trainer.full_name}
+                className="relative z-10 w-auto h-auto max-w-full max-h-full object-contain"
+              />
+            </>
+          ) : (
+            <div className="w-full h-full flex items-center justify-center">
+              <UserCircle size={150} className="text-orange-500" />
+            </div>
+          )}
+
+          <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/90 via-black/30 to-transparent" />
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute top-4 right-4 w-10 h-10 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center"
+          >
+            <X size={19} />
+          </button>
+
+          <div className="absolute bottom-5 left-6 right-6 text-white">
+            <p className="text-xs uppercase tracking-widest font-bold text-orange-300">
+              Trainer Profile
+            </p>
+            <h2 className="text-3xl font-bold mt-1">{trainer.full_name}</h2>
+            <p className="text-sm text-orange-300 font-semibold mt-1">
+              {trainer.goal_specialty || "General Fitness Coach"}
+            </p>
+          </div>
+        </div>
+
+        <div className="p-6">
+          <section>
+            <p className="text-xs uppercase tracking-wider font-bold text-slate-400">
+              About the Trainer
+            </p>
+            <p className="text-sm leading-7 text-slate-600 dark:text-slate-400 mt-2 whitespace-pre-line">
+              {trainer.bio || "This trainer has not added a profile description yet."}
+            </p>
+          </section>
+
+          <section className="mt-6">
+            <p className="text-xs uppercase tracking-wider font-bold text-slate-400 mb-3">
+              Specializations
+            </p>
+            {expertise.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {expertise.map((item) => (
+                  <span
+                    key={item}
+                    className="px-3 py-2 rounded-full bg-orange-500/10 text-orange-600 dark:text-orange-400 text-xs font-semibold"
+                  >
+                    {item}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-slate-400">No specializations listed.</p>
+            )}
+          </section>
+
+          <section className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-6">
+            <div className="rounded-2xl bg-slate-50 dark:bg-slate-900 p-4">
+              <p className="text-xs text-slate-400">Email</p>
+              <p className="font-medium text-sm mt-1 break-all text-slate-700 dark:text-slate-200">
+                {trainer.email || "—"}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 dark:bg-slate-900 p-4">
+              <p className="text-xs text-slate-400">Phone</p>
+              <p className="font-medium text-sm mt-1 text-slate-700 dark:text-slate-200">
+                {trainer.phone || "—"}
+              </p>
+            </div>
+          </section>
+
+          <section className="mt-4 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 flex items-center justify-between">
+            <div>
+              <p className="text-xs text-slate-400">Account Status</p>
+              <p className="font-semibold text-sm mt-1 text-slate-800 dark:text-white">
+                {trainer.status || "Active"}
+              </p>
+            </div>
+            <span className={`px-3 py-1.5 rounded-full text-xs font-bold ${statusColors[trainer.status] || statusColors.Active}`}>
+              {trainer.status || "Active"}
+            </span>
+          </section>
+
+          <div className="grid grid-cols-2 gap-3 mt-6">
+            <button
+              type="button"
+              onClick={onClose}
+              className="py-3 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-semibold hover:bg-slate-50 dark:hover:bg-slate-900"
+>>>>>>> origin/master
             >
               Close
             </button>
             <button
               type="button"
               onClick={onEdit}
+<<<<<<< HEAD
               className="min-h-11 rounded-xl bg-orange-500 font-bold text-white hover:bg-orange-600"
             >
               Edit Profile
+=======
+              className="py-3 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-bold"
+            >
+              Edit Trainer Profile
+>>>>>>> origin/master
             </button>
           </div>
         </div>
@@ -586,10 +714,13 @@ export default function Trainers() {
   const [editTrainer, setEditTrainer] = useState(null);
   const [rosterTrainer, setRosterTrainer] = useState(null);
   const [profileTrainer, setProfileTrainer] = useState(null);
+<<<<<<< HEAD
   const [availabilityTrainer, setAvailabilityTrainer] = useState(null);
   const [trainerAction, setTrainerAction] = useState(null);
   const [trainerActionLoading, setTrainerActionLoading] = useState(false);
   const [trainerActionError, setTrainerActionError] = useState("");
+=======
+>>>>>>> origin/master
 
   const fetchTrainers = () => {
     setLoading(true);
@@ -611,6 +742,7 @@ export default function Trainers() {
   };
 
   const handleReject = async (id) => {
+<<<<<<< HEAD
     const trainer = trainers.find((row) => Number(row.trainer_id) === Number(id));
     if (trainer) {
       setTrainerAction({ kind: "reject", trainer });
@@ -640,6 +772,20 @@ export default function Trainers() {
       setTrainerActionError(err.response?.data?.message || `Failed to ${action}. Please try again.`);
     } finally {
       setTrainerActionLoading(false);
+=======
+    if (!confirm("Reject this trainer account?")) return;
+    await api.put(`/trainers/${id}/reject`);
+    fetchTrainers();
+  };
+
+  const handleRemove = async (trainer) => {
+    if (!window.confirm(`Permanently remove ${trainer.full_name}? Existing member and workout assignments will be unassigned.`)) return;
+    try {
+      await api.delete(`/trainers/${trainer.trainer_id}`);
+      fetchTrainers();
+    } catch (err) {
+      window.alert(err.response?.data?.message || "Failed to remove trainer.");
+>>>>>>> origin/master
     }
   };
 
@@ -686,6 +832,7 @@ export default function Trainers() {
         />
       )}
 
+<<<<<<< HEAD
       {availabilityTrainer && (
         <TrainerAvailabilityManager
           mode="admin"
@@ -716,6 +863,8 @@ export default function Trainers() {
         />
       )}
 
+=======
+>>>>>>> origin/master
       <header className="ave-page-hero flex flex-wrap items-end justify-between gap-4 rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">People management</p>
@@ -785,6 +934,7 @@ export default function Trainers() {
                   <td colSpan={6} className="text-center py-12 text-slate-400">No trainers found.</td>
                 </tr>
               ) : (
+<<<<<<< HEAD
                 filtered.map((trainer, index) => (
                   <ScrollReveal
                     as="tr"
@@ -793,6 +943,10 @@ export default function Trainers() {
                     onClick={() => setProfileTrainer(trainer)}
                     className="cursor-pointer transition-colors hover:bg-slate-50"
                   >
+=======
+                filtered.map((trainer) => (
+                  <tr key={trainer.trainer_id} onClick={() => setProfileTrainer(trainer)} className="hover:bg-slate-50 transition cursor-pointer">
+>>>>>>> origin/master
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-black flex items-center justify-center text-orange-500 font-bold text-sm flex-shrink-0 overflow-hidden border-2 border-orange-500/20">
@@ -818,12 +972,19 @@ export default function Trainers() {
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => setProfileTrainer(trainer)}
+<<<<<<< HEAD
                           className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-orange-600 transition hover:bg-orange-50"
                           title="View Coach Profile"
                           aria-label={`View ${trainer.full_name}'s coach profile`}
                         >
                           <UserCircle size={16} />
                           <span className="text-xs font-semibold">Profile</span>
+=======
+                          className="p-1.5 rounded-lg hover:bg-orange-50 text-orange-500 transition"
+                          title="View Coach Profile"
+                        >
+                          <UserCircle size={16} />
+>>>>>>> origin/master
                         </button>
                         <button
                           onClick={() => setRosterTrainer(trainer)}
@@ -833,6 +994,7 @@ export default function Trainers() {
                           <Users size={16} />
                         </button>
                         <button
+<<<<<<< HEAD
                           onClick={() => setAvailabilityTrainer(trainer)}
                           className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-500 transition"
                           title="View availability"
@@ -841,6 +1003,8 @@ export default function Trainers() {
                           <CalendarClock size={16} />
                         </button>
                         <button
+=======
+>>>>>>> origin/master
                           onClick={() => handleEdit(trainer)}
                           className="p-1.5 rounded-lg hover:bg-orange-50 text-orange-500 transition"
                           title="Edit"
@@ -873,7 +1037,11 @@ export default function Trainers() {
                         )}
                       </div>
                     </td>
+<<<<<<< HEAD
                   </ScrollReveal>
+=======
+                  </tr>
+>>>>>>> origin/master
                 ))
               )}
             </tbody>

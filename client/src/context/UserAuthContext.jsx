@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 import { createContext, useContext, useState, useEffect, useCallback } from "react";
+=======
+import { createContext, useContext, useState, useEffect } from "react";
+>>>>>>> origin/master
 import {
   getUserAuthToken,
   USER_REMEMBERED_EMAIL_KEY,
@@ -53,13 +57,21 @@ export function UserAuthProvider({ children }) {
   };
 
   // Patch the cached user object without a full re-login (e.g. after onboarding completes).
+<<<<<<< HEAD
   const updateUser = useCallback((patch) => {
+=======
+  const updateUser = (patch) => {
+>>>>>>> origin/master
     setUser((prev) => {
       const next = { ...(prev || {}), ...patch };
       localStorage.setItem("avefit_user", JSON.stringify(next));
       return next;
     });
+<<<<<<< HEAD
   }, []);
+=======
+  };
+>>>>>>> origin/master
 
   const logoutUser = () => {
     setUser(null);

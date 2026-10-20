@@ -5,12 +5,15 @@ import { useNavigate } from "react-router-dom";
 const daysPerWeekOptions = ["1", "2", "3", "4", "5", "6", "7"];
 const durationOptions = ["30 mins", "45 mins", "60 mins", "90 mins"];
 const preferredDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+<<<<<<< HEAD
 const preferredWorkoutTimes = [
   { value: "Morning", label: "Morning", detail: "6:00 AM – 12:00 PM" },
   { value: "Afternoon", label: "Afternoon", detail: "12:00 PM – 5:00 PM" },
   { value: "Evening", label: "Evening", detail: "5:00 PM – 10:00 PM" },
   { value: "Flexible", label: "Flexible", detail: "Any time from 6:00 AM to 10:00 PM" },
 ];
+=======
+>>>>>>> origin/master
 
 function Chip({ label, selected, onClick }) {
   return (
@@ -32,7 +35,10 @@ export default function Availability() {
   // Single-select: only one "days per week" value and one "duration" value can be chosen.
   const [daysPerWeek, setDaysPerWeek] = useState("3");
   const [duration, setDuration] = useState("45 mins");
+<<<<<<< HEAD
   const [preferredWorkoutTime, setPreferredWorkoutTime] = useState("");
+=======
+>>>>>>> origin/master
   // Multi-select: which specific days of the week the user will actually train.
   const [days, setDays] = useState([]);
   const [error, setError] = useState("");
@@ -58,10 +64,13 @@ export default function Availability() {
   };
 
   const handleContinue = () => {
+<<<<<<< HEAD
     if (!preferredWorkoutTime) {
       setError("Please choose your preferred workout time.");
       return;
     }
+=======
+>>>>>>> origin/master
     if (days.length === 0) {
       setError("Please select at least one preferred workout day.");
       return;
@@ -73,7 +82,11 @@ export default function Availability() {
 
     sessionStorage.setItem(
       "avefit_availability",
+<<<<<<< HEAD
       JSON.stringify({ daysPerWeek, duration, days, preferredWorkoutTime })
+=======
+      JSON.stringify({ daysPerWeek, duration, days })
+>>>>>>> origin/master
     );
 
     navigate("/user/coach");
@@ -99,6 +112,7 @@ export default function Availability() {
       </div>
     </div>
 
+<<<<<<< HEAD
     {/* Preferred Workout Time — single select */}
     <fieldset className="mb-6">
       <legend className="mb-3 block text-sm font-medium text-slate-600">Preferred Workout Time</legend>
@@ -125,6 +139,8 @@ export default function Availability() {
       </div>
     </fieldset>
 
+=======
+>>>>>>> origin/master
     {/* Workout Duration — single select */}
     <div className="mb-6">
       <label className="block text-sm font-medium text-slate-600 mb-3">Workout Duration</label>

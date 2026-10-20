@@ -10,11 +10,15 @@ const {
   validatePassword,
   validateName,
   validatePhone,
+<<<<<<< HEAD
   validateAge,
+=======
+>>>>>>> origin/master
   validateImageDataUrl,
   normalizeEmail,
   publicUser,
 } = require("../utils/security");
+<<<<<<< HEAD
 const {
   sendMail,
   sendVerificationEmail,
@@ -33,6 +37,12 @@ const {
   generateVerificationCode,
   VERIFICATION_CODE_TTL_MINUTES,
   RESEND_COOLDOWN_MINUTES,
+=======
+const { sendMail, sendVerificationEmail } = require("../utils/mailer");
+const googleClient = new OAuth2Client();
+const {
+  generateVerificationCode,
+>>>>>>> origin/master
   hashVerificationToken,
   hashVerificationCode,
   verificationCodeExpiryDate,
@@ -66,6 +76,7 @@ const issueVerificationCode = async (user) => {
       code,
     });
 
+<<<<<<< HEAD
     if (!result.delivered) {
       await pool.query(
         `UPDATE users
@@ -93,6 +104,13 @@ const issueVerificationCode = async (user) => {
     } catch (cleanupError) {
       console.error("Unable to clear undelivered verification code:", cleanupError.message);
     }
+=======
+    return { delivered: result.delivered };
+  } catch (err) {
+    // The account is created either way; the member can use "resend" once the
+    // SMTP credentials are fixed, so this must not fail the registration.
+    console.error("sendVerificationEmail error:", err.message);
+>>>>>>> origin/master
     return { delivered: false };
   }
 };
@@ -111,6 +129,7 @@ const issuePasswordResetToken = async (user) => {
   const token = crypto.randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
   const resetUrl = `${(process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "")}/user/reset-password?token=${encodeURIComponent(token)}`;
+<<<<<<< HEAD
   const safeFirstName = String(user.first_name || "there").replace(/[&<>"']/g, (char) => ({
     "&": "&amp;",
     "<": "&lt;",
@@ -118,6 +137,8 @@ const issuePasswordResetToken = async (user) => {
     '"': "&quot;",
     "'": "&#39;",
   })[char]);
+=======
+>>>>>>> origin/master
 
   await pool.query(
     `UPDATE users
@@ -146,7 +167,11 @@ const issuePasswordResetToken = async (user) => {
         <strong style="font-size:22px;letter-spacing:-0.04em;">AveFit</strong>
       </div>
       <div style="padding:24px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 14px 14px;background:#fff;">
+<<<<<<< HEAD
         <p style="margin:0 0 12px;font-size:16px;">Hi ${safeFirstName},</p>
+=======
+        <p style="margin:0 0 12px;font-size:16px;">Hi ${user.first_name || "there"},</p>
+>>>>>>> origin/master
         <p style="margin:0 0 16px;line-height:1.6;">We received a request to reset your AveFit password.</p>
         <p style="margin:0 0 20px;">
           <a href="${resetUrl}" style="display:inline-block;background:#f97316;color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">Reset your password</a>
@@ -164,6 +189,7 @@ const issuePasswordResetToken = async (user) => {
       html,
     });
 
+<<<<<<< HEAD
     if (!result.delivered && !result.preview) {
       await pool.query(
         `UPDATE users
@@ -191,6 +217,12 @@ const issuePasswordResetToken = async (user) => {
       console.error("Unable to clear undelivered password reset token:", cleanupError.message);
     }
     return { delivered: false, preview: false };
+=======
+    return { delivered: result.delivered, token };
+  } catch (err) {
+    console.error("send reset password email error:", err.message);
+    return { delivered: false, token };
+>>>>>>> origin/master
   }
 };
 
@@ -272,6 +304,7 @@ const register = async (req, res) => {
     );
 
     const user = result.rows[0];
+<<<<<<< HEAD
     await notifyNewUser(user).catch((err) => {
       console.error("New-user admin notification failed:", err.message);
     });
@@ -288,6 +321,39 @@ const register = async (req, res) => {
       pending_approval: true,
       email_verification_required: true,
       email_sent: delivered,
+=======
+
+    // Email verification and gym approval are both required before login;
+    // admins may review the account before email verification completes.
+    //
+    // IMPORTANT:
+    // Do not wait for the SMTP server here.
+    // The account has already been created, so the registration request
+    // can respond immediately while the verification email is sent
+    // in the background.
+    issueVerificationCode(user)
+      .then(({ delivered }) => {
+        console.log(
+          `📧 Verification email process completed. Delivered: ${delivered}`
+        );
+      })
+      .catch((err) => {
+        console.error(
+          "Background verification email error:",
+          err.message
+        );
+      });
+
+    // Respond immediately instead of waiting for SMTP.
+    res.status(201).json({
+      success: true,
+      message:
+        "Account created. Check your inbox for the verification code.",
+      user,
+      pending_approval: true,
+      email_verification_required: true,
+      email_sent: true,
+>>>>>>> origin/master
     });
   } catch (err) {
     console.error("register error:", err.message);
@@ -329,7 +395,11 @@ const forgotPassword = async (req, res) => {
 
     const neutral = {
       success: true,
+<<<<<<< HEAD
       message: "If an AveFit account exists for that email, a reset link will be sent. Check your inbox and spam folder; if it does not arrive, try again or contact the gym.",
+=======
+      message: "If that email is registered, a password reset link has been sent.",
+>>>>>>> origin/master
     };
 
     if (result.rows.length === 0) {
@@ -340,6 +410,10 @@ const forgotPassword = async (req, res) => {
 
     return res.json({
       ...neutral,
+<<<<<<< HEAD
+=======
+      email_sent: true,
+>>>>>>> origin/master
     });
   } catch (err) {
     console.error("forgotPassword error:", err.message);
@@ -425,6 +499,7 @@ const resetPassword = async (req, res) => {
   }
 };
 
+<<<<<<< HEAD
 const requestPasswordChangeCode = async (req, res) => {
   try {
     const result = await pool.query(
@@ -565,6 +640,8 @@ const changePasswordWithCode = async (req, res) => {
   }
 };
 
+=======
+>>>>>>> origin/master
 const login = async (req, res) => {
   try {
     const { email, password, rememberMe } = req.body;
@@ -816,6 +893,7 @@ const googleLogin = async (req, res) => {
           message: "Please agree to the Terms and Conditions before creating your account.",
         });
       }
+<<<<<<< HEAD
       const normalizedPhone = typeof phone === "string" && phone.trim()
         ? phone.trim()
         : null;
@@ -824,6 +902,13 @@ const googleLogin = async (req, res) => {
           success: false,
           code: "INVALID_PHONE",
           message: "Phone number must start with 09 and contain exactly 11 digits.",
+=======
+      if (typeof phone !== "string" || !/^09\d{9}$/.test(phone)) {
+        return res.status(400).json({
+          success: false,
+          code: "PHONE_REQUIRED",
+          message: "Enter a valid phone number starting with 09 before continuing with Google.",
+>>>>>>> origin/master
         });
       }
 
@@ -857,14 +942,21 @@ const googleLogin = async (req, res) => {
           String(lastName).trim(),
           email,
           passwordHash,
+<<<<<<< HEAD
           normalizedPhone,
+=======
+          phone,
+>>>>>>> origin/master
           googleProfile.sub,
         ]
       );
       user = result.rows[0];
+<<<<<<< HEAD
       await notifyNewUser(user).catch((err) => {
         console.error("Google signup admin notification failed:", err.message);
       });
+=======
+>>>>>>> origin/master
     } else if (user.google_sub && user.google_sub !== googleProfile.sub) {
       return res.status(409).json({
         success: false,
@@ -1117,9 +1209,12 @@ const resendVerification = async (req, res) => {
 
     res.json({
       ...neutral,
+<<<<<<< HEAD
       message: delivered
         ? "A new verification code has been sent. Check your inbox and spam folder."
         : "We could not send a verification code right now. Please try again later.",
+=======
+>>>>>>> origin/master
       email_sent: delivered,
     });
   } catch (err) {
@@ -1210,6 +1305,7 @@ const updatePhoto = async (req, res) => {
       });
     }
 
+<<<<<<< HEAD
     const account = await pool.query(
       "SELECT user_id, first_name, last_name, email, account_status, setup_completed FROM users WHERE user_id = $1",
       [req.user.user_id]
@@ -1236,6 +1332,8 @@ const updatePhoto = async (req, res) => {
       });
     }
 
+=======
+>>>>>>> origin/master
     await pool.query(
       "UPDATE users SET profile_image=$1, updated_at=NOW() WHERE user_id=$2",
       [profile_image, req.user.user_id]
@@ -1246,9 +1344,12 @@ const updatePhoto = async (req, res) => {
       message: "Photo updated.",
     });
   } catch (err) {
+<<<<<<< HEAD
     if (err.status) {
       return res.status(err.status).json({ success: false, message: err.message });
     }
+=======
+>>>>>>> origin/master
     console.error("updatePhoto error:", err.message);
 
     res.status(500).json({
@@ -1281,7 +1382,10 @@ const getProfile = async (req, res) => {
         workout_days_per_week,
         workout_duration,
         preferred_days,
+<<<<<<< HEAD
         preferred_workout_time,
+=======
+>>>>>>> origin/master
         intensity,
         injuries,
         health_conditions,
@@ -1337,7 +1441,10 @@ const updateProfile = async (req, res) => {
       workout_days_per_week,
       workout_duration,
       preferred_days,
+<<<<<<< HEAD
       preferred_workout_time,
+=======
+>>>>>>> origin/master
       intensity,
       injuries,
       health_conditions,
@@ -1386,6 +1493,7 @@ const updateProfile = async (req, res) => {
     }
 
     if (
+<<<<<<< HEAD
       age !== undefined &&
       age !== null &&
       age !== "" &&
@@ -1410,6 +1518,8 @@ const updateProfile = async (req, res) => {
     }
 
     if (
+=======
+>>>>>>> origin/master
       profile_image !== undefined &&
       profile_image !== null &&
       profile_image !== ""
@@ -1447,6 +1557,7 @@ const updateProfile = async (req, res) => {
           message: "The selected coach is not available.",
         });
       }
+<<<<<<< HEAD
 
       const memberAvailabilityResult = await pool.query(
         "SELECT preferred_days, preferred_workout_time FROM users WHERE user_id = $1",
@@ -1509,6 +1620,8 @@ const updateProfile = async (req, res) => {
           message: "The selected coach is not available on every preferred workout day during your preferred time. Choose another coach or update your availability.",
         });
       }
+=======
+>>>>>>> origin/master
     }
 
     // Normalize workout duration so PostgreSQL accepts both UI values like
@@ -1552,7 +1665,11 @@ const updateProfile = async (req, res) => {
 
     // member could confirm one address and then swap in an unverified one.
     const current = await pool.query(
+<<<<<<< HEAD
     "SELECT * FROM users WHERE user_id = $1",
+=======
+      "SELECT user_id, first_name, email FROM users WHERE user_id = $1",
+>>>>>>> origin/master
       [req.user.user_id]
     );
 
@@ -1567,6 +1684,7 @@ const updateProfile = async (req, res) => {
       Boolean(nextEmail) &&
       nextEmail !== currentEmail;
 
+<<<<<<< HEAD
     if (
       String(current.rows[0]?.account_status || "").toLowerCase() === "active" &&
       current.rows[0]?.setup_completed
@@ -1607,6 +1725,8 @@ const updateProfile = async (req, res) => {
       Number(trainer_id) > 0;
     let coachAssignmentEmailSent = null;
 
+=======
+>>>>>>> origin/master
     await pool.query(
       `
       UPDATE users
@@ -1625,6 +1745,7 @@ const updateProfile = async (req, res) => {
           workout_days_per_week=COALESCE($13, workout_days_per_week),
           workout_duration=COALESCE($14, workout_duration),
           preferred_days=COALESCE($15, preferred_days),
+<<<<<<< HEAD
           preferred_workout_time=COALESCE($16, preferred_workout_time),
           intensity=COALESCE($17, intensity),
           injuries=COALESCE($18, injuries),
@@ -1634,6 +1755,16 @@ const updateProfile = async (req, res) => {
           profile_image=COALESCE($22, profile_image),
           updated_at=NOW()
       WHERE user_id=$23
+=======
+          intensity=COALESCE($16, intensity),
+          injuries=COALESCE($17, injuries),
+          health_conditions=COALESCE($18, health_conditions),
+          trainer_id=COALESCE($19, trainer_id),
+          setup_completed=COALESCE($20, setup_completed),
+          profile_image=COALESCE($21, profile_image),
+          updated_at=NOW()
+      WHERE user_id=$22
+>>>>>>> origin/master
       `,
       [
         first_name
@@ -1657,7 +1788,10 @@ const updateProfile = async (req, res) => {
         workout_days_per_week ?? null,
         normalizedWorkoutDuration,
         preferred_days ?? null,
+<<<<<<< HEAD
         preferred_workout_time ?? null,
+=======
+>>>>>>> origin/master
         intensity ?? null,
         injuries ?? null,
         health_conditions ?? null,
@@ -1670,6 +1804,7 @@ const updateProfile = async (req, res) => {
       ]
     );
 
+<<<<<<< HEAD
     if (selectedNewCoach) {
       const coachResult = await pool.query(
         `SELECT trainer_id, full_name, email
@@ -1717,6 +1852,8 @@ const updateProfile = async (req, res) => {
       }
     }
 
+=======
+>>>>>>> origin/master
     // Keep the admin member record synchronized with the registered user.
     // A member record is created the first time onboarding is completed;
     // existing records keep their current approval status.
@@ -1860,6 +1997,7 @@ const updateProfile = async (req, res) => {
       success: true,
       message: emailChanged
         ? "Profile updated. Enter the verification code sent to your new email address."
+<<<<<<< HEAD
         : coachAssignmentEmailSent === false
           ? "Profile updated, but the coach assignment email could not be delivered."
           : "Profile updated.",
@@ -1874,6 +2012,14 @@ const updateProfile = async (req, res) => {
     if (err.status) {
       return res.status(err.status).json({ success: false, message: err.message });
     }
+=======
+        : "Profile updated.",
+      ...(emailChanged
+        ? { email_verification_required: true }
+        : {}),
+    });
+  } catch (err) {
+>>>>>>> origin/master
     console.error("updateProfile error:", err.message);
 
     res.status(500).json({
@@ -1889,13 +2035,19 @@ module.exports = {
   googleLogin,
   forgotPassword,
   resetPassword,
+<<<<<<< HEAD
   requestPasswordChangeCode,
   changePasswordWithCode,
+=======
+>>>>>>> origin/master
   verifyEmail,
   resendVerification,
   getVerificationStatus,
   getProfile,
   updateProfile,
   updatePhoto,
+<<<<<<< HEAD
   getUserChangeRequests,
+=======
+>>>>>>> origin/master
 };

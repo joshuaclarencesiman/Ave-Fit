@@ -19,9 +19,12 @@ export default function PendingApproval() {
   );
   const [verifying, setVerifying] = useState(false);
   const [resending, setResending] = useState(false);
+<<<<<<< HEAD
   const [deliveryFailed, setDeliveryFailed] = useState(
     () => sessionStorage.getItem("avefit_verification_email_delivery_failed") === "true"
   );
+=======
+>>>>>>> origin/master
   const [notice, setNotice] = useState(() =>
     sessionStorage.getItem("avefit_pending_email_verified") === "true"
       ? "Your email is already verified. Your registration is with the gym administrator."
@@ -72,8 +75,11 @@ export default function PendingApproval() {
     try {
       const res = await userApi.post("/verify-email", { email, code });
       setVerified(true);
+<<<<<<< HEAD
       setDeliveryFailed(false);
       sessionStorage.removeItem("avefit_verification_email_delivery_failed");
+=======
+>>>>>>> origin/master
       sessionStorage.setItem("avefit_pending_email_verified", "true");
       setNotice(res.data.message);
     } catch (err) {
@@ -95,6 +101,7 @@ export default function PendingApproval() {
 
     try {
       const res = await userApi.post("/resend-verification", { email });
+<<<<<<< HEAD
       if (res.data.email_sent === false) {
         setDeliveryFailed(true);
         sessionStorage.setItem("avefit_verification_email_delivery_failed", "true");
@@ -104,6 +111,9 @@ export default function PendingApproval() {
         sessionStorage.removeItem("avefit_verification_email_delivery_failed");
         setNotice(res.data.message);
       }
+=======
+      setNotice(res.data.message);
+>>>>>>> origin/master
     } catch (err) {
       setError(err.response?.data?.message || "Unable to send a new code right now.");
     } finally {
@@ -149,6 +159,7 @@ export default function PendingApproval() {
         </div>
 
         {notice && <div className="mt-5"><Alert tone="info">{notice}</Alert></div>}
+<<<<<<< HEAD
         {deliveryFailed && !error && (
           <div className="mt-5">
             <Alert tone="warning">
@@ -156,6 +167,8 @@ export default function PendingApproval() {
             </Alert>
           </div>
         )}
+=======
+>>>>>>> origin/master
         {error && <div className="mt-3"><Alert tone="error">{error}</Alert></div>}
 
         {!verified && <form

@@ -1,6 +1,9 @@
 const pool = require("../db");
+<<<<<<< HEAD
 const { createNotification } = require("../utils/notifications");
 const { validateAge } = require("../utils/security");
+=======
+>>>>>>> origin/master
 
 // =====================================================
 // GET ALL MEMBERS FROM USERS TABLE
@@ -39,7 +42,10 @@ const getMembers = async (req, res) => {
     u.workout_days_per_week,
     u.workout_duration,
     u.preferred_days,
+<<<<<<< HEAD
     u.preferred_workout_time,
+=======
+>>>>>>> origin/master
     u.intensity,
     u.injuries,
     u.health_conditions,
@@ -132,7 +138,10 @@ const getMemberById = async (req, res) => {
         u.workout_days_per_week,
         u.workout_duration,
         u.preferred_days,
+<<<<<<< HEAD
         u.preferred_workout_time,
+=======
+>>>>>>> origin/master
         u.intensity,
         u.injuries,
         u.health_conditions,
@@ -316,6 +325,7 @@ const updateMemberMembership = async (req, res) => {
     const result = await pool.query(`
       UPDATE users
       SET membership_months = $1,
+<<<<<<< HEAD
           membership_start_date = CASE
             WHEN membership_start_date IS NULL
               OR membership_end_date IS NULL
@@ -331,6 +341,11 @@ const updateMemberMembership = async (req, res) => {
                 THEN (NOW() AT TIME ZONE 'Asia/Manila')::date
               ELSE membership_start_date
             END
+=======
+          membership_start_date = COALESCE(membership_start_date, created_at::date),
+          membership_end_date = (
+            COALESCE(membership_start_date, created_at::date)
+>>>>>>> origin/master
             + make_interval(months => $1) - INTERVAL '1 day'
           )::date,
           updated_at = CURRENT_TIMESTAMP
@@ -374,6 +389,7 @@ const updateMember = async (req, res) => {
       fitness_goal,
       activity_level,
       target_weight,
+<<<<<<< HEAD
       preferred_workout_time,
       status
     } = req.body;
@@ -397,14 +413,22 @@ const updateMember = async (req, res) => {
       });
     }
 
+=======
+      status
+    } = req.body;
+
+>>>>>>> origin/master
     // Whitelist the approval statuses the admin is allowed to assign here.
     const normalizedStatus =
       typeof status === "string" && ["Pending", "Active", "Inactive", "Rejected"].includes(status)
         ? status
         : null;
+<<<<<<< HEAD
     const previousStatus = normalizedStatus === "Inactive"
       ? await pool.query("SELECT account_status FROM users WHERE user_id = $1", [id])
       : null;
+=======
+>>>>>>> origin/master
 
     const result = await pool.query(
       `
@@ -422,10 +446,16 @@ const updateMember = async (req, res) => {
         fitness_goal = COALESCE($10, fitness_goal),
         activity_level = COALESCE($11, activity_level),
         target_weight = COALESCE($12, target_weight),
+<<<<<<< HEAD
         preferred_workout_time = COALESCE($13, preferred_workout_time),
         account_status = COALESCE($14, account_status),
         updated_at = CURRENT_TIMESTAMP
       WHERE user_id = $15
+=======
+        account_status = COALESCE($13, account_status),
+        updated_at = CURRENT_TIMESTAMP
+      WHERE user_id = $14
+>>>>>>> origin/master
       RETURNING *
       `,
       [
@@ -441,7 +471,10 @@ const updateMember = async (req, res) => {
         fitness_goal,
         activity_level,
         target_weight,
+<<<<<<< HEAD
         preferred_workout_time,
+=======
+>>>>>>> origin/master
         normalizedStatus,
         id
       ]
@@ -460,6 +493,7 @@ const updateMember = async (req, res) => {
       });
     }
 
+<<<<<<< HEAD
     if (
       normalizedStatus === "Inactive" &&
       String(previousStatus?.rows[0]?.account_status || "").toLowerCase() === "active"
@@ -477,6 +511,8 @@ const updateMember = async (req, res) => {
       });
     }
 
+=======
+>>>>>>> origin/master
     res.json({
       message: "Member updated successfully",
       member: result.rows[0]
@@ -507,21 +543,29 @@ const approveMember = async (req, res) => {
         account_status = 'Active',
         membership_start_date = CASE
           WHEN membership_months IS NOT NULL
+<<<<<<< HEAD
             AND (
               membership_start_date IS NULL
               OR membership_end_date IS NULL
               OR membership_end_date < (NOW() AT TIME ZONE 'Asia/Manila')::date
             )
+=======
+            AND membership_end_date < (NOW() AT TIME ZONE 'Asia/Manila')::date
+>>>>>>> origin/master
             THEN (NOW() AT TIME ZONE 'Asia/Manila')::date
           ELSE membership_start_date
         END,
         membership_end_date = CASE
           WHEN membership_months IS NOT NULL
+<<<<<<< HEAD
             AND (
               membership_start_date IS NULL
               OR membership_end_date IS NULL
               OR membership_end_date < (NOW() AT TIME ZONE 'Asia/Manila')::date
             )
+=======
+            AND membership_end_date < (NOW() AT TIME ZONE 'Asia/Manila')::date
+>>>>>>> origin/master
             THEN (
               (NOW() AT TIME ZONE 'Asia/Manila')::date
               + make_interval(months => membership_months)
@@ -570,10 +614,13 @@ const approveMember = async (req, res) => {
 const rejectMember = async (req, res) => {
   try {
     const { id } = req.params;
+<<<<<<< HEAD
     const previous = await pool.query(
       "SELECT account_status FROM users WHERE user_id = $1",
       [id]
     );
+=======
+>>>>>>> origin/master
 
     const result = await pool.query(
       `
@@ -583,7 +630,11 @@ const rejectMember = async (req, res) => {
         token_version = token_version + 1,
         updated_at = CURRENT_TIMESTAMP
       WHERE user_id = $1
+<<<<<<< HEAD
       RETURNING user_id, account_status, first_name, last_name
+=======
+      RETURNING user_id, account_status
+>>>>>>> origin/master
       `,
       [id]
     );
@@ -599,6 +650,7 @@ const rejectMember = async (req, res) => {
       [id]
     ).catch(() => {});
 
+<<<<<<< HEAD
     if (String(previous.rows[0]?.account_status || "").toLowerCase() === "active") {
       const user = result.rows[0];
       await createNotification({
@@ -613,6 +665,8 @@ const rejectMember = async (req, res) => {
       });
     }
 
+=======
+>>>>>>> origin/master
     res.json({
       message: "Member rejected successfully",
       member: result.rows[0]

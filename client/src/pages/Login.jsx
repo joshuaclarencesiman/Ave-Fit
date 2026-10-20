@@ -35,6 +35,7 @@ export default function Login() {
       title="Admin sign in"
       subtitle="Manage members, trainers, workouts and analytics."
       footer={
+<<<<<<< HEAD
         <div className="mt-6 flex flex-col items-center gap-3 text-sm text-slate-500">
           <button
             type="button"
@@ -43,6 +44,9 @@ export default function Login() {
           >
             Forgot your password?
           </button>
+=======
+        <p className="mt-6 text-center text-sm text-slate-500">
+>>>>>>> origin/master
           <button
             type="button"
             onClick={() => navigate("/")}
@@ -50,7 +54,11 @@ export default function Login() {
           >
             &larr; Back to homepage
           </button>
+<<<<<<< HEAD
         </div>
+=======
+        </p>
+>>>>>>> origin/master
       }
     >
       <form

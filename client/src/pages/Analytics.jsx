@@ -4,7 +4,11 @@ import {
   LineElement, BarElement, ArcElement, Title, Tooltip, Legend, Filler,
 } from "chart.js";
 import { Line, Bar, Doughnut } from "react-chartjs-2";
+<<<<<<< HEAD
 import { Users, TrendingUp, Dumbbell, Clock3, CalendarDays, Filter } from "lucide-react";
+=======
+import { Users, TrendingUp, Dumbbell, Clock3, CalendarDays } from "lucide-react";
+>>>>>>> origin/master
 import api from "../services/api";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ArcElement, Title, Tooltip, Legend, Filler);
@@ -42,6 +46,7 @@ export default function Analytics() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState("");
+<<<<<<< HEAD
   const [equipmentDay, setEquipmentDay] = useState("");
   const [equipmentHour, setEquipmentHour] = useState("");
   const [appliedEquipmentFilters, setAppliedEquipmentFilters] = useState({ day: "", hour: "" });
@@ -76,6 +81,18 @@ export default function Analytics() {
       window.clearInterval(refreshTimer);
     };
   }, [appliedEquipmentFilters]);
+=======
+
+  useEffect(() => {
+    api.get("/analytics")
+      .then((res) => setData(res.data.data))
+      .catch((err) => {
+        console.error(err);
+        setFetchError(err.response?.data?.message || err.message || "Couldn't load analytics.");
+      })
+      .finally(() => setLoading(false));
+  }, []);
+>>>>>>> origin/master
 
   if (loading) {
     return (
@@ -133,7 +150,10 @@ export default function Analytics() {
   const peakMonths = data?.peakMonths || [];
   const peakHourValue = getPeakLabel(peakHours, (row) => formatHour(row.hour));
   const dayAvailability = data?.dayAvailability || [];
+<<<<<<< HEAD
   const mostUsedEquipment = data?.mostUsedEquipment || [];
+=======
+>>>>>>> origin/master
   const peakDayValue = getPeakLabel(dayAvailability, (row) => row.day);
   const peakMonthValue = getPeakLabel(peakMonths, (row) => row.label);
 
@@ -168,7 +188,10 @@ export default function Analytics() {
   };
 
   const bmiMap = Object.fromEntries((data?.bmiDistribution || []).map((b) => [b.category, parseInt(b.count)]));
+<<<<<<< HEAD
   const maxEquipmentUsage = Math.max(0, ...mostUsedEquipment.map((item) => Number(item.count) || 0));
+=======
+>>>>>>> origin/master
 
   return (
     <div className="space-y-6">
@@ -200,6 +223,7 @@ export default function Analytics() {
         ))}
       </div>
 
+<<<<<<< HEAD
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#111]" aria-labelledby="equipment-heading">
         <div className="mb-4">
           <h2 id="equipment-heading" className="text-base font-bold text-slate-900 dark:text-white">Most used equipment</h2>
@@ -277,6 +301,8 @@ export default function Analytics() {
         )}
       </section>
 
+=======
+>>>>>>> origin/master
       <section aria-labelledby="gym-peak-heading" className="space-y-4">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">When members train</p>

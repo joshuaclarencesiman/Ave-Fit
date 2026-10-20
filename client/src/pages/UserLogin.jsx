@@ -1,5 +1,9 @@
 import { useState } from "react";
+<<<<<<< HEAD
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+=======
+import { useNavigate, useSearchParams } from "react-router-dom";
+>>>>>>> origin/master
 import { MailCheck } from "lucide-react";
 import { GoogleLogin, GoogleOAuthProvider } from "@react-oauth/google";
 import AuthShell from "../components/layout/AuthShell";
@@ -13,6 +17,7 @@ const TABS = [
   { id: "signup", label: "Sign up" },
 ];
 
+<<<<<<< HEAD
 const SIGNUP_NAME_PATTERN = /^[A-Za-zÀ-ÿ' -]+$/;
 const COMMON_PASSWORDS = new Set([
   "password", "password1", "password123", "12345678", "123456789",
@@ -64,6 +69,9 @@ function getSignupValidationError(form) {
 
 export default function UserLogin() {
   const location = useLocation();
+=======
+export default function UserLogin() {
+>>>>>>> origin/master
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { loginUser } = useUserAuth();
@@ -76,6 +84,10 @@ export default function UserLogin() {
   const [pendingNotice, setPendingNotice] = useState(false);
   const [unverifiedEmail, setUnverifiedEmail] = useState("");
   const [resendNotice, setResendNotice] = useState("");
+<<<<<<< HEAD
+=======
+  const [resetNotice, setResetNotice] = useState("");
+>>>>>>> origin/master
   const [resending, setResending] = useState(false);
 
   const [loginForm, setLoginForm] = useState({
@@ -86,13 +98,18 @@ export default function UserLogin() {
     first_name: "",
     last_name: "",
     email: "",
+<<<<<<< HEAD
     phone: "",
+=======
+    phone: "09",
+>>>>>>> origin/master
     password: "",
     agreed: false,
   });
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
   const goToDestination = (user) => {
+<<<<<<< HEAD
     const returnLocation = location.state?.from;
     const returnPath = returnLocation?.pathname;
     const isValidReturnPath = typeof returnPath === "string"
@@ -104,6 +121,9 @@ export default function UserLogin() {
         : "/user/workout"
       : "/user/assessment";
     navigate(destination, { replace: true });
+=======
+    navigate(user?.setup_completed ? "/user/workout" : "/user/assessment", { replace: true });
+>>>>>>> origin/master
   };
 
   const handleLogin = async () => {
@@ -149,17 +169,29 @@ export default function UserLogin() {
       setError("Please agree to the Terms and Conditions before creating your account.");
       return;
     }
+<<<<<<< HEAD
     if (mode === "signup" && signupForm.phone && !/^09\d{9}$/.test(signupForm.phone)) {
       setError("Phone number must start with 09 and contain exactly 11 digits, or leave it blank.");
       return;
     }
+=======
+    if (mode === "signup" && !/^09\d{9}$/.test(signupForm.phone)) {
+      setError("Enter a valid phone number starting with 09 before continuing with Google.");
+      return;
+    }
+
+>>>>>>> origin/master
     setLoading(true);
     setError("");
     try {
       const res = await userApi.post("/google-login", {
         credential,
         intent: mode,
+<<<<<<< HEAD
         phone: signupForm.phone || null,
+=======
+        phone: signupForm.phone,
+>>>>>>> origin/master
         first_name: signupForm.first_name,
         last_name: signupForm.last_name,
         termsAccepted: signupForm.agreed,
@@ -178,8 +210,12 @@ export default function UserLogin() {
         setError(err.response?.data?.message || "Your account was not approved.");
       } else if (code === "SIGNUP_REQUIRED") {
         setMode("signup");
+<<<<<<< HEAD
         navigate("/user/login?mode=signup", { replace: true });
         setError("No AveFit account was found. Accept the Terms, then continue with Google to create your account. A phone number is optional for Google sign-up.");
+=======
+        setError("No AveFit account was found. Enter your phone number, accept the Terms, and continue with Google to sign up.");
+>>>>>>> origin/master
       } else {
         setError(err.response?.data?.message || "Google sign-in failed. Please try again.");
       }
@@ -205,10 +241,49 @@ export default function UserLogin() {
     }
   };
 
+<<<<<<< HEAD
   const handleSignup = async () => {
     const validationError = getSignupValidationError(signupForm);
     if (validationError) {
       setError(validationError);
+=======
+  const handleForgotPassword = async () => {
+    const email = loginForm.email.trim();
+
+    if (!email) {
+      setError("Enter your email address to reset your password.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    setResetNotice("");
+
+    try {
+      const res = await userApi.post("/forgot-password", { email });
+      setResetNotice(res.data.message || "If that account exists, a password reset link has been sent.");
+    } catch (err) {
+      setError(err.response?.data?.message || "Unable to send the reset email right now.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSignup = async () => {
+    if (
+      !signupForm.first_name ||
+      !signupForm.last_name ||
+      !signupForm.email ||
+      !signupForm.phone ||
+      !signupForm.password
+    ) {
+      setError("Please fill in all fields.");
+      return;
+    }
+
+    if (!signupForm.agreed) {
+      setError("Please agree to the Terms and Conditions.");
+>>>>>>> origin/master
       return;
     }
 
@@ -216,6 +291,7 @@ export default function UserLogin() {
     setError("");
 
     try {
+<<<<<<< HEAD
       const response = await userApi.post("/register", signupForm);
       // Remembered so the pending screen can prefill the verification form.
       sessionStorage.setItem("avefit_pending_email", signupForm.email.trim());
@@ -224,6 +300,12 @@ export default function UserLogin() {
         "avefit_verification_email_delivery_failed",
         String(response.data?.email_sent !== true)
       );
+=======
+      await userApi.post("/register", signupForm);
+      // Remembered so the pending screen can prefill the verification form.
+      sessionStorage.setItem("avefit_pending_email", signupForm.email.trim());
+      sessionStorage.removeItem("avefit_pending_email_verified");
+>>>>>>> origin/master
       navigate("/user/pending", { replace: true });
     } catch (err) {
       setError(err.response?.data?.message || "Registration failed.");
@@ -234,7 +316,10 @@ export default function UserLogin() {
 
   const switchTab = (next) => {
     setMode(next);
+<<<<<<< HEAD
     navigate(next === "signup" ? "/user/login?mode=signup" : "/user/login", { replace: true });
+=======
+>>>>>>> origin/master
     setError("");
     setPendingNotice(false);
     setResendNotice("");
@@ -242,7 +327,11 @@ export default function UserLogin() {
   };
 
   const googleButtonClasses =
+<<<<<<< HEAD
     "flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-orange-500 bg-orange-500 px-4 text-sm font-semibold text-white shadow-sm transition hover:border-orange-600 hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent disabled:cursor-not-allowed disabled:opacity-60";
+=======
+    "flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent";
+>>>>>>> origin/master
 
   const GoogleBrandIcon = () => (
     <svg aria-hidden="true" viewBox="0 0 48 48" className="h-6 w-6 shrink-0">
@@ -260,6 +349,7 @@ export default function UserLogin() {
         <span>or</span>
         <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
       </div>
+<<<<<<< HEAD
       <div className="w-full">
         {googleClientId ? (
           <GoogleOAuthProvider clientId={googleClientId}>
@@ -280,6 +370,26 @@ export default function UserLogin() {
                 )}
               />
             </div>
+=======
+      <div className="flex justify-center">
+        {googleClientId ? (
+          <GoogleOAuthProvider clientId={googleClientId}>
+            <GoogleLogin
+              onSuccess={handleGoogleSuccess}
+              onError={() => setError("Google sign-in failed or was cancelled. Please try again.")}
+              render={({ onClick, disabled }) => (
+                <button
+                  type="button"
+                  onClick={onClick}
+                  disabled={disabled || loading}
+                  className={`${googleButtonClasses} ${loading ? "cursor-not-allowed opacity-80" : ""}`}
+                >
+                  <GoogleBrandIcon />
+                  <span>Continue with Google</span>
+                </button>
+              )}
+            />
+>>>>>>> origin/master
           </GoogleOAuthProvider>
         ) : (
           <button
@@ -344,11 +454,14 @@ export default function UserLogin() {
             handleLogin();
           }}
         >
+<<<<<<< HEAD
           {location.state?.passwordChanged && (
             <Alert tone="info">
               Your password was changed successfully. Log in with your new password.
             </Alert>
           )}
+=======
+>>>>>>> origin/master
           <Field
             label="Email address"
             htmlFor="user-login-email"
@@ -431,24 +544,40 @@ export default function UserLogin() {
 
           {error && <Alert tone="error">{error}</Alert>}
 
+<<<<<<< HEAD
           <PrimaryButton type="submit" loading={loading} loadingText="Logging in…" className="mt-2 !h-12 !w-full !px-4 !py-0">
+=======
+          <PrimaryButton type="submit" loading={loading} loadingText="Logging in…" className="mt-2">
+>>>>>>> origin/master
             Log in
           </PrimaryButton>
 
           <div className="text-center">
             <button
               type="button"
+<<<<<<< HEAD
               onClick={() => navigate("/user/reset-password", { state: { email: loginForm.email } })}
+=======
+              onClick={handleForgotPassword}
+>>>>>>> origin/master
               className="text-sm font-semibold text-orange-600 transition hover:text-orange-700 dark:text-orange-400 dark:hover:text-orange-300"
             >
               Forgot password?
             </button>
           </div>
+<<<<<<< HEAD
+=======
+
+          {resetNotice && <Alert tone="info">{resetNotice}</Alert>}
+>>>>>>> origin/master
         </form>
       ) : (
         <form
           className="space-y-4"
+<<<<<<< HEAD
           noValidate
+=======
+>>>>>>> origin/master
           onSubmit={(e) => {
             e.preventDefault();
             handleSignup();
@@ -469,7 +598,10 @@ export default function UserLogin() {
               htmlFor="signup-first"
               autoComplete="given-name"
               placeholder="Juan"
+<<<<<<< HEAD
               maxLength={50}
+=======
+>>>>>>> origin/master
               value={signupForm.first_name}
               onChange={(e) => setSignupForm({ ...signupForm, first_name: e.target.value })}
             />
@@ -478,7 +610,10 @@ export default function UserLogin() {
               htmlFor="signup-last"
               autoComplete="family-name"
               placeholder="dela Cruz"
+<<<<<<< HEAD
               maxLength={50}
+=======
+>>>>>>> origin/master
               value={signupForm.last_name}
               onChange={(e) => setSignupForm({ ...signupForm, last_name: e.target.value })}
             />

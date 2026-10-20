@@ -6,6 +6,7 @@ npm run dev - to run the front end
 Install server dependencies:
 cd server
 npm install 
+<<<<<<< HEAD
 npm run dev - to run the backend
 
 PostgreSQL configuration:
@@ -16,3 +17,6 @@ PostgreSQL configuration:
 - Localhost connections use no TLS by default. Set DB_SSL=true to require TLS.
 - Configure the same variables in your backend hosting provider's environment;
   a local .env file is not deployed with the application.
+=======
+npm run dev - to run the backend
+>>>>>>> origin/master

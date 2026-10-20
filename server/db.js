@@ -1,4 +1,5 @@
 const { Pool } = require("pg");
+<<<<<<< HEAD
 const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 
@@ -70,6 +71,17 @@ const getDatabaseConfig = () => {
 };
 
 const pool = new Pool(getDatabaseConfig());
+=======
+require("dotenv").config();
+
+const pool = new Pool({
+  host: process.env.DB_HOST,
+  port: process.env.DB_PORT,
+  database: process.env.DB_NAME,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+});
+>>>>>>> origin/master
 
 const expireMemberships = async (userId = null) => {
   const result = await pool.query(`
@@ -81,6 +93,7 @@ const expireMemberships = async (userId = null) => {
       AND membership_end_date IS NOT NULL
       AND membership_end_date < (NOW() AT TIME ZONE 'Asia/Manila')::date
       AND ($1::integer IS NULL OR user_id = $1)
+<<<<<<< HEAD
     RETURNING user_id, first_name, last_name
   `, [userId]);
 
@@ -98,6 +111,11 @@ const expireMemberships = async (userId = null) => {
     })));
   }
 
+=======
+    RETURNING user_id
+  `, [userId]);
+
+>>>>>>> origin/master
   return result.rowCount;
 };
 
@@ -116,6 +134,7 @@ const initializeDatabase = async () => {
     await client.query("BEGIN");
 
     await client.query(`
+<<<<<<< HEAD
       CREATE TABLE IF NOT EXISTS trainer_availability (
         availability_id BIGSERIAL PRIMARY KEY,
         trainer_id INTEGER NOT NULL REFERENCES trainers(trainer_id) ON DELETE CASCADE,
@@ -243,10 +262,13 @@ const initializeDatabase = async () => {
     `);
 
     await client.query(`
+=======
+>>>>>>> origin/master
       ALTER TABLE workout_sessions
       ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ
     `);
 
+<<<<<<< HEAD
     // Materialised workout status (Active, Complete, Incomplete, Absent).
     // The application keeps it in sync with the live status rules.
     await client.query(`
@@ -254,6 +276,8 @@ const initializeDatabase = async () => {
       ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'Active'
     `);
 
+=======
+>>>>>>> origin/master
     await client.query(`
       ALTER TABLE users
       ADD COLUMN IF NOT EXISTS account_status VARCHAR(20) DEFAULT 'Pending'
@@ -261,6 +285,7 @@ const initializeDatabase = async () => {
 
     await client.query(`
       ALTER TABLE users
+<<<<<<< HEAD
       ADD COLUMN IF NOT EXISTS preferred_workout_time VARCHAR(20)
     `);
 
@@ -301,6 +326,8 @@ const initializeDatabase = async () => {
 
     await client.query(`
       ALTER TABLE users
+=======
+>>>>>>> origin/master
         ADD COLUMN IF NOT EXISTS membership_months INTEGER,
         ADD COLUMN IF NOT EXISTS membership_start_date DATE,
         ADD COLUMN IF NOT EXISTS membership_end_date DATE
@@ -387,6 +414,7 @@ const initializeDatabase = async () => {
     `);
 
     await client.query(`
+<<<<<<< HEAD
       ALTER TABLE users
       ADD COLUMN IF NOT EXISTS password_change_code_hash TEXT
     `);
@@ -402,6 +430,8 @@ const initializeDatabase = async () => {
     `);
 
     await client.query(`
+=======
+>>>>>>> origin/master
       CREATE INDEX IF NOT EXISTS users_verification_token_idx
       ON users (verification_token_hash)
       WHERE verification_token_hash IS NOT NULL
@@ -432,6 +462,19 @@ const initializeDatabase = async () => {
     `);
 
     await client.query(`
+<<<<<<< HEAD
+=======
+      UPDATE users
+      SET account_status = 'Inactive',
+          token_version = token_version + 1,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE LOWER(COALESCE(account_status, 'pending')) = 'active'
+        AND membership_end_date IS NOT NULL
+        AND membership_end_date < (NOW() AT TIME ZONE 'Asia/Manila')::date
+    `);
+
+    await client.query(`
+>>>>>>> origin/master
       ALTER TABLE trainers
       ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0
     `);
@@ -443,6 +486,7 @@ const initializeDatabase = async () => {
 
     await client.query(`
       ALTER TABLE admins
+<<<<<<< HEAD
       ADD COLUMN IF NOT EXISTS password_reset_token_hash TEXT
     `);
 
@@ -453,6 +497,8 @@ const initializeDatabase = async () => {
 
     await client.query(`
       ALTER TABLE admins
+=======
+>>>>>>> origin/master
       ADD COLUMN IF NOT EXISTS account_status VARCHAR(20) NOT NULL DEFAULT 'Active'
     `);
 
@@ -478,9 +524,14 @@ const initializeDatabase = async () => {
     await client.query("COMMIT");
 
     console.log(
+<<<<<<< HEAD
       "✅ Database approval, email verification, Google auth, push notification, and trainer specialization schema ready"
     );
     await expireMemberships();
+=======
+      "✅ Database approval, email verification, Google auth, and trainer specialization schema ready"
+    );
+>>>>>>> origin/master
   } catch (err) {
     await client.query("ROLLBACK");
     console.error(

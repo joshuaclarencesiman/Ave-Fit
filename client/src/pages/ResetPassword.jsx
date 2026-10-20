@@ -1,22 +1,36 @@
 import { useState } from "react";
+<<<<<<< HEAD
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+=======
+import { useNavigate, useSearchParams } from "react-router-dom";
+>>>>>>> origin/master
 import AuthShell from "../components/layout/AuthShell";
 import { Alert, Field, PasswordField, PrimaryButton } from "../components/ui/Form";
 import userApi from "../userApi";
 
 export default function ResetPassword() {
   const navigate = useNavigate();
+<<<<<<< HEAD
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const token = searchParams.get("token") || "";
 
   const [email, setEmail] = useState(location.state?.email || "");
+=======
+  const [searchParams] = useSearchParams();
+  const token = searchParams.get("token") || "";
+
+  const [email, setEmail] = useState("");
+>>>>>>> origin/master
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+<<<<<<< HEAD
   const [resetComplete, setResetComplete] = useState(false);
+=======
+>>>>>>> origin/master
 
   const handleRequestReset = async (event) => {
     event.preventDefault();
@@ -65,8 +79,11 @@ export default function ResetPassword() {
     try {
       const res = await userApi.post("/reset-password", { token, password });
       setNotice(res.data.message || "Your password has been reset.");
+<<<<<<< HEAD
       setResetComplete(true);
       navigate("/user/reset-password?reset=complete", { replace: true });
+=======
+>>>>>>> origin/master
     } catch (err) {
       setError(err.response?.data?.message || "Unable to reset your password right now.");
     } finally {
@@ -78,8 +95,13 @@ export default function ResetPassword() {
     <AuthShell
       width="max-w-lg"
       glass
+<<<<<<< HEAD
       title={resetComplete ? "Password reset complete" : token ? "Reset your password" : "Forgot your password?"}
       subtitle={resetComplete ? "Your password has been updated." : token ? "Choose a new password for your account." : "We can send you a secure reset link."}
+=======
+      title={token ? "Reset your password" : "Forgot your password?"}
+      subtitle={token ? "Choose a new password for your account." : "We can send you a secure reset link."}
+>>>>>>> origin/master
       footer={
         <p className="mt-6 text-center text-sm text-slate-500">
           <button
@@ -92,6 +114,7 @@ export default function ResetPassword() {
         </p>
       }
     >
+<<<<<<< HEAD
       {resetComplete ? (
         <div className="space-y-4">
           {notice && <Alert tone="info">{notice}</Alert>}
@@ -103,6 +126,9 @@ export default function ResetPassword() {
           </PrimaryButton>
         </div>
       ) : token ? (
+=======
+      {token ? (
+>>>>>>> origin/master
         <form className="space-y-4" onSubmit={handleResetPassword}>
           {notice && <Alert tone="info">{notice}</Alert>}
           {error && <Alert tone="error">{error}</Alert>}

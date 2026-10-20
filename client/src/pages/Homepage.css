@@ -31,7 +31,10 @@
 .home-header-inner,
 .home-section,
 .home-club-inner,
+<<<<<<< HEAD
 .home-about-inner,
+=======
+>>>>>>> origin/master
 .home-coaching-inner,
 .home-join-inner,
 .home-footer-inner {
@@ -332,6 +335,7 @@
   line-height: 1.8;
 }
 
+<<<<<<< HEAD
 .home-about { background: var(--home-paper); }
 
 .home-about-inner {
@@ -394,6 +398,8 @@
   filter: grayscale(.2) contrast(1.05);
 }
 
+=======
+>>>>>>> origin/master
 .home-coaching { background: #1c1d1a; color: #f7f6f2; }
 
 .home-coaching-inner {
@@ -529,8 +535,11 @@
   .home-hero { min-height: 550px; }
   .home-hero h1 { max-width: 610px; font-size: 64px; }
   .home-club-inner { gap: 6%; }
+<<<<<<< HEAD
   .home-about-inner { gap: 5%; }
   .home-about-copy h2 { font-size: 42px; }
+=======
+>>>>>>> origin/master
   .home-section-heading h2,
   .home-club-copy h2,
   .home-coaching-heading h2 { font-size: 44px; }
@@ -546,7 +555,10 @@
   .home-header-inner,
   .home-section,
   .home-club-inner,
+<<<<<<< HEAD
   .home-about-inner,
+=======
+>>>>>>> origin/master
   .home-coaching-inner,
   .home-join-inner,
   .home-footer-inner { width: min(100% - 40px, 1280px); }
@@ -585,11 +597,14 @@
   .home-club-copy > p:not(.home-eyebrow) { margin-top: 17px; font-size: 14px; }
   .home-club-copy .home-button { margin-top: 22px; }
 
+<<<<<<< HEAD
   .home-about-inner { grid-template-columns: 1fr; gap: 30px; padding-block: 64px; }
   .home-about-copy h2 { font-size: 39px; }
   .home-map-frame,
   .home-map-frame iframe { min-height: 300px; }
 
+=======
+>>>>>>> origin/master
   .home-coaching-inner { grid-template-columns: 1fr; gap: 34px; padding-block: 66px; }
   .home-coaching-heading > p:last-child { margin-top: 16px; }
   .home-coaching-steps li { min-height: 66px; grid-template-columns: 38px 1fr; }

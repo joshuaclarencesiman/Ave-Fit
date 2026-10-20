@@ -19,22 +19,35 @@ export default function Assessment() {
 
   const validateFields = () => {
     const fields = [
+<<<<<<< HEAD
       { key: "age", label: "Age", value: age, min: 12, max: 90, integer: true },
+=======
+      { key: "age", label: "Age", value: age, min: 10, max: 100 },
+>>>>>>> origin/master
       { key: "weight", label: "Weight", value: weight, min: 30, max: 300 },
       { key: "height", label: "Height", value: height, min: 100, max: 250 },
     ];
     const errors = {};
 
+<<<<<<< HEAD
     fields.forEach(({ key, label, value, min, max, integer = false }) => {
+=======
+    fields.forEach(({ key, label, value, min, max }) => {
+>>>>>>> origin/master
       if (!value.trim()) {
         errors[key] = `${label} is required.`;
         return;
       }
       const number = Number(value);
+<<<<<<< HEAD
       if (!Number.isFinite(number) || number < min || number > max || (integer && !Number.isInteger(number))) {
         errors[key] = key === "age"
           ? "Age must be a whole number between 12 and 90."
           : `Enter a ${label.toLowerCase()} between ${min} and ${max}.`;
+=======
+      if (!Number.isFinite(number) || number < min || number > max) {
+        errors[key] = `Enter a ${label.toLowerCase()} between ${min} and ${max}.`;
+>>>>>>> origin/master
       }
     });
 
@@ -117,7 +130,11 @@ export default function Assessment() {
     {/* Inputs */}
     <div className="space-y-4 mb-6">
       {[
+<<<<<<< HEAD
         { label: "Age (12–90)", key: "age", value: age, setter: setAge, unit: "years", min: 12, max: 90 },
+=======
+        { label: "Age", key: "age", value: age, setter: setAge, unit: "years", min: 10, max: 100 },
+>>>>>>> origin/master
         { label: "Weight", key: "weight", value: weight, setter: setWeight, unit: "kg", min: 30, max: 300 },
         { label: "Height", key: "height", value: height, setter: setHeight, unit: "cm", min: 100, max: 250 },
       ].map((f) => (
@@ -127,7 +144,10 @@ export default function Assessment() {
             <input
               id={f.key}
               type="number"
+<<<<<<< HEAD
               step={f.key === "age" ? 1 : "any"}
+=======
+>>>>>>> origin/master
               value={f.value}
               onChange={(e) => {
                 f.setter(e.target.value);

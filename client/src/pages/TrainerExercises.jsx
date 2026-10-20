@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 import { useEffect, useState } from "react";
+=======
+import { useEffect, useMemo, useState } from "react";
+>>>>>>> origin/master
 import { Dumbbell, Search, SlidersHorizontal, Sparkles } from "lucide-react";
 import trainerApi from "../trainerApi";
 import { ExerciseDetail } from "./ExerciseLibrary";
@@ -11,6 +15,10 @@ export default function TrainerExercises() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [search, setSearch] = useState("");
+<<<<<<< HEAD
+=======
+  const [category, setCategory] = useState("All");
+>>>>>>> origin/master
   const [difficulty, setDifficulty] = useState("All");
   const [selected, setSelected] = useState(null);
 
@@ -30,14 +38,28 @@ export default function TrainerExercises() {
     return () => { active = false; };
   }, []);
 
+<<<<<<< HEAD
+=======
+  const categories = useMemo(
+    () => [...new Set(exercises.map((exercise) => exercise.category_name).filter(Boolean))].sort(),
+    [exercises],
+  );
+>>>>>>> origin/master
   const filtered = exercises.filter((exercise) => {
     const query = search.trim().toLowerCase();
     const matchesQuery = !query || [
       exercise.exercise_name,
       exercise.muscle_group,
       exercise.equipment,
+<<<<<<< HEAD
     ].some((value) => value?.toLowerCase().includes(query));
     return matchesQuery &&
+=======
+      exercise.category_name,
+    ].some((value) => value?.toLowerCase().includes(query));
+    return matchesQuery &&
+      (category === "All" || exercise.category_name === category) &&
+>>>>>>> origin/master
       (difficulty === "All" || exercise.difficulty === difficulty);
   });
 
@@ -74,6 +96,13 @@ export default function TrainerExercises() {
 
         <div className="flex flex-wrap items-center gap-2" aria-label="Exercise filters">
           <SlidersHorizontal size={16} className="mr-1 text-orange-500" aria-hidden="true" />
+<<<<<<< HEAD
+=======
+          <label className="sr-only" htmlFor="trainer-exercise-category">Filter by category</label>
+          <select id="trainer-exercise-category" value={category} onChange={(event) => setCategory(event.target.value)} className="min-h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 dark:border-white/10 dark:bg-[#111] dark:text-slate-200">
+            {["All", ...categories].map((item) => <option key={item} value={item}>{item === "All" ? "All categories" : item}</option>)}
+          </select>
+>>>>>>> origin/master
           <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by difficulty">
             {DIFFICULTIES.map((item) => (
               <button key={item} type="button" aria-pressed={difficulty === item} onClick={() => setDifficulty(item)}
@@ -94,7 +123,11 @@ export default function TrainerExercises() {
             <Search size={28} className="mx-auto mb-3 text-orange-500" />
             <p className="font-semibold text-slate-900 dark:text-white">No exercises match these filters</p>
             <p className="mt-1 text-sm text-slate-500">Try a different search or reset the filters.</p>
+<<<<<<< HEAD
             <button type="button" onClick={() => { setSearch(""); setDifficulty("All"); }} className="mt-4 rounded-lg px-3 py-2 text-sm font-semibold text-orange-700 hover:bg-orange-50 dark:text-orange-300 dark:hover:bg-orange-500/10">Reset filters</button>
+=======
+            <button type="button" onClick={() => { setSearch(""); setCategory("All"); setDifficulty("All"); }} className="mt-4 rounded-lg px-3 py-2 text-sm font-semibold text-orange-700 hover:bg-orange-50 dark:text-orange-300 dark:hover:bg-orange-500/10">Reset filters</button>
+>>>>>>> origin/master
           </div>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
@@ -114,7 +147,11 @@ export default function TrainerExercises() {
                         <h2 className="font-bold text-slate-900 group-hover:text-orange-700 dark:text-white dark:group-hover:text-orange-300">{exercise.exercise_name}</h2>
                         <span className="shrink-0 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-600 dark:border-white/10 dark:bg-white/5 dark:text-slate-300">{exercise.difficulty || "Not specified"}</span>
                       </div>
+<<<<<<< HEAD
                       <p className="mt-1 text-xs text-slate-500">{exercise.muscle_group || "Muscle group not specified"}</p>
+=======
+                      <p className="mt-1 text-xs text-slate-500">{exercise.muscle_group || "Muscle group not specified"} · {exercise.category_name || "General"}</p>
+>>>>>>> origin/master
                       {exercise.equipment && <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">Equipment: {exercise.equipment}</p>}
                       <p className={`mt-2 flex items-center gap-1 text-xs font-semibold ${guide ? "text-orange-600 dark:text-orange-400" : "text-slate-400"}`}><Dumbbell size={12} />{guide ? "Illustrated guide available" : "Guide unavailable"}</p>
                     </div>

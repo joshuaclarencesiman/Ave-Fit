@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
+=======
+import { Routes, Route, Navigate } from "react-router-dom";
+>>>>>>> origin/master
 import { UserAuthProvider } from "./context/UserAuthContext";
 import { getUserAuthToken } from "./context/userAuthStorage";
 import { TrainerAuthProvider } from "./context/TrainerAuthContext";
@@ -7,7 +11,10 @@ import { ThemeProvider } from "./context/ThemeContext";
 // Admin
 import DashboardLayout from "./layouts/DashboardLayout";
 import Login from "./pages/Login";
+<<<<<<< HEAD
 import AdminResetPassword from "./pages/AdminResetPassword";
+=======
+>>>>>>> origin/master
 import Dashboard from "./pages/Dashboard";
 import Members from "./pages/Members";
 import Trainers from "./pages/Trainers";
@@ -44,7 +51,10 @@ import TrainerDashboard from "./pages/TrainerDashboard";
 import TrainerProfile from "./pages/TrainerProfile";
 import TrainerWorkoutPlans from "./pages/TrainerWorkoutPlans";
 import TrainerExercises from "./pages/TrainerExercises";
+<<<<<<< HEAD
 import TrainerAvailability from "./pages/TrainerAvailability";
+=======
+>>>>>>> origin/master
 
 function AdminProtectedRoute({ children }) {
   const token = sessionStorage.getItem("avefit_token");
@@ -53,23 +63,36 @@ function AdminProtectedRoute({ children }) {
 }
 
 function UserProtectedRoute({ children }) {
+<<<<<<< HEAD
   const location = useLocation();
   const token = getUserAuthToken();
   if (!token) return <Navigate to="/user/login" state={{ from: location }} replace />;
+=======
+  const token = getUserAuthToken();
+  if (!token) return <Navigate to="/user/login" replace />;
+>>>>>>> origin/master
   const savedUser = JSON.parse(localStorage.getItem("avefit_user") || "null");
   if (savedUser?.account_status && savedUser.account_status !== "Active") {
     return <Navigate to="/user/pending" replace />;
   }
+<<<<<<< HEAD
   if (savedUser?.setup_completed) return <Navigate to="/user/profile" replace />;
+=======
+>>>>>>> origin/master
   return children;
 }
 
 // Guards the post-onboarding dashboard routes: bounces anyone who hasn't
 // finished the assessment/goal/availability/coach flow back into it.
 function DashboardProtectedRoute({ children }) {
+<<<<<<< HEAD
   const location = useLocation();
   const token = getUserAuthToken();
   if (!token) return <Navigate to="/user/login" state={{ from: location }} replace />;
+=======
+  const token = getUserAuthToken();
+  if (!token) return <Navigate to="/user/login" replace />;
+>>>>>>> origin/master
   const savedUser = JSON.parse(localStorage.getItem("avefit_user") || "null");
   if (savedUser?.account_status && savedUser.account_status !== "Active") return <Navigate to="/user/pending" replace />;
   if (savedUser && !savedUser.setup_completed) return <Navigate to="/user/assessment" replace />;
@@ -95,7 +118,10 @@ export default function App() {
 
         {/* Admin Portal */}
         <Route path="/login" element={<Login />} />
+<<<<<<< HEAD
         <Route path="/admin/reset-password" element={<AdminResetPassword />} />
+=======
+>>>>>>> origin/master
         <Route
           path="/admin/*"
           element={
@@ -127,9 +153,13 @@ export default function App() {
                 <Routes>
                   <Route path="/roster" element={<TrainerDashboard />} />
                   <Route path="/workout-plans" element={<TrainerWorkoutPlans />} />
+<<<<<<< HEAD
                   <Route path="/availability" element={<TrainerAvailability />} />
                   <Route path="/exercises" element={<TrainerExercises />} />
                   <Route path="/notifications" element={<Notifications audience="trainer" />} />
+=======
+                  <Route path="/exercises" element={<TrainerExercises />} />
+>>>>>>> origin/master
                   <Route path="/profile" element={<TrainerProfile />} />
                   <Route path="*" element={<Navigate to="/trainer/roster" replace />} />
                 </Routes>
@@ -163,7 +193,10 @@ export default function App() {
                   <Route path="/coaches" element={<Coaches />} />
                   <Route path="/about" element={<AboutUs />} />
                   <Route path="/profile" element={<ProfilePage />} />
+<<<<<<< HEAD
                   <Route path="/notifications" element={<Notifications audience="user" />} />
+=======
+>>>>>>> origin/master
                   <Route path="*" element={<Navigate to="/user/workout" replace />} />
                 </Routes>
               </UserLayout>

@@ -40,6 +40,7 @@ const adminLoginLimiter = rateLimit({
   message: 'Too many admin login attempts. Please try again in a few minutes.',
 });
 
+<<<<<<< HEAD
 const adminPasswordResetRequestLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 4,
@@ -56,6 +57,8 @@ const adminPasswordResetAttemptLimiter = rateLimit({
   resetOnSuccess: false,
 });
 
+=======
+>>>>>>> origin/master
 const userLoginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 8,
@@ -90,6 +93,7 @@ const verificationAttemptLimiter = rateLimit({
   resetOnSuccess: false,
 });
 
+<<<<<<< HEAD
 const feedbackLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 5,
@@ -102,9 +106,16 @@ module.exports = {
   adminLoginLimiter,
   adminPasswordResetRequestLimiter,
   adminPasswordResetAttemptLimiter,
+=======
+module.exports = {
+  adminLoginLimiter,
+>>>>>>> origin/master
   userLoginLimiter,
   signupLimiter,
   verificationResendLimiter,
   verificationAttemptLimiter,
+<<<<<<< HEAD
   feedbackLimiter,
+=======
+>>>>>>> origin/master
 };

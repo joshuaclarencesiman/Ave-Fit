@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { BadgeCheck, Briefcase, ChevronLeft, ChevronRight, Sparkles, User, X } from "lucide-react";
+<<<<<<< HEAD
 import ScrollReveal from "../components/ScrollReveal";
+=======
+>>>>>>> origin/master
 import userApi from "../userApi";
 
 const aliases = {
@@ -10,8 +13,11 @@ const aliases = {
   "General Fitness": ["general fitness", "fitness", "functional fitness", "group fitness", "hiit", "circuit training", "conditioning"],
 };
 
+<<<<<<< HEAD
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
+=======
+>>>>>>> origin/master
 function score(t, goal) {
   const text = `${(t.specializations || []).join(" ")} ${t.bio || ""} ${t.goal_specialty || ""}`.toLowerCase();
   return (t.goal_specialty === goal ? 100 : 0) +
@@ -22,11 +28,25 @@ function expertise(t) {
   return [...new Set([...(t.specializations || []), t.goal_specialty].filter(Boolean))].slice(0, 8);
 }
 
+<<<<<<< HEAD
 function TrainerPhoto({ trainer, className = "", fit = "contain" }) {
   return (
     <div className={`relative overflow-hidden ${fit === "contain" ? "bg-slate-950" : "bg-transparent"} ${className}`}>
       {trainer.photo_url ? (
         <img src={trainer.photo_url} alt={trainer.full_name} className={`absolute inset-0 h-full w-full ${fit === "contain" ? "object-contain" : "object-cover"}`} />
+=======
+function TrainerPhoto({ trainer, className = "" }) {
+  return (
+    <div className={`relative overflow-hidden bg-slate-950 ${className}`}>
+      {trainer.photo_url ? (
+        <>
+          <img src={trainer.photo_url} alt="" aria-hidden="true" className="absolute inset-0 w-full h-full object-cover scale-110 blur-2xl opacity-40" />
+          <div className="absolute inset-0 bg-black/20" />
+          <div className="relative z-10 w-full h-full flex items-center justify-center p-3 sm:p-5">
+            <img src={trainer.photo_url} alt={trainer.full_name} className="max-w-full max-h-full w-auto h-auto object-contain drop-shadow-2xl" />
+          </div>
+        </>
+>>>>>>> origin/master
       ) : (
         <div className="w-full h-full flex items-center justify-center"><User size={96} className="text-orange-500" /></div>
       )}
@@ -34,13 +54,18 @@ function TrainerPhoto({ trainer, className = "", fit = "contain" }) {
   );
 }
 
+<<<<<<< HEAD
 function TrainerProfileModal({ trainer, goal, assigned, onClose }) {
+=======
+function TrainerProfileModal({ trainer, goal, onClose }) {
+>>>>>>> origin/master
   const [photoOpen, setPhotoOpen] = useState(false);
   if (!trainer) return null;
   const items = [...new Set([...(trainer.specializations || []), trainer.goal_specialty].filter(Boolean))];
 
   return (
     <div className="fixed inset-0 z-[70] bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6" onClick={onClose}>
+<<<<<<< HEAD
       <div
         role="dialog"
         aria-modal="true"
@@ -140,6 +165,37 @@ function TrainerProfileModal({ trainer, goal, assigned, onClose }) {
           <p className="mt-5 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
             Coach changes are managed by the gym administrator. Contact the gym if you need to request a change.
           </p>
+=======
+      <div role="dialog" aria-modal="true" aria-labelledby="coach-profile-title" className="bg-white dark:bg-[#111] rounded-3xl shadow-2xl w-full max-w-3xl max-h-[94vh] overflow-y-auto border border-slate-200 dark:border-slate-800" onClick={(e) => e.stopPropagation()}>
+        <div className="relative h-[55vh] min-h-[360px] max-h-[650px] bg-slate-950">
+          <button type="button" onClick={() => trainer.photo_url && setPhotoOpen(true)} className={`w-full h-full ${trainer.photo_url ? "cursor-zoom-in" : "cursor-default"}`} aria-label={trainer.photo_url ? "View full profile photo" : "Profile photo unavailable"}>
+            <TrainerPhoto trainer={trainer} className="w-full h-full" />
+          </button>
+          <div className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-black/95 via-black/45 to-transparent pointer-events-none" />
+          <button type="button" onClick={onClose} className="absolute top-4 right-4 z-30 w-11 h-11 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center" aria-label="Close profile"><X size={20} /></button>
+          <div className="absolute bottom-6 left-6 right-6 text-white">
+            <p className="text-xs uppercase tracking-widest font-bold text-orange-300">Coach Profile</p>
+            <h2 id="coach-profile-title" className="text-3xl sm:text-4xl font-bold mt-1">{trainer.full_name}</h2>
+            <p className="text-orange-300 font-semibold mt-1">{trainer.goal_specialty || "General Fitness Coach"}</p>
+          </div>
+        </div>
+        <div className="p-6 sm:p-8">
+          <p className="text-xs uppercase tracking-wider font-bold text-slate-400">About the Coach</p>
+          <p className="text-sm sm:text-base leading-7 text-slate-600 dark:text-slate-300 mt-2 whitespace-pre-line">{trainer.bio || "This coach has not added a profile description yet."}</p>
+          <div className="mt-7">
+            <p className="text-xs uppercase tracking-wider font-bold text-slate-400 mb-3">Expertise</p>
+            <div className="flex flex-wrap gap-2">
+              {items.length ? items.map((item) => <span key={item} className="px-3 py-2 rounded-full bg-orange-50 dark:bg-orange-500/10 text-orange-600 dark:text-orange-400 text-xs font-semibold">{item}</span>) : <span className="text-sm text-slate-400">No specializations listed.</span>}
+            </div>
+          </div>
+          <div className="mt-7 rounded-2xl bg-slate-50 dark:bg-slate-900 p-4 flex items-center gap-3">
+            <Briefcase size={18} className="text-orange-500 shrink-0" />
+            <div><p className="text-xs text-slate-400">Your fitness goal</p><p className="text-sm font-semibold text-slate-700 dark:text-slate-200">{goal || "General Fitness"}</p></div>
+          </div>
+          <div className="mt-6 rounded-2xl border border-orange-200 dark:border-orange-900/50 bg-orange-50/70 dark:bg-orange-500/5 p-4 text-sm text-slate-600 dark:text-slate-300">
+            Your coach is designated by the gym. If you need a coach change, please contact the gym administrator.
+          </div>
+>>>>>>> origin/master
         </div>
       </div>
       {photoOpen && trainer.photo_url && (
@@ -256,6 +312,7 @@ export default function Coaches() {
           <div className="relative px-2 sm:px-5">
           <button type="button" onClick={() => setI((i - 1 + ranked.length) % ranked.length)} disabled={ranked.length < 2} aria-label="Show previous coach" className="absolute left-0 top-[38%] z-20 flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/70 bg-white text-orange-600 shadow-lg transition hover:scale-105 hover:bg-orange-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-[#1b1b1b] dark:text-orange-400 dark:hover:bg-[#282828]"><ChevronLeft /></button>
           <button type="button" onClick={() => setI((i + 1) % ranked.length)} disabled={ranked.length < 2} aria-label="Show next coach" className="absolute right-0 top-[38%] z-20 flex h-11 w-11 translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/70 bg-white text-orange-600 shadow-lg transition hover:scale-105 hover:bg-orange-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-[#1b1b1b] dark:text-orange-400 dark:hover:bg-[#282828]"><ChevronRight /></button>
+<<<<<<< HEAD
           <ScrollReveal key={t.trainer_id}>
           <div onTouchStart={swipeStart} onTouchEnd={swipeEnd} onClick={() => setProfileTrainer(t)} role="group" aria-label={`Coach profile: ${t.full_name}`} className="coach-card-interactive group cursor-pointer overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-lg dark:border-white/10 dark:bg-[#111] md:grid md:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
             <div className="relative">
@@ -271,6 +328,21 @@ export default function Coaches() {
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Coach profile</p>
+=======
+          <div onTouchStart={swipeStart} onTouchEnd={swipeEnd} onClick={() => setProfileTrainer(t)} role="group" aria-label={`Coach profile: ${t.full_name}`} className="group cursor-pointer overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl transition-shadow hover:shadow-2xl dark:border-white/10 dark:bg-[#111]">
+            <div className="relative">
+              <TrainerPhoto trainer={t} className="h-[360px] sm:h-[440px]" />
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-36 bg-gradient-to-t from-black/70 to-transparent" />
+              <div className="absolute left-4 top-4 flex flex-wrap gap-2 sm:left-6 sm:top-6">
+                {i === 0 && <span className="inline-flex items-center gap-1.5 rounded-full bg-orange-500 px-3 py-1.5 text-xs font-bold text-white shadow-lg"><Sparkles size={13} /> Top match for you</span>}
+                {assignedTrainerId === t.trainer_id && <span className="inline-flex items-center gap-1.5 rounded-full bg-green-500 px-3 py-1.5 text-xs font-bold text-white shadow-lg"><BadgeCheck size={14} /> Assigned Coach</span>}
+              </div>
+              <p className="absolute bottom-4 left-5 right-5 text-xs font-semibold text-white/90 sm:bottom-5 sm:left-7">Specialty · {t.goal_specialty || "General Fitness Coach"}</p>
+            </div>
+            <div className="p-5 sm:p-7">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+>>>>>>> origin/master
                   <h2 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white sm:text-3xl">{t.full_name}</h2>
                   <p className="mt-1 text-sm font-semibold text-orange-600 dark:text-orange-400">{t.goal_specialty || "General Fitness Coach"}</p>
                 </div>
@@ -289,13 +361,20 @@ export default function Coaches() {
               </div>
             </div>
           </div>
+<<<<<<< HEAD
           </ScrollReveal>
+=======
+>>>>>>> origin/master
           </div>
           <div className="mt-5 flex items-center justify-center gap-2" role="group" aria-label="Choose a coach profile">{ranked.map((x, n) => <button key={x.trainer_id} type="button" onClick={() => setI(n)} aria-label={`Show ${x.full_name}`} aria-current={n === i ? "true" : undefined} className={`h-2.5 rounded-full transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#080808] ${n === i ? "w-8 bg-orange-500" : "w-2.5 bg-slate-300 hover:bg-orange-300 dark:bg-slate-700 dark:hover:bg-orange-500/60"}`} />)}</div>
           <p className="mt-3 text-center text-xs text-slate-400">Coach {i + 1} of {ranked.length} · Select a profile to learn more</p>
         </section>
       )}
+<<<<<<< HEAD
       {profileTrainer && <TrainerProfileModal trainer={profileTrainer} goal={goal} assigned={profileTrainer.trainer_id === assignedTrainerId} onClose={() => setProfileTrainer(null)} />}
+=======
+      {profileTrainer && <TrainerProfileModal trainer={profileTrainer} goal={goal} onClose={() => setProfileTrainer(null)} />}
+>>>>>>> origin/master
     </div>
   );
 }

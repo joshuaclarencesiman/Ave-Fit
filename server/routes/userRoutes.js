@@ -3,16 +3,26 @@ const router = express.Router();
 const verifyUser = require("../middleware/userAuthMiddleware");
 const {
   register, login, googleLogin, forgotPassword, resetPassword,
+<<<<<<< HEAD
   requestPasswordChangeCode, changePasswordWithCode,
   verifyEmail, resendVerification, getVerificationStatus,
   getProfile, updateProfile, updatePhoto, getUserChangeRequests,
+=======
+  verifyEmail, resendVerification, getVerificationStatus,
+  getProfile, updateProfile, updatePhoto,
+>>>>>>> origin/master
 } = require("../controllers/userController");
 const { getUserWorkoutPlan, getUserPlans, addWorkoutSession, updateWorkoutSession, startWorkoutSession, completeSession, deleteWorkoutSession, resetWeek } = require("../controllers/userWorkoutController");
 const { getProgress, logProgress, calculatePrediction, autoPredict, getUserNotifications } = require("../controllers/userProgressController");
 const { getActiveTrainers } = require("../controllers/trainerController");
+<<<<<<< HEAD
 const { submitMemberFeedback } = require("../controllers/feedbackController");
 const {
   userLoginLimiter, signupLimiter, verificationResendLimiter, verificationAttemptLimiter, feedbackLimiter,
+=======
+const {
+  userLoginLimiter, signupLimiter, verificationResendLimiter, verificationAttemptLimiter,
+>>>>>>> origin/master
 } = require("../middleware/rateLimit");
 
 // Auth
@@ -21,8 +31,11 @@ router.post("/login", userLoginLimiter, login);
 router.post("/google-login", userLoginLimiter, googleLogin);
 router.post("/forgot-password", userLoginLimiter, forgotPassword);
 router.post("/reset-password", userLoginLimiter, resetPassword);
+<<<<<<< HEAD
 router.post("/password/change-code", verifyUser, verificationResendLimiter, requestPasswordChangeCode);
 router.post("/password/change", verifyUser, verificationAttemptLimiter, changePasswordWithCode);
+=======
+>>>>>>> origin/master
 
 // Email verification (public: the member has no session until they are verified
 // and approved, so these cannot sit behind verifyUser)
@@ -32,10 +45,15 @@ router.get("/verification-status", verificationAttemptLimiter, getVerificationSt
 
 // Profile
 router.get("/profile", verifyUser, getProfile);
+<<<<<<< HEAD
 router.get("/profile/change-requests", verifyUser, getUserChangeRequests);
 router.put("/profile", verifyUser, updateProfile);
 router.put("/profile/photo", verifyUser, updatePhoto);
 router.post("/feedback", verifyUser, feedbackLimiter, submitMemberFeedback);
+=======
+router.put("/profile", verifyUser, updateProfile);
+router.put("/profile/photo", verifyUser, updatePhoto);
+>>>>>>> origin/master
 
 // Workouts
 router.get("/workouts", verifyUser, getUserWorkoutPlan);

@@ -1,7 +1,13 @@
+<<<<<<< HEAD
 import { useLocation, useNavigate } from "react-router-dom";
 import { Bell, Dumbbell, Home, Info, TrendingUp, User, UsersRound } from "lucide-react";
 import AppShell from "../components/layout/AppShell";
 import useUnreadCount from "../components/layout/useUnreadCount";
+=======
+import { useNavigate } from "react-router-dom";
+import { Dumbbell, Home, Info, TrendingUp, User, UsersRound } from "lucide-react";
+import AppShell from "../components/layout/AppShell";
+>>>>>>> origin/master
 import { useUserAuth } from "../context/UserAuthContext";
 
 const NAV = [
@@ -15,9 +21,13 @@ const NAV = [
 
 export default function UserLayout({ children }) {
   const navigate = useNavigate();
+<<<<<<< HEAD
   const location = useLocation();
   const { user, logoutUser } = useUserAuth();
   const unread = useUnreadCount(location.pathname, "user");
+=======
+  const { user, logoutUser } = useUserAuth();
+>>>>>>> origin/master
 
   const handleLogout = () => {
     logoutUser();
@@ -43,6 +53,7 @@ export default function UserLayout({ children }) {
           : null
       }
       onLogout={handleLogout}
+<<<<<<< HEAD
       actions={
         <button
           type="button"
@@ -54,6 +65,8 @@ export default function UserLayout({ children }) {
           {unread > 0 && <span className="absolute -right-0.5 -top-0.5 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white">{unread > 9 ? "9+" : unread}</span>}
         </button>
       }
+=======
+>>>>>>> origin/master
       topbarLeft={
         <span className="block min-w-0">
           <span className="block truncate text-sm font-semibold text-slate-900 dark:text-white">
