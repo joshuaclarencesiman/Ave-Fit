@@ -1,0 +1,36 @@
+@import "tailwindcss";
+
+
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: linear-gradient(
+    180deg,
+    #172554 0%,
+    #0f172a 50%,
+    #020617 100%
+  );
+  color: white;
+  font-family: Inter, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Inputs/selects/textareas default to dark, readable text even though the
+   global body color above is white — light-themed cards (white background)
+   rely on this so typed text is never invisible. Any element with an
+   explicit text-* Tailwind class still overrides this. */
+input,
+select,
+textarea {
+  color: #0f172a;
+}
