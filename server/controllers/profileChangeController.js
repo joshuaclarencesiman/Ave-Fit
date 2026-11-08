@@ -1,7 +1,7 @@
 const bcrypt = require("bcrypt");
 const crypto = require("crypto");
 const pool = require("../db");
-const { normalizeEmail } = require("../utils/security");
+const { normalizeEmail, validatePhilippinePhone } = require("../utils/security");
 const {
   hashVerificationCode,
 } = require("../utils/emailVerification");
@@ -11,6 +11,7 @@ const {
 } = require("../utils/mailer");
 const { getConfiguredAdminEmail } = require("../utils/adminAccess");
 const { createNotification, notifyAdmins } = require("../utils/notifications");
+const { normalizeAvailability, getExperienceRange } = require("./userWorkoutAvailabilityController");
 
 const PROFILE_FIELDS = {
   first_name: "first_name",
@@ -51,6 +52,15 @@ const sanitizePayload = (payload = {}) => {
 const buildProfileChangePayload = (current, body) => {
   const payload = {};
 
+  if (
+    Object.prototype.hasOwnProperty.call(body, "activity_level") &&
+    !["Beginner", "Intermediate", "Advanced"].includes(body.activity_level)
+  ) {
+    const error = new Error("Choose Beginner, Intermediate, or Advanced as your experience level.");
+    error.status = 400;
+    throw error;
+  }
+
   for (const [field, column] of Object.entries(PROFILE_FIELDS)) {
     if (!Object.prototype.hasOwnProperty.call(body, field)) continue;
     let value = body[field];
@@ -59,6 +69,13 @@ const buildProfileChangePayload = (current, body) => {
       value = String(value).trim();
     } else if (field === "email") {
       value = normalizeEmail(value);
+    } else if (field === "phone") {
+      value = String(value).trim();
+      if (!validatePhilippinePhone(value)) {
+        const error = new Error("Phone number must start with 09 and contain exactly 11 digits.");
+        error.status = 400;
+        throw error;
+      }
     } else if (field === "preferred_days") {
       if (!Array.isArray(value) || value.some((day) => !DAY_NAMES.has(String(day).toLowerCase()))) {
         const error = new Error("Choose valid preferred workout days.");
@@ -104,7 +121,7 @@ const buildProfileChangePayload = (current, body) => {
   return payload;
 };
 
-const notifyRequest = async ({ request, user, changes }) => {
+const notifyRequest = async ({ request, user, changes, currentValues = {} }) => {
   const memberName = `${user.first_name || ""} ${user.last_name || ""}`.trim() || "AveFit member";
   const adminEmail = getConfiguredAdminEmail();
   let emailSent = false;
@@ -117,6 +134,7 @@ const notifyRequest = async ({ request, user, changes }) => {
         memberEmail: user.email,
         requestType: request.request_type,
         changes,
+        currentValues,
       });
       emailSent = result.delivered;
     } catch (err) {
@@ -157,7 +175,11 @@ const createProfileChangeRequest = async ({ userId, payload }) => {
   }
 
   const userResult = await pool.query(
-    `SELECT user_id, first_name, last_name, email
+    `SELECT user_id, first_name, last_name, email, phone, gender, birth_date, age, height,
+            weight, fitness_goal, activity_level, target_weight,
+            workout_days_per_week, workout_duration, preferred_days,
+            preferred_workout_time, intensity, injuries, health_conditions,
+            profile_image
      FROM users
      WHERE user_id = $1 AND LOWER(COALESCE(account_status, 'pending')) = 'active'`,
     [userId]
@@ -202,6 +224,10 @@ const createProfileChangeRequest = async ({ userId, payload }) => {
     request: inserted.rows[0],
     user,
     changes: payload,
+    currentValues: Object.fromEntries(Object.keys(payload).map((field) => [
+      field,
+      field === "profile_image" ? Boolean(user.profile_image) : user[field],
+    ])),
   });
 };
 
@@ -312,7 +338,17 @@ const getAdminChangeRequests = async (_req, res) => {
               u.workout_days_per_week, u.workout_duration, u.preferred_days,
               u.preferred_workout_time, u.intensity, u.injuries,
               u.health_conditions,
-              (u.profile_image IS NOT NULL AND u.profile_image <> '') AS has_profile_image
+              (u.profile_image IS NOT NULL AND u.profile_image <> '') AS has_profile_image,
+              COALESCE((
+                SELECT json_agg(json_build_object(
+                  'day_of_week', a.day_of_week,
+                  'time_preference', a.time_preference,
+                  'start_time', TO_CHAR(a.start_time, 'HH24:MI'),
+                  'end_time', TO_CHAR(a.end_time, 'HH24:MI')
+                ) ORDER BY array_position(ARRAY['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'], a.day_of_week))
+                FROM user_workout_availability a
+                WHERE a.user_id = u.user_id
+              ), '[]'::json) AS weekly_availability
        FROM user_profile_change_requests r
        JOIN users u ON u.user_id = r.user_id
        WHERE r.status = 'Pending'
@@ -326,6 +362,13 @@ const getAdminChangeRequests = async (_req, res) => {
         for (const key of Object.keys(payload)) {
           currentValues[key] = key === "profile_photo_changed"
             ? Boolean(request.has_profile_image)
+            : key === "weekly_availability"
+              ? {
+                  availability: request.weekly_availability,
+                  activity_level: request.activity_level,
+                  workout_days_per_week: request.workout_days_per_week,
+                  workout_duration: request.workout_duration,
+                }
             : request[key];
         }
         return {
@@ -378,6 +421,49 @@ const reviewChangeRequest = async (req, res) => {
     const nextEmail = payload.email || oldEmail;
     const emailChanged = nextEmail.toLowerCase() !== oldEmail.toLowerCase();
     if (decision === "approve" && request.request_type === "profile") {
+      if (Object.prototype.hasOwnProperty.call(payload, "weekly_availability")) {
+        const change = payload.weekly_availability;
+        const normalized = normalizeAvailability(change?.availability);
+        const frequency = Number(change?.workout_days_per_week);
+        const duration = change?.workout_duration == null || change.workout_duration === ""
+          ? null
+          : Number(change.workout_duration);
+        const level = change?.activity_level;
+        if (
+          normalized.error ||
+          !Number.isInteger(frequency) ||
+          (duration !== null && ![30, 45, 60, 75, 90].includes(duration)) ||
+          !["Beginner", "Intermediate", "Advanced"].includes(level)
+        ) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ success: false, message: normalized.error || "The submitted workout availability is invalid." });
+        }
+        const [minimum, maximum] = getExperienceRange(level);
+        if (frequency < minimum || frequency > maximum || frequency !== normalized.availability.length) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ success: false, message: `The submitted availability does not match the ${level} workout frequency rules.` });
+        }
+        await client.query("DELETE FROM user_workout_availability WHERE user_id = $1", [request.user_id]);
+        for (const slot of normalized.availability) {
+          await client.query(
+            `INSERT INTO user_workout_availability
+               (user_id, day_of_week, start_time, end_time, time_preference)
+             VALUES ($1, $2, $3::time, $4::time, $5)`,
+            [request.user_id, slot.day_of_week, slot.start, slot.end, slot.time_preference]
+          );
+        }
+        await client.query(
+          `UPDATE users
+           SET activity_level = $1,
+               workout_days_per_week = $2,
+               workout_duration = COALESCE($3, workout_duration),
+               preferred_days = $4,
+               preferred_workout_time = NULL,
+               updated_at = NOW()
+           WHERE user_id = $5`,
+          [level, frequency, duration, normalized.availability.map((slot) => slot.day_of_week), request.user_id]
+        );
+      }
       if (emailChanged) {
         const duplicate = await client.query(
           "SELECT 1 FROM users WHERE LOWER(email) = LOWER($1) AND user_id <> $2",

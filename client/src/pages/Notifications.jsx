@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Bell, CheckCheck, Trash2, Circle } from "lucide-react";
 import { Link } from "react-router-dom";
 import { createNotificationsApi } from "../services/notificationsApi";
-import BrowserPushSettings from "../components/notifications/BrowserPushSettings";
 
 const typeColors = {
   workout: "border-green-200 bg-green-50 text-green-800 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-300",
@@ -79,6 +78,24 @@ export default function Notifications({ audience = "admin" }) {
     }
   };
 
+  const getNotificationTarget = (targetUrl) => {
+    if (!targetUrl || targetUrl === "/") {
+      return audience === "admin"
+        ? "/admin/notifications"
+        : audience === "trainer"
+          ? "/trainer/notifications"
+          : "/user/notifications";
+    }
+
+    if (!targetUrl.startsWith("/")) return null;
+
+    if (audience === "trainer" && targetUrl === "/trainer/workouts") {
+      return "/trainer/workout-plans";
+    }
+
+    return targetUrl;
+  };
+
   const filtered = notifications.filter((n) => {
     if (filter === "Unread") return !n.is_read;
     if (filter === "Read") return n.is_read;
@@ -114,8 +131,6 @@ export default function Notifications({ audience = "admin" }) {
           </button>
         )}
       </header>
-
-      <BrowserPushSettings audience={audience} />
 
       {/* Filter tabs */}
       <div className="flex gap-2" role="group" aria-label="Filter notifications">
@@ -190,17 +205,20 @@ export default function Notifications({ audience = "admin" }) {
                       {new Date(notif.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Manila" })}
                     </span>
                   </div>
-                  {notif.target_url?.startsWith("/") && !notif.target_url.startsWith("//") && (
-                    <Link
-                      to={notif.target_url}
-                      onClick={() => {
-                        if (!notif.is_read) handleMarkRead(notif.notification_id);
-                      }}
-                      className="mt-2 inline-flex text-xs font-semibold text-orange-600 hover:text-orange-700 dark:text-orange-400 dark:hover:text-orange-300"
-                    >
-                      {notif.notification_type === "bmi_reminder" ? "Update BMI and progress" : "View"}
-                    </Link>
-                  )}
+                  {(() => {
+                    const target = getNotificationTarget(notif.target_url);
+                    return target && (
+                      <Link
+                        to={target}
+                        onClick={() => {
+                          if (!notif.is_read) handleMarkRead(notif.notification_id);
+                        }}
+                        className="mt-2 inline-flex text-xs font-semibold text-orange-600 hover:text-orange-700 dark:text-orange-400 dark:hover:text-orange-300"
+                      >
+                        {notif.notification_type === "bmi_reminder" ? "Update BMI and progress" : "View"}
+                      </Link>
+                    );
+                  })()}
                 </div>
 
                 {/* Actions */}

@@ -5,11 +5,14 @@ const {
   register, login, googleLogin, forgotPassword, resetPassword,
   requestPasswordChangeCode, changePasswordWithCode,
   verifyEmail, resendVerification, getVerificationStatus,
-  getProfile, updateProfile, updatePhoto, getUserChangeRequests,
+  getProfile, updateProfile, updateHealthAssessment, updatePhoto, getUserChangeRequests,
 } = require("../controllers/userController");
-const { getUserWorkoutPlan, getUserPlans, addWorkoutSession, updateWorkoutSession, startWorkoutSession, completeSession, deleteWorkoutSession, resetWeek } = require("../controllers/userWorkoutController");
+const { submitMembershipTermRequest, getMembershipTermRequest } = require("../controllers/memberController");
+const { getUserWorkoutPlan, getUserPlans, requestWorkoutPlan, addWorkoutSession, updateWorkoutSession, startWorkoutSession, completeSession, deleteWorkoutSession, resetWeek } = require("../controllers/userWorkoutController");
 const { getProgress, logProgress, calculatePrediction, autoPredict, getUserNotifications } = require("../controllers/userProgressController");
+const { getTrainingPulse } = require("../controllers/analyticsController");
 const { getActiveTrainers } = require("../controllers/trainerController");
+const workoutAvailabilityController = require("../controllers/userWorkoutAvailabilityController");
 const { submitMemberFeedback } = require("../controllers/feedbackController");
 const {
   userLoginLimiter, signupLimiter, verificationResendLimiter, verificationAttemptLimiter, feedbackLimiter,
@@ -33,13 +36,23 @@ router.get("/verification-status", verificationAttemptLimiter, getVerificationSt
 // Profile
 router.get("/profile", verifyUser, getProfile);
 router.get("/profile/change-requests", verifyUser, getUserChangeRequests);
+router.get("/profile/membership-request", verifyUser, getMembershipTermRequest);
+router.post("/profile/membership-request", verifyUser, submitMembershipTermRequest);
 router.put("/profile", verifyUser, updateProfile);
+router.put("/profile/health", verifyUser, updateHealthAssessment);
 router.put("/profile/photo", verifyUser, updatePhoto);
+router.get("/profile/availability", verifyUser, workoutAvailabilityController.getAvailability);
+router.put("/profile/availability", verifyUser, workoutAvailabilityController.saveAvailability);
 router.post("/feedback", verifyUser, feedbackLimiter, submitMemberFeedback);
+router.get("/training-pulse", verifyUser, (req, res, next) => {
+  req.trainingAudience = "user";
+  next();
+}, getTrainingPulse);
 
 // Workouts
 router.get("/workouts", verifyUser, getUserWorkoutPlan);
 router.get("/plans", verifyUser, getUserPlans);
+router.post("/workout-plan-requests", verifyUser, requestWorkoutPlan);
 router.post("/workouts", verifyUser, addWorkoutSession);
 router.put("/workouts/:id", verifyUser, updateWorkoutSession);
 router.put("/workouts/:id/start", verifyUser, startWorkoutSession);

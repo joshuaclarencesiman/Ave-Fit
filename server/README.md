@@ -1,38 +1,5 @@
 # AveFit Server
 
-## Workout status lifecycle
-
-Every scheduled workout in `workout_sessions` carries a `status`:
-
-| Status      | Meaning                                                                     |
-| ----------- | --------------------------------------------------------------------------- |
-| `Scheduled` | Booked for a future day.                                                     |
-| `Active`    | The scheduled day is ongoing and the workout is not finished yet.            |
-| `Complete`  | The member finished the scheduled workout.                                   |
-| `Incomplete`| The member started the workout but the day ended before it was finished.     |
-| `Absent`    | The scheduled day ended without any recorded workout activity.               |
-
-The rules are evaluated on the server from the scheduled workout date and the
-application timezone, never from the member's browser clock:
-
-- A workout becomes `Active` on its scheduled day and stays `Active` until the
-  member completes it or the day ends.
-- Completing a workout stores the completion timestamp and sets `Complete`
-  immediately. Repeating the request is a no-op, so no duplicate completion
-  record or notification is created.
-- When the scheduled day ends, a workout with recorded activity becomes
-  `Incomplete` and a workout without any activity becomes `Absent`.
-- `Complete` is never downgraded to `Incomplete` or `Absent`.
-
-`server/utils/workoutStatus.js` owns the evaluation. It runs once at server
-startup (so days that ended while the server was down are picked up), every
-five minutes, and on demand when the member or trainer lists workouts. Only
-rows whose status actually changed are written, so repeated runs are safe.
-
-Set `APP_TIMEZONE` in the server environment to override the timezone used for
-the evaluation. It defaults to `Asia/Manila`, the timezone the rest of the app
-uses.
-
 ## Admin access allowlist
 
 Set `ADMIN_EMAIL` in `server/.env` to the one email address permitted to sign in to the admin portal:

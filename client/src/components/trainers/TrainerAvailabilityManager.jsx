@@ -2,13 +2,73 @@ import { useEffect, useState } from "react";
 import { CalendarClock, Plus, Save, Trash2, X } from "lucide-react";
 import api from "../../services/api";
 import trainerApi from "../../trainerApi";
-import { AVAILABILITY_RANGES, findAvailabilityRange } from "../../utils/availabilityTime";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const AVAILABILITY_RANGES = [
+  { value: "06:00|12:00", label: "Morning · 6:00 AM–12:00 PM", start_time: "06:00", end_time: "12:00" },
+  { value: "12:00|17:00", label: "Afternoon · 12:00 PM–5:00 PM", start_time: "12:00", end_time: "17:00" },
+  { value: "17:00|22:00", label: "Evening · 5:00 PM–10:00 PM", start_time: "17:00", end_time: "22:00" },
+  { value: "06:00|22:00", label: "Flexible · 6:00 AM–10:00 PM", start_time: "06:00", end_time: "22:00" },
+];
 
 const freshId = () => `${Date.now()}-${Math.random()}`;
 const MIN_AVAILABILITY_TIME = 6 * 60;
 const MAX_AVAILABILITY_TIME = 22 * 60;
+
+const toClockParts = (value) => {
+  const [hours, minutes] = String(value || "").slice(0, 5).split(":").map(Number);
+  const hour = Number.isFinite(hours) ? hours : 6;
+  return {
+    hour: String(hour % 12 || 12),
+    minute: String(Number.isFinite(minutes) ? minutes : 0).padStart(2, "0"),
+    period: hour >= 12 ? "PM" : "AM",
+  };
+};
+
+const fromClockParts = ({ hour, minute, period }) => {
+  let hours = Number(hour) % 12;
+  if (period === "PM") hours += 12;
+  return `${String(hours).padStart(2, "0")}:${String(Number(minute)).padStart(2, "0")}`;
+};
+
+const formatTime = (value) => {
+  const parts = toClockParts(value);
+  return `${parts.hour}:${parts.minute} ${parts.period}`;
+};
+
+function TimeOfDaySelect({ id, label, value, onChange }) {
+  const parts = toClockParts(value);
+  const selectClass = "rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-800 dark:border-gray-700 dark:bg-[#111] dark:text-white";
+  const update = (key, nextValue) => {
+    onChange(fromClockParts({ ...parts, [key]: nextValue }));
+  };
+
+  return (
+    <fieldset className="min-w-0">
+      <legend className="mb-1 text-[11px] font-medium text-slate-500">{label}</legend>
+      <div className="flex items-center gap-1">
+        <label className="sr-only" htmlFor={`${id}-hour`}>{label} hour</label>
+        <select id={`${id}-hour`} value={parts.hour} onChange={(event) => update("hour", event.target.value)} className={`${selectClass} min-w-0 flex-1`}>
+          {Array.from({ length: 12 }, (_, index) => String(index + 1)).map((hour) => (
+            <option key={hour} value={hour}>{hour}</option>
+          ))}
+        </select>
+        <span aria-hidden="true">:</span>
+        <label className="sr-only" htmlFor={`${id}-minute`}>{label} minute</label>
+        <select id={`${id}-minute`} value={parts.minute} onChange={(event) => update("minute", event.target.value)} className={`${selectClass} min-w-0 flex-1`}>
+          {Array.from({ length: 60 }, (_, minute) => String(minute).padStart(2, "0")).map((minute) => (
+            <option key={minute} value={minute}>{minute}</option>
+          ))}
+        </select>
+        <label className="sr-only" htmlFor={`${id}-period`}>{label} AM or PM</label>
+        <select id={`${id}-period`} value={parts.period} onChange={(event) => update("period", event.target.value)} className={selectClass}>
+          <option value="AM">AM</option>
+          <option value="PM">PM</option>
+        </select>
+      </div>
+    </fieldset>
+  );
+}
 
 const getHoursError = (slots) => {
   const invalidRange = slots.some((slot) => {
@@ -45,6 +105,23 @@ function timeToMinutes(value) {
   return hours * 60 + minutes;
 }
 
+const findNextCustomRange = (daySlots) => {
+  for (let start = MIN_AVAILABILITY_TIME; start + 60 <= MAX_AVAILABILITY_TIME; start += 15) {
+    const end = start + 60;
+    const overlaps = daySlots.some((slot) => (
+      start < timeToMinutes(slot.end_time) &&
+      timeToMinutes(slot.start_time) < end
+    ));
+    if (!overlaps) {
+      return {
+        start_time: `${String(Math.floor(start / 60)).padStart(2, "0")}:${String(start % 60).padStart(2, "0")}`,
+        end_time: `${String(Math.floor(end / 60)).padStart(2, "0")}:${String(end % 60).padStart(2, "0")}`,
+      };
+    }
+  }
+  return null;
+};
+
 export default function TrainerAvailabilityManager({
   mode = "trainer",
   trainerId,
@@ -71,6 +148,10 @@ export default function TrainerAvailabilityManager({
           const loadedSlots = (data.data || []).map((slot) => ({
             ...slot,
             id: freshId(),
+            custom: !AVAILABILITY_RANGES.some((range) => (
+              range.start_time === String(slot.start_time).slice(0, 5) &&
+              range.end_time === String(slot.end_time).slice(0, 5)
+            )),
             start_time: String(slot.start_time).slice(0, 5),
             end_time: String(slot.end_time).slice(0, 5),
           }));
@@ -92,7 +173,9 @@ export default function TrainerAvailabilityManager({
       timeToMinutes(range.start_time) >= timeToMinutes(slot.end_time) ||
       timeToMinutes(slot.start_time) >= timeToMinutes(range.end_time)
     )));
-    if (!nextRange) {
+    const customRange = nextRange ? null : findNextCustomRange(daySlots);
+    const newRange = nextRange || customRange;
+    if (!newRange) {
       setError("No additional non-overlapping time ranges are available for this day.");
       return;
     }
@@ -101,8 +184,9 @@ export default function TrainerAvailabilityManager({
       {
         id: freshId(),
         day_of_week: dayOfWeek,
-        start_time: nextRange.start_time,
-        end_time: nextRange.end_time,
+        start_time: newRange.start_time,
+        end_time: newRange.end_time,
+        custom: !nextRange,
       },
     ];
     setSlots(updatedSlots);
@@ -120,11 +204,27 @@ export default function TrainerAvailabilityManager({
   };
 
   const updateSlotRange = (id, rangeValue) => {
+    if (rangeValue === "custom") {
+      const updatedSlots = slots.map((slot) => slot.id === id ? { ...slot, custom: true } : slot);
+      setSlots(updatedSlots);
+      setHasChanges(true);
+      setError(getHoursError(updatedSlots));
+      setSuccess("");
+      return;
+    }
     const selectedRange = AVAILABILITY_RANGES.find((range) => range.value === rangeValue);
     if (!selectedRange) return;
     const updatedSlots = slots.map((slot) => slot.id === id
-      ? { ...slot, start_time: selectedRange.start_time, end_time: selectedRange.end_time }
+      ? { ...slot, start_time: selectedRange.start_time, end_time: selectedRange.end_time, custom: false }
       : slot);
+    setSlots(updatedSlots);
+    setHasChanges(true);
+    setError(getHoursError(updatedSlots));
+    setSuccess("");
+  };
+
+  const updateSlotTime = (id, field, value) => {
+    const updatedSlots = slots.map((slot) => slot.id === id ? { ...slot, [field]: value, custom: true } : slot);
     setSlots(updatedSlots);
     setHasChanges(true);
     setError(getHoursError(updatedSlots));
@@ -146,10 +246,16 @@ export default function TrainerAvailabilityManager({
         start_time,
         end_time,
       }));
-      const response = await trainerApi.put("/me/availability", { availability });
+      const response = isAdmin
+        ? await api.put(`/trainers/${trainerId}/availability`, { availability })
+        : await trainerApi.put("/me/availability", { availability });
       setSlots((response.data.data || []).map((slot) => ({
         ...slot,
         id: freshId(),
+        custom: !AVAILABILITY_RANGES.some((range) => (
+          range.start_time === String(slot.start_time).slice(0, 5) &&
+          range.end_time === String(slot.end_time).slice(0, 5)
+        )),
         start_time: String(slot.start_time).slice(0, 5),
         end_time: String(slot.end_time).slice(0, 5),
       })));
@@ -174,7 +280,7 @@ export default function TrainerAvailabilityManager({
         </div>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
           {isAdmin
-            ? "View the coach's recurring weekly availability. Only the coach can change these hours."
+            ? "View the coach's recurring weekly working hours."
             : "Choose recurring weekly time windows. You can add more than one non-overlapping time range per day."}
         </p>
       </div>
@@ -192,51 +298,66 @@ export default function TrainerAvailabilityManager({
               <section key={day} className="rounded-xl border border-slate-200 p-3 dark:border-white/10">
                 <div className="mb-2 flex items-center justify-between">
                   <h3 className="font-semibold text-slate-800 dark:text-white">{day}</h3>
-                  {!isAdmin && (
-                    <button
-                      type="button"
-                      onClick={() => addSlot(dayOfWeek)}
-                      className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-orange-600 hover:bg-orange-50 dark:text-orange-400 dark:hover:bg-orange-500/10"
-                    >
-                      <Plus size={14} /> Add time
-                    </button>
-                  )}
+                  {!isAdmin && <button
+                    type="button"
+                    onClick={() => addSlot(dayOfWeek)}
+                    className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-orange-600 hover:bg-orange-50 dark:text-orange-400 dark:hover:bg-orange-500/10"
+                  >
+                    <Plus size={14} /> Add time
+                  </button>}
                 </div>
                 {daySlots.length === 0 ? (
                   <p className="text-xs text-slate-400">Not available</p>
                 ) : (
                   <div className="space-y-2">
                     {daySlots.map((slot) => (
-                      <div key={slot.id} className="flex flex-wrap items-center gap-2">
-                        {isAdmin ? (
-                          <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
-                            {findAvailabilityRange(`${slot.start_time}|${slot.end_time}`)?.label
-                              || `${slot.start_time}–${slot.end_time}`}
-                          </p>
-                        ) : (
-                          <>
-                            <label className="sr-only" htmlFor={`range-${slot.id}`}>{day} availability time</label>
-                            <select
-                              id={`range-${slot.id}`}
-                              value={findAvailabilityRange(`${slot.start_time}|${slot.end_time}`)?.value || "custom"}
-                              onChange={(event) => updateSlotRange(slot.id, event.target.value)}
-                              className="max-w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 dark:border-gray-700 dark:bg-[#111] dark:text-white"
-                            >
-                              <option value="custom" disabled>Custom saved time · {slot.start_time}–{slot.end_time}</option>
-                              {AVAILABILITY_RANGES.map((range) => (
-                                <option key={range.value} value={range.value}>{range.label}</option>
-                              ))}
-                            </select>
-                            <button
-                              type="button"
-                              onClick={() => removeSlot(slot.id)}
-                              aria-label={`Remove ${day} time slot`}
-                              className="grid h-9 w-9 place-items-center rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </>
-                        )}
+                      <div key={slot.id} className="flex flex-wrap items-start gap-2">
+                        <div className="min-w-0 flex-1 space-y-2">
+                          {isAdmin ? (
+                            <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 dark:bg-white/[0.04] dark:text-slate-200">
+                              {formatTime(slot.start_time)} – {formatTime(slot.end_time)}
+                            </p>
+                          ) : (
+                            <>
+                              <label className="sr-only" htmlFor={`range-${slot.id}`}>{day} availability time</label>
+                              <select
+                                id={`range-${slot.id}`}
+                                value={slot.custom ? "custom" : AVAILABILITY_RANGES.find((range) => range.start_time === slot.start_time && range.end_time === slot.end_time)?.value || "custom"}
+                                onChange={(event) => updateSlotRange(slot.id, event.target.value)}
+                                className="w-full max-w-[24rem] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 dark:border-gray-700 dark:bg-[#111] dark:text-white"
+                              >
+                                <option value="custom">Custom · {formatTime(slot.start_time)}–{formatTime(slot.end_time)}</option>
+                                {AVAILABILITY_RANGES.map((range) => (
+                                  <option key={range.value} value={range.value}>{range.label}</option>
+                                ))}
+                              </select>
+                            </>
+                          )}
+                          {!isAdmin && (slot.custom || AVAILABILITY_RANGES.every((range) => range.start_time !== slot.start_time || range.end_time !== slot.end_time)) && (
+                            <div className="grid max-w-[24rem] grid-cols-1 gap-2 sm:grid-cols-2">
+                              <TimeOfDaySelect
+                                id={`range-${slot.id}-start`}
+                                label="Start time"
+                                value={slot.start_time}
+                                onChange={(value) => updateSlotTime(slot.id, "start_time", value)}
+                              />
+                              <TimeOfDaySelect
+                                id={`range-${slot.id}-end`}
+                                label="End time"
+                                value={slot.end_time}
+                                onChange={(value) => updateSlotTime(slot.id, "end_time", value)}
+                              />
+                            </div>
+                          )}
+                        </div>
+                        {!isAdmin && <button
+                          type="button"
+                          onClick={() => removeSlot(slot.id)}
+                          aria-label={`Remove ${day} time slot`}
+                          className="mt-1 grid h-9 w-9 shrink-0 place-items-center rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10"
+                        >
+                          <Trash2 size={16} />
+                        </button>}
                       </div>
                     ))}
                   </div>
@@ -258,16 +379,14 @@ export default function TrainerAvailabilityManager({
             Close
           </button>
         )}
-        {!isAdmin && (
-          <button
-            type="button"
-            onClick={save}
-            disabled={loading || saving || Boolean(hoursError) || !hasChanges}
-            className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-50"
-          >
-            <Save size={16} /> {saving ? "Saving…" : hasChanges ? "Save changes" : "Saved"}
-          </button>
-        )}
+        {!isAdmin && <button
+          type="button"
+          onClick={save}
+          disabled={loading || saving || Boolean(hoursError) || !hasChanges}
+          className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-50"
+        >
+          <Save size={16} /> {saving ? "Saving…" : hasChanges ? "Save changes" : "Saved"}
+        </button>}
       </div>
     </div>
   );

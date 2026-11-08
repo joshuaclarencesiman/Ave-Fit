@@ -1,6 +1,105 @@
 const pool = require("../db");
-const { createNotification } = require("../utils/notifications");
+const { createNotification, notifyAdmins } = require("../utils/notifications");
 const { validateAge } = require("../utils/security");
+const {
+  sendCoachAssignmentEmail,
+  sendCoachCapacityStatusEmail,
+  sendUserCoachAssignedEmail,
+  sendMemberAccountDecisionEmail,
+  isMailConfigured,
+  sendMail,
+} = require("../utils/mailer");
+const { getCapacityStatus, getMemberAvailability, getScheduleMatch } = require("../utils/coachAssignment");
+const { deliverCoachEmail } = require("../utils/coachEmailNotifications");
+const { getConfiguredAdminEmail } = require("../utils/adminAccess");
+
+const MEMBERSHIP_TERMS = [1, 3, 6, 12];
+
+const sendMembershipTermRequestEmail = async (member, months) => {
+  const adminEmail = getConfiguredAdminEmail();
+  if (!adminEmail) {
+    console.error("Membership term request email was not sent because ADMIN_EMAIL is not configured.");
+    return false;
+  }
+  if (!isMailConfigured()) {
+    console.error("Membership term request email was not sent because SMTP is not configured.");
+    return false;
+  }
+  const memberName = `${member.first_name || ""} ${member.last_name || ""}`.trim() || "A member";
+  await sendMail({
+    to: adminEmail,
+    subject: "Membership term approval requested",
+    text: `${memberName} (${member.email}) requested a ${months}-month membership term. Review this request in the AveFit admin Members page.`,
+  });
+  return true;
+};
+
+const requiredMemberFields = [
+  ["phone", "phone number"],
+  ["gender", "gender"],
+  ["age", "age"],
+  ["height", "height"],
+  ["weight", "weight"],
+  ["fitness_goal", "fitness goal"],
+  ["activity_level", "experience level"],
+  ["workout_days_per_week", "workout days per week"],
+  ["preferred_days", "preferred workout days"],
+  ["injuries", "injury selection"],
+  ["health_conditions", "health condition selection"],
+];
+
+const isMemberFieldComplete = (field, value) => {
+  if (Array.isArray(value)) return value.length > 0;
+  if (value === null || value === undefined || value === "") return false;
+  if (typeof value === "string" && (!value.trim() || ["{}", "[]"].includes(value.trim()))) return false;
+  if (["age", "height", "weight", "workout_days_per_week"].includes(field)) {
+    return Number.isFinite(Number(value)) && Number(value) > 0;
+  }
+  return true;
+};
+
+const getMissingMemberFields = (member) =>
+  requiredMemberFields
+    .filter(([field]) => !isMemberFieldComplete(field, member[field]))
+    .map(([, label]) => label);
+
+const updateIncompleteProfileNotifications = async (member, missingFields, adminIds) => {
+  const targetUrl = `/admin/members?member_id=${member.member_id}`;
+  const memberName = member.full_name?.trim() || member.email || "A member";
+  const message = `${memberName} needs to complete profile information: ${missingFields.join(", ")}.`;
+  await Promise.all(adminIds.map(async (adminId) => {
+    if (missingFields.length) {
+      const updated = await pool.query(
+        `UPDATE app_notifications
+         SET message = $2, related_user_name = $3, is_read = FALSE, created_at = NOW()
+         WHERE audience_type = 'admin' AND recipient_id = $1
+           AND notification_type = 'profile_incomplete' AND target_url = $4
+           AND message <> $2`,
+        [adminId, message, memberName, targetUrl]
+      );
+      if (!updated.rowCount) {
+        await pool.query(
+          `INSERT INTO app_notifications
+             (audience_type, recipient_id, message, notification_type, related_user_name, target_url)
+           SELECT 'admin', $1, $2, 'profile_incomplete', $3, $4
+           WHERE NOT EXISTS (
+             SELECT 1 FROM app_notifications
+             WHERE audience_type = 'admin' AND recipient_id = $1
+               AND notification_type = 'profile_incomplete' AND target_url = $4
+           )`,
+          [adminId, message, memberName, targetUrl]
+        );
+      }
+    } else {
+      await pool.query(
+        `UPDATE app_notifications SET is_read = TRUE
+         WHERE audience_type = 'admin' AND notification_type = 'profile_incomplete'
+           AND target_url = $1 AND is_read = FALSE`,
+        [targetUrl]
+      );
+    }
+  }));
+};
 
 // =====================================================
 // GET ALL MEMBERS FROM USERS TABLE
@@ -40,6 +139,22 @@ const getMembers = async (req, res) => {
     u.workout_duration,
     u.preferred_days,
     u.preferred_workout_time,
+    COALESCE((
+        SELECT JSON_AGG(
+            JSON_BUILD_OBJECT(
+                'day_of_week', a.day_of_week,
+                'start_time', TO_CHAR(a.start_time, 'HH24:MI'),
+                'end_time', TO_CHAR(a.end_time, 'HH24:MI'),
+                'time_preference', a.time_preference
+            )
+            ORDER BY ARRAY_POSITION(
+                ARRAY['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'],
+                a.day_of_week
+            )
+        )
+        FROM user_workout_availability a
+        WHERE a.user_id = u.user_id
+    ), '[]'::json) AS weekly_availability,
     u.intensity,
     u.injuries,
     u.health_conditions,
@@ -71,9 +186,30 @@ LEFT JOIN trainers t
 ORDER BY u.user_id DESC;
     `);
 
-    console.log(`✅ Retrieved ${result.rows.length} users from users table`);
+    const members = result.rows.map((member) => ({
+      ...member,
+      missing_profile_fields: getMissingMemberFields(member),
+    }));
+    let adminIds = [];
+    try {
+      const admins = await pool.query(
+        "SELECT admin_id FROM admins WHERE LOWER(COALESCE(account_status, 'active')) = 'active'"
+      );
+      adminIds = admins.rows.map((admin) => admin.admin_id);
+    } catch (notificationError) {
+      console.error("Unable to load admins for incomplete profile notifications:", notificationError.message);
+    }
+    await Promise.all(members.map(async (member) => {
+      try {
+        await updateIncompleteProfileNotifications(member, member.missing_profile_fields, adminIds);
+      } catch (notificationError) {
+        console.error(`Incomplete profile notification failed for member ${member.member_id}:`, notificationError.message);
+      }
+    }));
 
-    res.json({ success: true, data: result.rows });
+    console.log(`✅ Retrieved ${members.length} users from users table`);
+
+    res.json({ success: true, data: members });
 
   } catch (error) {
     console.error("❌ Error fetching members:", error);
@@ -187,11 +323,13 @@ const getMemberById = async (req, res) => {
 // ADMIN ONLY
 // =====================================================
 const assignTrainer = async (req, res) => {
+  const client = await pool.connect();
+  let transactionStarted = false;
+
   try {
     const { id } = req.params;
     const { trainer_id } = req.body;
 
-    // Allow removing trainer
     const trainerIdValue =
       trainer_id === null ||
       trainer_id === "" ||
@@ -199,45 +337,116 @@ const assignTrainer = async (req, res) => {
         ? null
         : Number(trainer_id);
 
-    if (trainerIdValue !== null && Number.isNaN(trainerIdValue)) {
+    if (
+      trainerIdValue !== null &&
+      (!Number.isInteger(trainerIdValue) || trainerIdValue <= 0)
+    ) {
       return res.status(400).json({
         message: "Invalid trainer_id"
       });
     }
 
-    // Make sure member exists
-    const memberCheck = await pool.query(
-      `SELECT user_id FROM users WHERE user_id = $1`,
+    await client.query("BEGIN");
+    transactionStarted = true;
+
+    const memberCheck = await client.query(
+      `SELECT
+         u.user_id,
+         u.trainer_id,
+         u.first_name,
+         u.last_name,
+         u.email,
+         u.preferred_days,
+         u.preferred_workout_time,
+         u.workout_days_per_week,
+         u.workout_duration
+       FROM users u
+       WHERE u.user_id = $1
+       FOR UPDATE`,
       [id]
     );
 
     if (memberCheck.rows.length === 0) {
+      await client.query("ROLLBACK");
+      transactionStarted = false;
       return res.status(404).json({
         message: "Member not found"
       });
     }
 
-    // If assigning a trainer, verify trainer exists and is active
-    if (trainerIdValue !== null) {
-      const trainerCheck = await pool.query(
-        `
-        SELECT trainer_id
-        FROM trainers
-        WHERE trainer_id = $1
-          AND COALESCE(status, 'Active') = 'Active'
-        `,
-        [trainerIdValue]
+    const member = memberCheck.rows[0];
+    const availabilityResult = await client.query(
+      `SELECT day_of_week, TO_CHAR(start_time, 'HH24:MI') AS start_time,
+              TO_CHAR(end_time, 'HH24:MI') AS end_time
+       FROM user_workout_availability
+       WHERE user_id = $1
+       ORDER BY ARRAY_POSITION(
+         ARRAY['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'],
+         day_of_week
+       )`,
+      [member.user_id]
+    );
+    member.weekly_availability = availabilityResult.rows;
+    const previousTrainerId = member.trainer_id;
+    let nextTrainer = null;
+    let previousTrainer = null;
+    let previousAssignedCount = 0;
+    let nextAssignedCount = 0;
+    const involvedTrainerIds = [...new Set([previousTrainerId, trainerIdValue]
+      .filter((trainerId) => trainerId !== null && trainerId !== undefined)
+      .map(Number))].sort((a, b) => a - b);
+    const trainersById = new Map();
+    if (involvedTrainerIds.length) {
+      const trainerRows = await client.query(
+        `SELECT trainer_id, full_name, email, status, max_members
+         FROM trainers
+         WHERE trainer_id = ANY($1::int[])
+         ORDER BY trainer_id
+         FOR UPDATE`,
+        [involvedTrainerIds]
       );
+      for (const trainer of trainerRows.rows) trainersById.set(Number(trainer.trainer_id), trainer);
+    }
 
-      if (trainerCheck.rows.length === 0) {
+    if (previousTrainerId !== null) {
+      previousTrainer = trainersById.get(Number(previousTrainerId)) || null;
+    }
+    const assignmentChanged = Number(previousTrainerId || 0) !== Number(trainerIdValue || 0);
+    if (assignmentChanged && previousTrainer) {
+      const assigned = await client.query(
+        "SELECT COUNT(*)::integer AS count FROM users WHERE trainer_id = $1",
+        [previousTrainerId]
+      );
+      previousAssignedCount = assigned.rows[0].count;
+    }
+
+    if (trainerIdValue !== null) {
+      const trainer = trainersById.get(trainerIdValue);
+      if (!trainer) {
+        await client.query("ROLLBACK");
+        transactionStarted = false;
         return res.status(404).json({
           message: "Trainer not found or inactive"
         });
       }
+      nextTrainer = trainer;
+      if (nextTrainer.status !== "Active") {
+        await client.query("ROLLBACK");
+        transactionStarted = false;
+        return res.status(409).json({ success: false, message: "This coach is inactive and cannot receive member assignments." });
+      }
+
+      if (assignmentChanged) {
+        const assignedCountResult = await client.query(
+          "SELECT COUNT(*)::integer AS count FROM users WHERE trainer_id = $1",
+          [trainerIdValue]
+        );
+        const assignedCount = assignedCountResult.rows[0].count;
+        nextAssignedCount = assignedCount;
+      }
     }
 
-    // Update users table
-    const result = await pool.query(
+    const result = await client.query(
       `
       UPDATE users
       SET
@@ -248,24 +457,276 @@ const assignTrainer = async (req, res) => {
         user_id,
         trainer_id
       `,
-      [trainerIdValue, id]
+      [trainerIdValue, member.user_id]
     );
+    await client.query("COMMIT");
+    transactionStarted = false;
 
-    res.json({
-      message:
-        trainerIdValue === null
-          ? "Trainer removed successfully"
-          : "Trainer assigned successfully",
-      member: result.rows[0]
+    const memberName = `${member.first_name || ""} ${member.last_name || ""}`.trim() || "A member";
+    let coachAssignmentEmailSent = null;
+    let userAssignmentEmailSent = null;
+    if (assignmentChanged) {
+      if (previousTrainerId) {
+        try {
+          await createNotification({
+            audience: "trainer",
+            recipientId: previousTrainerId,
+            message: trainerIdValue === null
+              ? `${memberName} is no longer assigned to you as their coach.`
+              : `${memberName} has been reassigned to another coach and is no longer on your roster.`,
+            notificationType: "workout",
+            userName: memberName,
+            targetUrl: "/trainer/roster",
+          });
+        } catch (error) {
+          console.error(`Previous coach notification failed for member ${member.user_id}:`, error.message);
+        }
+      }
+
+      if (nextTrainer) {
+        if (nextTrainer.email) {
+          try {
+            const delivery = await sendCoachAssignmentEmail({
+              to: nextTrainer.email,
+              trainerName: nextTrainer.full_name,
+              memberName,
+              memberEmail: member.email,
+              preferredDays: member.preferred_days,
+              preferredWorkoutTime: member.preferred_workout_time,
+              weeklyAvailability: member.weekly_availability,
+            });
+            coachAssignmentEmailSent = delivery.delivered;
+            if (!delivery.delivered) {
+              console.error(`Coach assignment email for trainer ${nextTrainer.trainer_id} was not delivered.`);
+            }
+          } catch (error) {
+            coachAssignmentEmailSent = false;
+            console.error(`Coach assignment email for trainer ${nextTrainer.trainer_id} failed:`, error.message);
+          }
+        } else {
+          coachAssignmentEmailSent = false;
+          console.error(`Coach assignment email for trainer ${nextTrainer.trainer_id} was not sent because no email address is configured.`);
+        }
+
+        try {
+          await createNotification({
+            audience: "trainer",
+            recipientId: nextTrainer.trainer_id,
+            message: `${memberName} has been assigned to you as their coach.`,
+            notificationType: "workout",
+            userName: memberName,
+            targetUrl: "/trainer/roster",
+          });
+        } catch (error) {
+          console.error(`New coach notification failed for member ${member.user_id}:`, error.message);
+        }
+      }
+
+      if (nextTrainer && member.email) {
+        try {
+          const delivery = await sendUserCoachAssignedEmail({
+            to: member.email,
+            firstName: member.first_name,
+            trainerName: nextTrainer.full_name,
+          });
+          userAssignmentEmailSent = delivery.delivered;
+          if (!delivery.delivered) {
+            console.error(`Coach assignment email for user ${member.user_id} was not delivered.`);
+          }
+        } catch (error) {
+          userAssignmentEmailSent = false;
+          console.error(`Coach assignment email for user ${member.user_id} failed:`, error.message);
+        }
+      } else if (nextTrainer) {
+        userAssignmentEmailSent = false;
+        console.error(`Coach assignment email for user ${member.user_id} was not sent because no email address is configured.`);
+      }
+
+      try {
+        await createNotification({
+          audience: "user",
+          recipientId: member.user_id,
+          message: nextTrainer
+            ? `${nextTrainer.full_name || "A new coach"} has been assigned to you.`
+            : "Your coach assignment has been removed. Contact the gym if you need assistance.",
+          notificationType: "coach_assignment",
+          userName: memberName,
+          targetUrl: "/user/coaches",
+        });
+      } catch (error) {
+        console.error(`Member coach assignment notification failed for user ${member.user_id}:`, error.message);
+      }
+
+      if (previousTrainer && Number(previousTrainerId) !== Number(trainerIdValue || 0)) {
+        const previousCapacityBefore = getCapacityStatus(
+          previousAssignedCount,
+          previousTrainer.max_members,
+          previousTrainer.status
+        );
+        const previousCapacityAfter = getCapacityStatus(
+          previousAssignedCount - 1,
+          previousTrainer.max_members,
+          previousTrainer.status
+        );
+        if ((previousCapacityBefore === "Full") !== (previousCapacityAfter === "Full")) {
+          await deliverCoachEmail({
+            trainer: previousTrainer,
+            event: "capacity status",
+            send: (to) => sendCoachCapacityStatusEmail({
+              to,
+              accountName: previousTrainer.full_name,
+              status: previousCapacityAfter,
+              assignedMembers: previousAssignedCount - 1,
+              maxMembers: previousTrainer.max_members,
+            }),
+          });
+        }
+      }
+
+      if (nextTrainer && Number(previousTrainerId || 0) !== trainerIdValue) {
+        const nextCapacityBefore = getCapacityStatus(
+          nextAssignedCount,
+          nextTrainer.max_members,
+          nextTrainer.status
+        );
+        const nextCapacityAfter = getCapacityStatus(
+          nextAssignedCount + 1,
+          nextTrainer.max_members,
+          nextTrainer.status
+        );
+        if ((nextCapacityBefore === "Full") !== (nextCapacityAfter === "Full")) {
+          await deliverCoachEmail({
+            trainer: nextTrainer,
+            event: "capacity status",
+            send: (to) => sendCoachCapacityStatusEmail({
+              to,
+              accountName: nextTrainer.full_name,
+              status: nextCapacityAfter,
+              assignedMembers: nextAssignedCount + 1,
+              maxMembers: nextTrainer.max_members,
+            }),
+          });
+        }
+      }
+    }
+
+    return res.json({
+      message: trainerIdValue === null
+        ? "Trainer removed successfully"
+        : "Trainer assigned successfully",
+      member: result.rows[0],
+      ...(coachAssignmentEmailSent !== null
+        ? { coach_assignment_email_sent: coachAssignmentEmailSent }
+        : {}),
+      ...(userAssignmentEmailSent !== null
+        ? { user_assignment_email_sent: userAssignmentEmailSent }
+        : {}),
     });
 
   } catch (error) {
+    if (transactionStarted) {
+      await client.query("ROLLBACK");
+    }
     console.error("❌ Error assigning trainer:", error);
 
     res.status(500).json({
       message: "Failed to assign trainer",
       error: error.message
     });
+  } finally {
+    client.release();
+  }
+};
+
+const getCoachRecommendations = async (req, res) => {
+  const memberId = Number(req.params.id);
+  if (!Number.isInteger(memberId) || memberId < 1) {
+    return res.status(400).json({ success: false, message: "Invalid member ID." });
+  }
+  try {
+    const memberResult = await pool.query(
+      `SELECT user_id, trainer_id, preferred_days, preferred_workout_time,
+              workout_days_per_week, workout_duration
+       FROM users WHERE user_id = $1`,
+      [memberId]
+    );
+    if (!memberResult.rowCount) {
+      return res.status(404).json({ success: false, message: "Member not found." });
+    }
+
+    const member = memberResult.rows[0];
+    const availabilityResult = await pool.query(
+      `SELECT day_of_week,
+              TO_CHAR(start_time, 'HH24:MI') AS start_time,
+              TO_CHAR(end_time, 'HH24:MI') AS end_time
+       FROM user_workout_availability
+       WHERE user_id = $1
+       ORDER BY day_of_week`,
+      [memberId]
+    );
+    const memberSlots = getMemberAvailability(member, availabilityResult.rows);
+    const coachesResult = await pool.query(
+      `SELECT t.trainer_id, t.full_name, t.email, t.phone, t.status, t.max_members,
+              t.photo_url, t.specializations, t.goal_specialty, t.bio,
+              (SELECT COUNT(*)::integer FROM users u WHERE u.trainer_id = t.trainer_id) AS assigned_member_count,
+              (
+                SELECT COALESCE(
+                  json_agg(json_build_object(
+                    'day_of_week', ta.day_of_week,
+                    'start_time', TO_CHAR(ta.start_time, 'HH24:MI'),
+                    'end_time', TO_CHAR(ta.end_time, 'HH24:MI')
+                  ) ORDER BY ta.day_of_week, ta.start_time),
+                  '[]'::json
+                )
+                FROM trainer_availability ta
+                WHERE ta.trainer_id = t.trainer_id
+              ) AS availability
+       FROM trainers t
+       WHERE t.status = 'Active'
+       ORDER BY t.trainer_id`
+    );
+    const recommendations = coachesResult.rows
+      .map((coach) => {
+        const scheduleMatch = getScheduleMatch(
+          memberSlots,
+          coach.availability || [],
+          member.workout_duration,
+          member.workout_days_per_week
+        );
+        return {
+          ...coach,
+          capacity_percent: Math.round(
+            Number(coach.max_members) > 0
+              ? (Number(coach.assigned_member_count) / Number(coach.max_members)) * 100
+              : 0
+          ),
+          matched_days: scheduleMatch.matchedDays,
+          schedule_compatible: scheduleMatch.compatible,
+          capacity_status: getCapacityStatus(
+            coach.assigned_member_count,
+            coach.max_members,
+            coach.status
+          ),
+        };
+      })
+      .sort((first, second) => (
+        Number(second.schedule_compatible) - Number(first.schedule_compatible) ||
+        Number(first.capacity_percent) - Number(second.capacity_percent) ||
+        first.assigned_member_count - second.assigned_member_count
+      ));
+
+    res.json({
+      success: true,
+      data: {
+        recommendations,
+        message: recommendations.length
+          ? null
+          : "No active coaches are available to assign.",
+      },
+    });
+  } catch (error) {
+    console.error("get coach recommendations error:", error.message);
+    res.status(500).json({ success: false, message: "Unable to generate coach recommendations." });
   }
 };
 
@@ -293,6 +754,10 @@ const updateMemberMembership = async (req, res) => {
         SET membership_months = NULL,
             membership_start_date = NULL,
             membership_end_date = NULL,
+            membership_expiry_notified_for = NULL,
+            membership_expired_notified_for = NULL,
+            membership_expiry_email_attempted_for = NULL,
+            membership_expired_email_attempted_for = NULL,
             updated_at = CURRENT_TIMESTAMP
         WHERE user_id = $1
         RETURNING user_id, membership_months, membership_start_date, membership_end_date
@@ -306,10 +771,10 @@ const updateMemberMembership = async (req, res) => {
     }
 
     const months = Number(membership_months);
-    if (![1, 3, 6, 10, 12].includes(months)) {
+    if (!MEMBERSHIP_TERMS.includes(months)) {
       return res.status(400).json({
         success: false,
-        message: "Choose a membership term of 1, 3, 6, 10, or 12 months.",
+        message: "Choose a membership term of 1, 3, 6, or 12 months.",
       });
     }
 
@@ -333,6 +798,10 @@ const updateMemberMembership = async (req, res) => {
             END
             + make_interval(months => $1) - INTERVAL '1 day'
           )::date,
+          membership_expiry_notified_for = NULL,
+          membership_expired_notified_for = NULL,
+          membership_expiry_email_attempted_for = NULL,
+          membership_expired_email_attempted_for = NULL,
           updated_at = CURRENT_TIMESTAMP
       WHERE user_id = $2
       RETURNING user_id, membership_months, membership_start_date, membership_end_date
@@ -350,6 +819,167 @@ const updateMemberMembership = async (req, res) => {
       message: "Failed to update member membership.",
       error: error.message,
     });
+  }
+};
+
+const submitMembershipTermRequest = async (req, res) => {
+  const months = Number(req.body.membership_months);
+  if (!MEMBERSHIP_TERMS.includes(months)) {
+    return res.status(400).json({
+      success: false,
+      message: "Choose a membership term of 1, 3, 6, or 12 months.",
+    });
+  }
+
+  try {
+    const memberResult = await pool.query(
+      `SELECT user_id, first_name, last_name, email, membership_months
+       FROM users
+       WHERE user_id = $1 AND LOWER(COALESCE(account_status, 'pending')) = 'active'`,
+      [req.user.user_id]
+    );
+    if (!memberResult.rowCount) {
+      return res.status(403).json({ success: false, message: "An active member account is required." });
+    }
+    const member = memberResult.rows[0];
+    if (Number(member.membership_months) === months) {
+      return res.status(400).json({ success: false, message: "That membership term is already active." });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO user_membership_term_requests (user_id, membership_months)
+       VALUES ($1, $2)
+       ON CONFLICT (user_id) WHERE status = 'Pending'
+       DO UPDATE SET membership_months = EXCLUDED.membership_months, created_at = NOW()
+       RETURNING request_id, membership_months, status, created_at`,
+      [member.user_id, months]
+    );
+    const memberName = `${member.first_name || ""} ${member.last_name || ""}`.trim() || member.email;
+    await notifyAdmins({
+      message: `${memberName} requested a ${months}-month membership term for approval.`,
+      notificationType: "membership",
+      userName: memberName,
+      targetUrl: "/admin/members",
+    }).catch((error) => console.error("Membership request admin notification failed:", error.message));
+
+    try {
+      await sendMembershipTermRequestEmail(member, months);
+    } catch (error) {
+      console.error("Membership term request email failed:", error.message);
+    }
+
+    return res.status(201).json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    console.error("submitMembershipTermRequest error:", error.message);
+    return res.status(500).json({ success: false, message: "Unable to submit membership term request." });
+  }
+};
+
+const getMembershipTermRequest = async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT request_id, membership_months, status, created_at, reviewed_at
+       FROM user_membership_term_requests
+       WHERE user_id = $1
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [req.user.user_id]
+    );
+    return res.json({ success: true, data: result.rows[0] || null });
+  } catch (error) {
+    console.error("getMembershipTermRequest error:", error.message);
+    return res.status(500).json({ success: false, message: "Unable to load membership request status." });
+  }
+};
+
+const getMembershipTermRequests = async (_req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT r.request_id, r.user_id, r.membership_months, r.status, r.created_at,
+              u.first_name, u.last_name, u.email, u.membership_months AS current_membership_months
+       FROM user_membership_term_requests r
+       JOIN users u ON u.user_id = r.user_id
+       WHERE r.status = 'Pending'
+       ORDER BY r.created_at ASC`
+    );
+    return res.json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error("getMembershipTermRequests error:", error.message);
+    return res.status(500).json({ success: false, message: "Unable to load membership term requests." });
+  }
+};
+
+const reviewMembershipTermRequest = async (req, res) => {
+  const requestId = Number(req.params.requestId);
+  const decision = String(req.params.decision || "").toLowerCase();
+  if (!Number.isInteger(requestId) || requestId < 1 || !["approve", "reject"].includes(decision)) {
+    return res.status(400).json({ success: false, message: "Choose a valid membership request and decision." });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const request = await client.query(
+      `SELECT r.request_id, r.user_id, r.membership_months, u.email
+       FROM user_membership_term_requests r
+       JOIN users u ON u.user_id = r.user_id
+       WHERE r.request_id = $1 AND r.status = 'Pending'
+       FOR UPDATE OF r, u`,
+      [requestId]
+    );
+    if (!request.rowCount) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ success: false, message: "Pending membership request not found." });
+    }
+
+    const term = request.rows[0];
+    if (decision === "approve") {
+      await client.query(
+        `UPDATE users
+         SET membership_months = $1,
+             membership_start_date = CASE
+               WHEN membership_start_date IS NULL OR membership_end_date IS NULL
+                 OR membership_end_date < (NOW() AT TIME ZONE 'Asia/Manila')::date
+                 THEN (NOW() AT TIME ZONE 'Asia/Manila')::date
+               ELSE membership_start_date
+             END,
+             membership_end_date = (
+               CASE
+                 WHEN membership_start_date IS NULL OR membership_end_date IS NULL
+                   OR membership_end_date < (NOW() AT TIME ZONE 'Asia/Manila')::date
+                   THEN (NOW() AT TIME ZONE 'Asia/Manila')::date
+                 ELSE membership_start_date
+               END + make_interval(months => $1) - INTERVAL '1 day'
+             )::date,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE user_id = $2`,
+        [term.membership_months, term.user_id]
+      );
+    }
+    await client.query(
+      `UPDATE user_membership_term_requests
+       SET status = $1, reviewed_by = $2, reviewed_at = NOW()
+       WHERE request_id = $3`,
+      [decision === "approve" ? "Approved" : "Rejected", req.admin.admin_id, requestId]
+    );
+    await client.query("COMMIT");
+
+    await createNotification({
+      audience: "user",
+      recipientId: term.user_id,
+      message: decision === "approve"
+        ? `Your ${term.membership_months}-month membership term was approved.`
+        : "Your membership term request was not approved. Please contact the gym administrator.",
+      notificationType: "membership",
+      targetUrl: "/user/profile",
+    }).catch((error) => console.error("Membership decision notification failed:", error.message));
+    return res.json({ success: true, message: `Membership request ${decision}d.` });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("reviewMembershipTermRequest error:", error.message);
+    return res.status(500).json({ success: false, message: "Unable to review membership term request." });
+  } finally {
+    client.release();
   }
 };
 
@@ -532,7 +1162,8 @@ const approveMember = async (req, res) => {
         token_version = token_version + 1,
         updated_at = CURRENT_TIMESTAMP
       WHERE user_id = $1
-      RETURNING user_id, account_status, membership_start_date, membership_end_date
+      RETURNING user_id, account_status, membership_start_date, membership_end_date,
+                first_name, last_name, email
       `,
       [id]
     );
@@ -548,9 +1179,27 @@ const approveMember = async (req, res) => {
       [id]
     ).catch(() => {});
 
+    let emailSent = false;
+    try {
+      const delivery = await sendMemberAccountDecisionEmail({
+        to: result.rows[0].email,
+        memberName: `${result.rows[0].first_name || ""} ${result.rows[0].last_name || ""}`.trim(),
+        approved: true,
+      });
+      emailSent = delivery.delivered;
+    } catch (emailError) {
+      console.error("Member approval email failed:", emailError.message);
+    }
+
     res.json({
       message: "Member activated successfully",
-      member: result.rows[0]
+      email_sent: emailSent,
+      member: {
+        user_id: result.rows[0].user_id,
+        account_status: result.rows[0].account_status,
+        membership_start_date: result.rows[0].membership_start_date,
+        membership_end_date: result.rows[0].membership_end_date,
+      },
     });
 
   } catch (error) {
@@ -583,7 +1232,7 @@ const rejectMember = async (req, res) => {
         token_version = token_version + 1,
         updated_at = CURRENT_TIMESTAMP
       WHERE user_id = $1
-      RETURNING user_id, account_status, first_name, last_name
+      RETURNING user_id, account_status, first_name, last_name, email
       `,
       [id]
     );
@@ -613,9 +1262,28 @@ const rejectMember = async (req, res) => {
       });
     }
 
+    let emailSent = false;
+    try {
+      const delivery = await sendMemberAccountDecisionEmail({
+        to: result.rows[0].email,
+        memberName: `${result.rows[0].first_name || ""} ${result.rows[0].last_name || ""}`.trim(),
+        approved: false,
+        deactivated: String(previous.rows[0]?.account_status || "").toLowerCase() === "active",
+      });
+      emailSent = delivery.delivered;
+    } catch (emailError) {
+      console.error("Member rejection email failed:", emailError.message);
+    }
+
     res.json({
       message: "Member rejected successfully",
-      member: result.rows[0]
+      email_sent: emailSent,
+      member: {
+        user_id: result.rows[0].user_id,
+        account_status: result.rows[0].account_status,
+        first_name: result.rows[0].first_name,
+        last_name: result.rows[0].last_name,
+      },
     });
 
   } catch (error) {
@@ -726,7 +1394,12 @@ module.exports = {
   createMember,
   updateMember,
   updateMemberMembership,
+  submitMembershipTermRequest,
+  getMembershipTermRequest,
+  getMembershipTermRequests,
+  reviewMembershipTermRequest,
   assignTrainer,
+  getCoachRecommendations,
   approveMember,
   rejectMember,
   deleteMember,

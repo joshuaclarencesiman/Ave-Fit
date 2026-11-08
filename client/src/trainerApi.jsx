@@ -19,7 +19,13 @@ trainerApi.interceptors.response.use(
   (response) => response,
   (error) => {
     const status = error.response?.status;
-    if (status === 401 || status === 403) sessionStorage.removeItem("avefit_trainer_token");
+    if (status === 401 || status === 403) {
+      sessionStorage.removeItem("avefit_trainer_token");
+      localStorage.removeItem("avefit_trainer");
+      if (status === 401 && !["/trainer/login", "/coach/login"].includes(window.location.pathname)) {
+        window.location.replace("/coach/login");
+      }
+    }
     return Promise.reject(error);
   }
 );

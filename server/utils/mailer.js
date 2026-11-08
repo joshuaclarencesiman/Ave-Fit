@@ -25,20 +25,12 @@ function smtpConfig() {
     connectionTimeout: 10000,
     greetingTimeout: 10000,
     socketTimeout: 15000,
-
-    // Force IPv4 because some hosted environments
-    // may have unreliable IPv6 connectivity.
     family: 4,
-
-    // Force DNS lookup to IPv4 addresses only.
     lookup: (hostname, options, callback) => {
       dns.lookup(hostname, { family: 4 }, callback);
     },
-
-    // Implicit TLS for port 465.
     secure:
       String(process.env.SMTP_SECURE || "").toLowerCase() === "true",
-
     auth: {
       user,
       pass,
@@ -134,6 +126,29 @@ function escapeHtml(value) {
     '"': "&quot;",
     "'": "&#39;",
   })[char]);
+}
+
+function sendMembershipReminderEmail({ to, firstName, membershipEndDate, daysRemaining }) {
+  const safeName = escapeHtml(firstName || "there");
+  const safeEndDate = escapeHtml(membershipEndDate);
+  const expired = daysRemaining < 0;
+  const subject = expired
+    ? "Your AveFit membership has ended"
+    : "Your AveFit membership ends soon";
+  const message = expired
+    ? `Your membership ended on ${membershipEndDate}. You can still use AveFit, but workout plan requests are unavailable until your membership is renewed.`
+    : `Your membership ends in ${daysRemaining} ${daysRemaining === 1 ? "day" : "days"} on ${membershipEndDate}. Renew before it ends to keep requesting workout plans.`;
+  const text = `Hi ${firstName || "there"},\n\n${message}\n\nAvenue Power & Fitness Gym`;
+  const html = `<!doctype html><html lang="en"><body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;"><tr><td style="padding:22px 28px;background:${BRAND_COLOR};color:#fff;font-size:20px;font-weight:800;">Membership update</td></tr><tr><td style="padding:28px;"><p>Hi ${safeName},</p><p style="line-height:1.6;">${escapeHtml(message)}</p><p><strong>Membership end date:</strong> ${safeEndDate}</p><p style="font-size:13px;color:#64748b;">You may continue using AveFit. Workout plan requests resume after your membership is renewed.</p></td></tr></table></body></html>`;
+  return sendMail({ to, subject, text, html });
+}
+
+function formatEmailTime(value) {
+  const match = String(value ?? "").match(/^([01]\d|2[0-3]):([0-5]\d)(?::[0-5]\d(?:\.\d+)?)?$/);
+  if (!match) return String(value ?? "");
+  const hours = Number(match[1]);
+  const minutes = match[2];
+  return `${hours % 12 || 12}:${minutes} ${hours >= 12 ? "PM" : "AM"}`;
 }
 
 function verificationEmail({ firstName, code }) {
@@ -260,20 +275,106 @@ async function sendWorkoutPlanReadyEmail({ to, firstName }) {
   });
 }
 
-async function sendCoachAssignmentEmail({ to, trainerName, memberName, memberEmail, preferredDays, preferredWorkoutTime }) {
+async function sendMemberWorkoutPlanEmail({
+  to,
+  firstName,
+  planName,
+  sessionDate,
+  status,
+  reason,
+}) {
+  const safeName = escapeHtml(firstName || "there");
+  const safePlanName = escapeHtml(planName || "Workout plan");
+  const safeDate = escapeHtml(sessionDate || "Not specified");
+  const safeReason = escapeHtml(reason || "");
+  const statusContent = {
+    updated: {
+      subject: "Your AveFit workout plan was updated",
+      message: "Your coach updated your workout plan. The reason for the changes is below.",
+    },
+    approved: {
+      subject: "Your AveFit workout plan was approved",
+      message: "Your coach approved your workout plan. It is ready to view in AveFit.",
+    },
+    rejected: {
+      subject: "Your AveFit workout plan needs changes",
+      message: "Your coach did not approve your workout plan. Review the reason below and submit an updated plan.",
+    },
+  }[status];
+
+  if (!statusContent) throw new Error("Unsupported workout plan email status.");
+
+  const reasonLine = reason ? `\nReason: ${reason}` : "";
+  const text = [
+    `Hi ${firstName || "there"},`,
+    "",
+    statusContent.message,
+    "",
+    `Plan: ${planName || "Workout plan"}`,
+    `Workout date: ${sessionDate || "Not specified"}`,
+    ...(reasonLine ? [reasonLine.trim()] : []),
+    "",
+    `${(process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "")}/user/workout`,
+    "",
+    "Avenue Power & Fitness Gym",
+  ].join("\n");
+  const workoutUrl = `${(process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "")}/user/workout`;
+  const reasonHtml = reason
+    ? `<p style="margin:0 0 20px;font-size:14px;line-height:1.6;"><strong>Reason from your coach:</strong><br>${safeReason.replace(/\r?\n/g, "<br>")}</p>`
+    : "";
+  const html = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;">
+      <tr><td style="background:${BRAND_COLOR};padding:22px 28px;color:#fff;"><strong style="font-size:20px;">AveFit workout plan update</strong></td></tr>
+      <tr><td style="padding:28px;">
+        <p style="margin:0 0 16px;font-size:16px;">Hi ${safeName},</p>
+        <p style="margin:0 0 16px;font-size:14px;line-height:1.6;">${escapeHtml(statusContent.message)}</p>
+        <p style="margin:0 0 8px;font-size:14px;"><strong>Plan:</strong> ${safePlanName}</p>
+        <p style="margin:0 0 20px;font-size:14px;"><strong>Workout date:</strong> ${safeDate}</p>
+        ${reasonHtml}
+        <p style="margin:0 0 20px;"><a href="${escapeHtml(workoutUrl)}" style="display:inline-block;background:${BRAND_COLOR};color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">View workout plan</a></p>
+        <p style="margin:0;font-size:12px;color:#94a3b8;">Avenue Power &amp; Fitness Gym</p>
+      </td></tr>
+    </table>
+  </body>
+</html>`;
+
+  return sendMail({ to, subject: statusContent.subject, text, html });
+}
+
+async function sendCoachAssignmentEmail({
+  to,
+  trainerName,
+  memberName,
+  memberEmail,
+  preferredDays,
+  preferredWorkoutTime,
+  weeklyAvailability = [],
+}) {
   const safeTrainerName = escapeHtml(trainerName || "Coach");
   const safeMemberName = escapeHtml(memberName || "A new member");
   const safeMemberEmail = escapeHtml(memberEmail || "");
+  const availability = weeklyAvailability.map((slot) => (
+    `${slot.day_of_week}: ${formatEmailTime(slot.start_time)}–${formatEmailTime(slot.end_time)}`
+  ));
+  const safeAvailability = availability.length
+    ? availability.map(escapeHtml).join("; ")
+    : "";
   const safePreferredDays = escapeHtml(preferredDays?.length ? preferredDays.join(", ") : "Not specified");
   const safePreferredTime = escapeHtml(preferredWorkoutTime || "Flexible");
   const workoutPlansUrl = `${(process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "")}/trainer/workout-plans`;
   const text = [
     `Hi ${trainerName || "Coach"},`,
     "",
-    `${memberName || "A new member"} selected you as their coach.`,
+    `${memberName || "A new member"} has been assigned to you as their coach.`,
     `Member email: ${memberEmail || "Not provided"}`,
-    `Preferred workout days: ${preferredDays?.length ? preferredDays.join(", ") : "Not specified"}`,
-    `Preferred workout time: ${preferredWorkoutTime || "Flexible"}`,
+    ...(safeAvailability
+      ? [`Weekly availability: ${availability.join("; ")}`]
+      : [
+        `Preferred workout days: ${preferredDays?.length ? preferredDays.join(", ") : "Not specified"}`,
+        `Preferred workout time: ${preferredWorkoutTime || "Flexible"}`,
+      ]),
     "",
     "Please review the member's preferences and assign their workout plan.",
     `Open workout plans: ${workoutPlansUrl}`,
@@ -287,28 +388,91 @@ async function sendCoachAssignmentEmail({ to, trainerName, memberName, memberEma
       <tr><td style="background:${BRAND_COLOR};padding:22px 28px;"><span style="font-size:20px;font-weight:800;color:#ffffff;">AveFit</span><span style="display:block;font-size:12px;color:#ffedd5;margin-top:2px;">Avenue Power &amp; Fitness Gym</span></td></tr>
       <tr><td style="padding:28px;">
         <p style="margin:0 0 16px;font-size:16px;">Hi ${safeTrainerName},</p>
-        <p style="margin:0 0 16px;font-size:15px;line-height:1.6;"><strong>${safeMemberName}</strong> selected you as their coach. Please review their preferences and assign a workout plan.</p>
+        <p style="margin:0 0 16px;font-size:15px;line-height:1.6;"><strong>${safeMemberName}</strong> has been assigned to you as their coach. Please review their preferences and assign a workout plan.</p>
         <p style="margin:0 0 6px;font-size:14px;"><strong>Member:</strong> ${safeMemberName}${safeMemberEmail ? ` (${safeMemberEmail})` : ""}</p>
-        <p style="margin:0 0 6px;font-size:14px;"><strong>Preferred days:</strong> ${safePreferredDays}</p>
-        <p style="margin:0 0 20px;font-size:14px;"><strong>Preferred time:</strong> ${safePreferredTime}</p>
+        ${safeAvailability
+          ? `<p style="margin:0 0 20px;font-size:14px;"><strong>Weekly availability:</strong> ${safeAvailability}</p>`
+          : `<p style="margin:0 0 6px;font-size:14px;"><strong>Preferred days:</strong> ${safePreferredDays}</p>
+        <p style="margin:0 0 20px;font-size:14px;"><strong>Preferred time:</strong> ${safePreferredTime}</p>`}
         <a href="${workoutPlansUrl}" style="display:inline-block;background:${BRAND_COLOR};color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">Assign workout plan</a>
       </td></tr>
     </table>
   </body>
 </html>`;
 
-  return sendMail({ to, subject: "A new member chose you as their AveFit coach", text, html });
+  return sendMail({ to, subject: "A new member has been assigned to you as their AveFit coach", text, html });
 }
 
-async function sendNoWorkoutReminderEmail({ to, firstName, workoutDate }) {
-  const safeName = escapeHtml(firstName || "there");
+async function sendUserCoachAssignedEmail({ to, firstName, trainerName }) {
+  const safeFirstName = escapeHtml(firstName || "there");
+  const safeTrainerName = escapeHtml(trainerName || "your new coach");
+  const coachesUrl = `${(process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "")}/user/coaches`;
+  const text = [
+    `Hi ${firstName || "there"},`,
+    "",
+    `${trainerName || "A new coach"} has been assigned to you.`,
+    "You can view your coach's profile in AveFit.",
+    `View your coach: ${coachesUrl}`,
+    "",
+    "Avenue Power & Fitness Gym",
+  ].join("\n");
+  const html = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;">
+      <tr><td style="background:${BRAND_COLOR};padding:22px 28px;"><span style="font-size:20px;font-weight:800;color:#ffffff;">AveFit</span><span style="display:block;font-size:12px;color:#ffedd5;margin-top:2px;">Avenue Power &amp; Fitness Gym</span></td></tr>
+      <tr><td style="padding:28px;">
+        <p style="margin:0 0 16px;font-size:16px;">Hi ${safeFirstName},</p>
+        <p style="margin:0 0 20px;font-size:15px;line-height:1.6;"><strong>${safeTrainerName}</strong> has been assigned as your coach. You can view your coach's profile in AveFit.</p>
+        <a href="${coachesUrl}" style="display:inline-block;background:${BRAND_COLOR};color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">View my coach</a>
+      </td></tr>
+    </table>
+  </body>
+</html>`;
+
+  return sendMail({ to, subject: "Your AveFit coach has been assigned", text, html });
+}
+
+async function sendNoWorkoutReminderEmail({ to, trainerName, memberName, workoutDate }) {
+  const safeTrainerName = escapeHtml(trainerName || "Coach");
+  const safeMemberName = escapeHtml(memberName || "A member");
+  const safeWorkoutDate = escapeHtml(workoutDate || "tomorrow");
+  const workoutPlansUrl = `${(process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "")}/trainer/workout-plans`;
+  const text = [
+    `Hi ${trainerName || "Coach"},`,
+    "",
+    `${memberName || "A member"} does not have a workout scheduled for their preferred workout day (${workoutDate || "tomorrow"}).`,
+    "Please review their schedule and assign a workout plan.",
+    `Open workout plans: ${workoutPlansUrl}`,
+    "",
+    "Avenue Power & Fitness Gym",
+  ].join("\n");
+  const html = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;">
+      <tr><td style="background:${BRAND_COLOR};padding:22px 28px;"><span style="font-size:20px;font-weight:800;color:#ffffff;">AveFit</span><span style="display:block;font-size:12px;color:#ffedd5;margin-top:2px;">Avenue Power &amp; Fitness Gym</span></td></tr>
+      <tr><td style="padding:28px;">
+        <p style="margin:0 0 16px;font-size:16px;">Hi ${safeTrainerName},</p>
+        <p style="margin:0 0 20px;font-size:15px;line-height:1.6;"><strong>${safeMemberName}</strong> does not have a workout scheduled for their preferred workout day (${safeWorkoutDate}). Please review their schedule and assign a workout plan.</p>
+        <a href="${workoutPlansUrl}" style="display:inline-block;background:${BRAND_COLOR};color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">Open workout plans</a>
+      </td></tr>
+    </table>
+  </body>
+</html>`;
+
+  return sendMail({ to, subject: "A member needs a workout plan", text, html });
+}
+
+async function sendMemberNoWorkoutPlanReminderEmail({ to, firstName, workoutDate }) {
+  const safeFirstName = escapeHtml(firstName || "there");
   const safeWorkoutDate = escapeHtml(workoutDate || "tomorrow");
   const workoutUrl = `${(process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "")}/user/workout`;
   const text = [
     `Hi ${firstName || "there"},`,
     "",
-    `Your coach has not added a workout for your preferred workout day (${workoutDate || "tomorrow"}) yet.`,
-    "Your coach has been notified. You can check your workout page for updates.",
+    `Your workout day is coming up on ${workoutDate || "tomorrow"}, but your coach has not added or approved a workout plan for that date yet.`,
+    "Please check your workout page or contact your coach for an update.",
     `View your workouts: ${workoutUrl}`,
     "",
     "Avenue Power & Fitness Gym",
@@ -319,15 +483,106 @@ async function sendNoWorkoutReminderEmail({ to, firstName, workoutDate }) {
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;">
       <tr><td style="background:${BRAND_COLOR};padding:22px 28px;"><span style="font-size:20px;font-weight:800;color:#ffffff;">AveFit</span><span style="display:block;font-size:12px;color:#ffedd5;margin-top:2px;">Avenue Power &amp; Fitness Gym</span></td></tr>
       <tr><td style="padding:28px;">
-        <p style="margin:0 0 16px;font-size:16px;">Hi ${safeName},</p>
-        <p style="margin:0 0 20px;font-size:15px;line-height:1.6;">Your coach has not added a workout for your preferred workout day (${safeWorkoutDate}) yet. Your coach has been notified. Check your workout page for updates.</p>
-        <a href="${workoutUrl}" style="display:inline-block;background:${BRAND_COLOR};color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">View my workouts</a>
+        <p style="margin:0 0 16px;font-size:16px;">Hi ${safeFirstName},</p>
+        <p style="margin:0 0 12px;font-size:15px;line-height:1.6;">Your workout day is coming up on <strong>${safeWorkoutDate}</strong>, but your coach has not added or approved a workout plan for that date yet.</p>
+        <p style="margin:0 0 20px;font-size:15px;line-height:1.6;">Please check your workout page or contact your coach for an update.</p>
+        <a href="${escapeHtml(workoutUrl)}" style="display:inline-block;background:${BRAND_COLOR};color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">View my workouts</a>
       </td></tr>
     </table>
   </body>
 </html>`;
+  return sendMail({ to, subject: "Your workout plan for tomorrow is not ready", text, html });
+}
 
-  return sendMail({ to, subject: "No workout has been scheduled for tomorrow yet", text, html });
+async function sendWorkoutPlanApprovalRequestEmail({
+  to,
+  trainerName,
+  memberName,
+  planName,
+  trainingProgram,
+  targetWeight,
+  isProgramSwitch = false,
+  previousProgram,
+  requestType = "member_plan",
+  hasSubmittedWorkout = false,
+  sessionDate,
+}) {
+  const safeTrainerName = escapeHtml(trainerName || "Coach");
+  const safeMemberName = escapeHtml(memberName || "A member");
+  const safePlanName = escapeHtml(planName || "a workout plan");
+  const safeTargetWeight = targetWeight == null ? "Not set" : `${escapeHtml(targetWeight)} kg`;
+  const plansUrl = `${(process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "")}/trainer/workout-plans`;
+  const safePlansUrl = escapeHtml(plansUrl);
+  const coachCreated = requestType === "coach_created";
+  const memberSubmittedWorkout = coachCreated && hasSubmittedWorkout;
+  const requestDescription = memberSubmittedWorkout
+    ? `${memberName || "A member"} submitted a ${trainingProgram || "workout"} workout for ${sessionDate || "their selected date"} for your review.`
+    : coachCreated
+    ? `${memberName || "A member"} requested that you create a ${trainingProgram || "workout"} workout for ${sessionDate || "their selected date"}.${isProgramSwitch ? ` They requested a program change from ${previousProgram || "their scheduled program"}.` : ""}`
+    : isProgramSwitch
+      ? `${memberName || "A member"} switched today's program from ${previousProgram || "their scheduled program"} to ${trainingProgram || "a new program"} and submitted "${planName || "a workout plan"}" for your review.`
+      : `${memberName || "A member"} submitted "${planName || "a workout plan"}" for your review.`;
+  const safeProgramChange = isProgramSwitch
+    ? `<p style="line-height:1.6;">Program switch: <strong>${escapeHtml(previousProgram || "Scheduled program")}</strong> to <strong>${escapeHtml(trainingProgram || "New program")}</strong>.</p>`
+    : "";
+  const text = [
+    `Hi ${trainerName || "Coach"},`,
+    "",
+    requestDescription,
+    `Program: ${trainingProgram || "Not specified"}`,
+    `Workout date: ${sessionDate || "Not specified"}`,
+    `Goal weight: ${safeTargetWeight}`,
+    memberSubmittedWorkout
+      ? "Please sign in to review and approve the submitted workout."
+      : coachCreated
+      ? "Please sign in to create the requested workout plan."
+      : "Please sign in to approve or reject the request.",
+    "",
+    `Review workout plans: ${plansUrl}`,
+    "",
+    "Avenue Power & Fitness Gym",
+  ].join("\n");
+  const html = `<!doctype html><html lang="en"><body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;"><tr><td style="padding:22px 28px;background:${BRAND_COLOR};color:#fff;font-size:20px;font-weight:800;">AveFit</td></tr><tr><td style="padding:28px;"><p style="margin:0 0 16px;">Hi ${safeTrainerName},</p><p style="line-height:1.6;"><strong>${safeMemberName}</strong> ${memberSubmittedWorkout ? `submitted a <strong>${escapeHtml(trainingProgram || "workout")}</strong> workout for your review.` : coachCreated ? `requested that you create a <strong>${escapeHtml(trainingProgram || "workout")}</strong> workout for ${escapeHtml(sessionDate || "their selected date")}.` : isProgramSwitch ? `requested a switch and submitted <strong>${safePlanName}</strong> for your review.` : `submitted <strong>${safePlanName}</strong> for your review.`} ${memberSubmittedWorkout ? "Please sign in to review and approve the submitted workout." : coachCreated ? "Please sign in to create the requested plan." : "Please sign in to approve or reject the request."}</p><p style="line-height:1.6;"><strong>Program:</strong> ${escapeHtml(trainingProgram || "Not specified")}<br><strong>Workout date:</strong> ${escapeHtml(sessionDate || "Not specified")}<br><strong>Goal weight:</strong> ${safeTargetWeight}</p>${safeProgramChange}<a href="${safePlansUrl}" style="display:inline-block;margin-top:8px;background:${BRAND_COLOR};color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">Review workout plans</a></td></tr></table></body></html>`;
+  return sendMail({
+    to,
+    subject: memberSubmittedWorkout
+      ? "Member workout submitted for approval"
+      : coachCreated
+      ? "Member requested a coach-created workout"
+      : isProgramSwitch ? "Member workout program switch approval requested" : "Workout plan approval requested",
+    text,
+    html,
+  });
+}
+
+async function sendWorkoutPlanDeletionDecisionEmail({ to, firstName, planName, approved, reason }) {
+  const safeName = escapeHtml(firstName || "there");
+  const safePlanName = escapeHtml(planName || "Workout plan");
+  const safeReason = escapeHtml(reason || "");
+  const subject = approved
+    ? "Your AveFit workout plan deletion was approved"
+    : "Your AveFit workout plan deletion was declined";
+  const message = approved
+    ? "Your coach approved your request. The workout plan has been deleted."
+    : "Your coach declined your request. The workout plan remains on your schedule.";
+  const workoutUrl = `${(process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "")}/user/workout`;
+  const reasonHtml = reason
+    ? `<p><strong>Coach's response:</strong><br>${safeReason.replace(/\r?\n/g, "<br>")}</p>`
+    : "";
+  const text = [
+    `Hi ${firstName || "there"},`,
+    "",
+    message,
+    "",
+    `Plan: ${planName || "Workout plan"}`,
+    ...(reason ? [`Coach's response: ${reason}`] : []),
+    "",
+    `View your workouts: ${workoutUrl}`,
+    "",
+    "Avenue Power & Fitness Gym",
+  ].join("\n");
+  const html = `<!doctype html><html lang="en"><body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;"><tr><td style="padding:22px 28px;background:${BRAND_COLOR};color:#fff;font-size:20px;font-weight:800;">Workout plan request update</td></tr><tr><td style="padding:28px;"><p>Hi ${safeName},</p><p>${message}</p><p><strong>Plan:</strong> ${safePlanName}</p>${reasonHtml}<a href="${escapeHtml(workoutUrl)}" style="display:inline-block;background:${BRAND_COLOR};color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">View workouts</a></td></tr></table></body></html>`;
+  return sendMail({ to, subject, text, html });
 }
 
 async function sendWeeklyBmiReminderEmail({ to, firstName }) {
@@ -467,6 +722,165 @@ async function sendAdminPasswordResetEmail({ to, firstName, token, expiresInMinu
   });
 }
 
+async function sendAccountPasswordChangedEmail({ to, accountName, accountType }) {
+  const safeName = escapeHtml(accountName || "there");
+  const safeAccountType = accountType === "coach" ? "coach" : "member";
+  const text = [
+    `Hi ${accountName || "there"},`,
+    "",
+    `The password for your AveFit ${safeAccountType} account was changed by the gym administrator.`,
+    "For your security, the new password is not included in this email.",
+    "",
+    "If you did not expect this change, contact the gym administrator immediately.",
+    "",
+    "Avenue Power & Fitness Gym",
+  ].join("\n");
+  const html = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;">
+      <tr>
+        <td style="background:${BRAND_COLOR};padding:22px 28px;color:#ffffff;">
+          <strong style="font-size:20px;">AveFit account security</strong>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:28px;">
+          <p style="margin:0 0 16px;font-size:16px;">Hi ${safeName},</p>
+          <p style="margin:0 0 16px;font-size:14px;line-height:1.6;">The password for your AveFit ${safeAccountType} account was changed by the gym administrator. For your security, the new password is not included in this email.</p>
+          <p style="margin:0;font-size:14px;line-height:1.6;color:#475569;">If you did not expect this change, contact the gym administrator immediately.</p>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+
+  return sendMail({
+    to,
+    subject: "Your AveFit account password was changed",
+    text,
+    html,
+  });
+}
+
+async function sendCoachAccountStatusEmail({ to, accountName, status }) {
+  const safeName = escapeHtml(accountName || "there");
+  const normalizedStatus = String(status || "").toLowerCase();
+  const isActive = normalizedStatus === "active";
+  const statusLabel = isActive ? "activated" : normalizedStatus === "inactive" ? "deactivated" : normalizedStatus;
+  const body = isActive
+    ? "Your coach account has been activated. You can sign in to AveFit and receive new member assignments, subject to your capacity."
+    : `Your coach account has been ${statusLabel} by the gym administrator. Contact the gym if you believe this change was made in error.`;
+  const text = [`Hi ${accountName || "there"},`, "", body, "", "Avenue Power & Fitness Gym"].join("\n");
+  const html = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;">
+      <tr><td style="background:${BRAND_COLOR};padding:22px 28px;color:#fff;"><strong style="font-size:20px;">AveFit coach account update</strong></td></tr>
+      <tr><td style="padding:28px;">
+        <p style="margin:0 0 16px;font-size:16px;">Hi ${safeName},</p>
+        <p style="margin:0;font-size:14px;line-height:1.6;">${escapeHtml(body)}</p>
+      </td></tr>
+    </table>
+  </body>
+</html>`;
+  return sendMail({ to, subject: `Your AveFit coach account was ${statusLabel}`, text, html });
+}
+
+async function sendCoachCapacityStatusEmail({ to, accountName, status, assignedMembers, maxMembers }) {
+  const safeName = escapeHtml(accountName || "there");
+  const assigned = Number(assignedMembers) || 0;
+  const capacity = Number(maxMembers) || 0;
+  const isFull = status === "Full";
+  const body = isFull
+    ? `Your roster has reached full capacity (${assigned}/${capacity} members). You will not receive additional member assignments unless your available capacity changes.`
+    : `Your roster is no longer full (${assigned}/${capacity} members). You may receive new member assignments if your schedule and availability match.`;
+  const text = [`Hi ${accountName || "there"},`, "", body, "", "Avenue Power & Fitness Gym"].join("\n");
+  const html = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;">
+      <tr><td style="background:${BRAND_COLOR};padding:22px 28px;color:#fff;"><strong style="font-size:20px;">AveFit coach capacity update</strong></td></tr>
+      <tr><td style="padding:28px;">
+        <p style="margin:0 0 16px;font-size:16px;">Hi ${safeName},</p>
+        <p style="margin:0;font-size:14px;line-height:1.6;">${escapeHtml(body)}</p>
+      </td></tr>
+    </table>
+  </body>
+</html>`;
+  return sendMail({ to, subject: `Your AveFit roster is ${isFull ? "at full capacity" : "no longer full"}`, text, html });
+}
+
+async function sendCoachAccountUpdatedEmail({ to, accountName, changedFields }) {
+  const safeName = escapeHtml(accountName || "there");
+  const safeFields = changedFields.map(escapeHtml);
+  const text = [
+    `Hi ${accountName || "there"},`,
+    "",
+    "The gym administrator updated details on your AveFit coach account:",
+    ...changedFields.map((field) => `- ${field}`),
+    "",
+    "If you did not expect these changes, contact the gym administrator.",
+    "",
+    "Avenue Power & Fitness Gym",
+  ].join("\n");
+  const html = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;">
+      <tr><td style="background:${BRAND_COLOR};padding:22px 28px;color:#fff;"><strong style="font-size:20px;">AveFit coach account update</strong></td></tr>
+      <tr><td style="padding:28px;">
+        <p style="margin:0 0 16px;font-size:16px;">Hi ${safeName},</p>
+        <p style="margin:0 0 12px;font-size:14px;line-height:1.6;">The gym administrator updated these details on your AveFit coach account:</p>
+        <ul style="margin:0 0 16px;padding-left:22px;font-size:14px;line-height:1.8;">${safeFields.map((field) => `<li>${field}</li>`).join("")}</ul>
+        <p style="margin:0;font-size:14px;line-height:1.6;color:#475569;">If you did not expect these changes, contact the gym administrator.</p>
+      </td></tr>
+    </table>
+  </body>
+</html>`;
+  return sendMail({ to, subject: "Your AveFit coach account details were updated", text, html });
+}
+
+async function sendExperienceLevelChangedEmail({ to, memberName, previousLevel, newLevel }) {
+  const safeName = escapeHtml(memberName || "AveFit member");
+  const safePreviousLevel = escapeHtml(previousLevel || "unspecified");
+  const safeNewLevel = escapeHtml(newLevel);
+  const frequencyGuidance = {
+    Beginner: "2–3 days per week",
+    Intermediate: "3–5 days per week",
+    Advanced: "4–6 days per week",
+  }[newLevel];
+  const text = [
+    `Hi ${memberName || "there"},`,
+    "",
+    `Your coach updated your AveFit experience level from ${previousLevel || "unspecified"} to ${newLevel}.`,
+    `The recommended workout frequency for this level is ${frequencyGuidance}.`,
+    "Review your weekly availability and workout frequency in your profile.",
+    "",
+    "AveFit Administration",
+  ].join("\n");
+  const html = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;">
+      <tr><td style="background:${BRAND_COLOR};padding:22px 28px;color:#fff;"><strong style="font-size:20px;">AveFit training update</strong></td></tr>
+      <tr><td style="padding:28px;">
+        <p style="margin:0 0 16px;font-size:16px;">Hi ${safeName},</p>
+        <p style="margin:0 0 16px;font-size:14px;line-height:1.6;">Your coach updated your experience level from <strong>${safePreviousLevel}</strong> to <strong>${safeNewLevel}</strong>.</p>
+        <p style="margin:0 0 16px;font-size:14px;line-height:1.6;">The recommended workout frequency for this level is ${frequencyGuidance}.</p>
+        <p style="margin:0;font-size:14px;line-height:1.6;color:#475569;">Review your weekly availability and workout frequency in your profile.</p>
+      </td></tr>
+    </table>
+  </body>
+</html>`;
+  return sendMail({
+    to,
+    subject: "Your AveFit experience level was updated",
+    text,
+    html,
+  });
+}
+
 async function sendMemberFeedbackEmail({ to, memberName, memberEmail, rating, message }) {
   const safeName = escapeHtml(memberName);
   const safeEmail = escapeHtml(memberEmail);
@@ -506,22 +920,87 @@ async function sendMemberFeedbackEmail({ to, memberName, memberEmail, rating, me
   });
 }
 
-function formatProfileChanges(changes = {}) {
-  return Object.entries(changes)
-    .map(([key]) => {
-      const label = key.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
-      return { label };
-    });
+async function sendNewUserRegistrationEmail({ to, memberName, memberEmail, phone }) {
+  const safeName = escapeHtml(memberName || "AveFit member");
+  const safeEmail = escapeHtml(memberEmail);
+  const safePhone = escapeHtml(phone || "Not provided");
+  const text = [
+    "A new user registered for AveFit and is awaiting review.",
+    "",
+    `Name: ${memberName || "AveFit member"}`,
+    `Email: ${memberEmail}`,
+    `Phone: ${phone || "Not provided"}`,
+    "",
+    "Sign in to AveFit and open Members to review the registration.",
+  ].join("\n");
+  const html = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;">
+      <tr><td style="background:${BRAND_COLOR};padding:22px 28px;color:#fff;"><strong style="font-size:20px;">New AveFit registration</strong></td></tr>
+      <tr><td style="padding:28px;">
+        <p style="margin:0 0 16px;font-size:14px;line-height:1.6;">A new user registered and is awaiting review.</p>
+        <p style="margin:0 0 8px;font-size:14px;"><strong>Name:</strong> ${safeName}</p>
+        <p style="margin:0 0 8px;font-size:14px;"><strong>Email:</strong> ${safeEmail}</p>
+        <p style="margin:0 0 20px;font-size:14px;"><strong>Phone:</strong> ${safePhone}</p>
+        <p style="margin:0;font-size:13px;line-height:1.6;color:#64748b;">Sign in to AveFit and open Members to review the registration.</p>
+      </td></tr>
+    </table>
+  </body>
+</html>`;
+
+  return sendMail({
+    to,
+    subject: "A new user registered for AveFit",
+    text,
+    html,
+  });
 }
 
-async function sendProfileChangeRequestEmail({ to, memberName, memberEmail, requestType, changes }) {
+function formatEmailChangeValue(value) {
+  if (value === null || value === undefined || value === "") return "Not set";
+  if (Array.isArray(value)) return value.length ? value.join(", ") : "None";
+  if (typeof value === "object") {
+    const availability = Array.isArray(value.availability)
+      ? value.availability.map((slot) => `${slot.day_of_week}: ${slot.time_preference || `${slot.start_time}-${slot.end_time}`}`)
+      : [];
+    const details = [
+      ...availability,
+      value.workout_days_per_week ? `${value.workout_days_per_week} workout days/week` : "",
+      value.workout_duration ? `${value.workout_duration} min/session` : "",
+      value.activity_level || "",
+    ].filter(Boolean);
+    return details.length ? details.join("; ") : JSON.stringify(value);
+  }
+  return String(value);
+}
+
+async function sendProfileChangeRequestEmail({ to, memberName, memberEmail, requestType, changes, currentValues = {} }) {
   const safeName = escapeHtml(memberName || "AveFit member");
   const safeEmail = escapeHtml(memberEmail);
   const isPassword = requestType === "password";
-  const entries = formatProfileChanges(changes);
+  const entries = Object.entries(changes).map(([key, value]) => {
+    const label = key.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+    if (key === "profile_image") {
+      return {
+        label: "Profile photo",
+        from: currentValues[key] ? "Photo on file" : "No photo",
+        to: "Replacement photo submitted",
+      };
+    }
+    return {
+      label,
+      from: formatEmailChangeValue(currentValues[key]),
+      to: formatEmailChangeValue(value),
+    };
+  });
   const lines = isPassword
     ? ["Password change requested."]
-    : entries.map(({ label }) => `${label} update requested`);
+    : entries.flatMap(({ label, from, to: nextValue }) => [
+      `${label}:`,
+      `  From: ${from}`,
+      `  To: ${nextValue}`,
+    ]);
   const text = [
     "A member submitted a profile change request that needs your review.",
     "",
@@ -534,7 +1013,7 @@ async function sendProfileChangeRequestEmail({ to, memberName, memberEmail, requ
   ].join("\n");
   const detailsHtml = isPassword
     ? "<p style=\"margin:0;font-size:14px;line-height:1.6;\">Password change requested. The new password is not included in this email.</p>"
-    : `<ul style="padding-left:20px;line-height:1.7;">${entries.map(({ label }) => `<li>${escapeHtml(label)} update requested</li>`).join("")}</ul>`;
+    : `<ul style="padding-left:20px;line-height:1.7;">${entries.map(({ label, from, to: nextValue }) => `<li><strong>${escapeHtml(label)}</strong><br><span>From: ${escapeHtml(from)}</span><br><span>To: ${escapeHtml(nextValue)}</span></li>`).join("")}</ul>`;
   const html = `<!doctype html>
 <html lang="en">
   <body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;">
@@ -561,14 +1040,18 @@ async function sendProfileChangeRequestEmail({ to, memberName, memberEmail, requ
 async function sendProfileChangeDecisionEmail({ to, memberName, requestType, approved, emailVerificationRequired }) {
   const safeName = escapeHtml(memberName || "there");
   const isPassword = requestType === "password";
-  const decision = approved ? "approved" : "not approved";
+  const decision = approved ? "approved" : "rejected";
   const verificationUrl = `${(process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "")}/user/verify-email`;
   const safeVerificationUrl = escapeHtml(verificationUrl);
   const text = [
     `Hi ${memberName || "there"},`,
     "",
     `Your AveFit ${isPassword ? "password" : "profile"} change request was ${decision}.`,
-    ...(approved ? ["Your requested changes are now active."] : []),
+    ...(approved && isPassword
+      ? ["Your new password is now active. Please sign in again using it."]
+      : approved
+        ? ["Your requested changes are now active."]
+        : []),
     ...(approved && emailVerificationRequired ? ["", "Your new email address must be verified before you can continue using AveFit. Visit this page and request a verification code:", verificationUrl] : []),
     ...(!approved ? ["Your account settings have not been changed. Contact the gym if you need assistance."] : []),
     "",
@@ -605,17 +1088,71 @@ async function sendProfileChangeDecisionEmail({ to, memberName, requestType, app
   });
 }
 
+async function sendMemberAccountDecisionEmail({ to, memberName, approved, deactivated = false }) {
+  const safeName = escapeHtml(memberName || "there");
+  const decision = approved ? "approved" : deactivated ? "deactivated" : "rejected";
+  const text = [
+    `Hi ${memberName || "there"},`,
+    "",
+    approved
+      ? "Your AveFit account has been approved. You can now sign in and use your account."
+      : deactivated
+        ? "Your AveFit account has been deactivated by the gym administrator. Please contact the gym if you need assistance."
+        : "Your AveFit account application was rejected. Please contact the gym if you need assistance.",
+    "",
+    "Avenue Power & Fitness Gym",
+  ].join("\n");
+  const body = approved
+    ? "Your AveFit account has been approved. You can now sign in and use your account."
+    : deactivated
+      ? "Your AveFit account has been deactivated by the gym administrator. Please contact the gym if you need assistance."
+      : "Your AveFit account application was rejected. Please contact the gym if you need assistance.";
+  const html = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden;">
+      <tr><td style="background:${BRAND_COLOR};padding:22px 28px;color:#fff;"><strong style="font-size:20px;">AveFit account update</strong></td></tr>
+      <tr><td style="padding:28px;">
+        <p style="margin:0 0 16px;font-size:16px;">Hi ${safeName},</p>
+        <p style="margin:0 0 16px;font-size:14px;line-height:1.6;">Your AveFit account status is <strong>${decision}</strong>.</p>
+        <p style="margin:0;font-size:14px;line-height:1.6;">${escapeHtml(body)}</p>
+      </td></tr>
+    </table>
+  </body>
+</html>`;
+  return sendMail({
+    to,
+    subject: `Your AveFit account was ${decision}`,
+    text,
+    html,
+  });
+}
+
 module.exports = {
   isMailConfigured,
   sendMail,
   sendVerificationEmail,
   sendWorkoutPlanReadyEmail,
+  sendMemberWorkoutPlanEmail,
   sendCoachAssignmentEmail,
+  formatEmailTime,
+  sendUserCoachAssignedEmail,
   sendNoWorkoutReminderEmail,
+  sendMemberNoWorkoutPlanReminderEmail,
+  sendWorkoutPlanApprovalRequestEmail,
+  sendWorkoutPlanDeletionDecisionEmail,
   sendWeeklyBmiReminderEmail,
+  sendMembershipReminderEmail,
   sendPasswordChangeVerificationEmail,
   sendAdminPasswordResetEmail,
+  sendAccountPasswordChangedEmail,
+  sendCoachAccountStatusEmail,
+  sendCoachCapacityStatusEmail,
+  sendCoachAccountUpdatedEmail,
+  sendExperienceLevelChangedEmail,
   sendMemberFeedbackEmail,
+  sendNewUserRegistrationEmail,
   sendProfileChangeRequestEmail,
   sendProfileChangeDecisionEmail,
+  sendMemberAccountDecisionEmail,
 };

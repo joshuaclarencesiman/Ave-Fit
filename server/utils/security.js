@@ -33,6 +33,10 @@ function validatePhone(value) {
   return digits.length >= 10 && digits.length <= 15;
 }
 
+function validatePhilippinePhone(value) {
+  return typeof value === "string" && /^09\d{9}$/.test(value);
+}
+
 function validateAge(value) {
   const age = typeof value === 'number' ? value : Number(value);
   return Number.isInteger(age) && age >= 12 && age <= 90;
@@ -81,19 +85,48 @@ function validateImageDataUrl(dataUrl) {
   return { ok: true, mime, size: buffer.length };
 }
 
+function validateGoogleProfileImageUrl(imageUrl) {
+  if (typeof imageUrl !== 'string' || imageUrl.length > 2048) return false;
+
+  try {
+    const url = new URL(imageUrl);
+    const hostname = url.hostname.toLowerCase();
+    const isGoogleImageHost = [
+      "googleusercontent.com",
+      "google.com",
+    ].some((domain) => hostname === domain || hostname.endsWith(`.${domain}`));
+
+    return url.protocol === "https:"
+      && !url.username
+      && !url.password
+      && !url.port
+      && isGoogleImageHost;
+  } catch {
+    return false;
+  }
+}
+
+function validateProfileImage(image) {
+  if (validateGoogleProfileImageUrl(image)) {
+    return { ok: true, mime: "image/remote" };
+  }
+  return validateImageDataUrl(image);
+}
+
 function publicUser(row) {
   if (!row) return null;
   const {
     user_id, first_name, last_name, email, phone, account_status, trainer_id,
     fitness_goal, height, weight, gender, activity_level, setup_completed, profile_image,
-    email_verified
+    email_verified, membership_months, membership_start_date, membership_end_date
   } = row;
   return { user_id, first_name, last_name, email, phone, account_status, trainer_id,
     fitness_goal, height, weight, gender, activity_level, setup_completed, profile_image,
-    email_verified: Boolean(email_verified) };
+    email_verified: Boolean(email_verified), membership_months, membership_start_date, membership_end_date };
 }
 
 module.exports = {
-  normalizeEmail, validateEmail, validatePassword, validateName, validatePhone,
-  validateAge, validateRegistration, validateImageDataUrl, publicUser,
+  normalizeEmail, validateEmail, validatePassword, validateName, validatePhone, validatePhilippinePhone,
+  validateAge, validateRegistration, validateImageDataUrl,
+  validateGoogleProfileImageUrl, validateProfileImage, publicUser,
 };

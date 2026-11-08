@@ -1,13 +1,295 @@
 const pool = require("../db");
+const equipmentOptions = require("../utils/equipmentOptions");
+const { isMailConfigured, sendMail } = require("../utils/mailer");
 
-// The gym's availability windows. These are the exact hours a coach can be
-// available and the exact hours a member can pick for a workout, and they are
-// the same windows the trainer availability editor offers.
-const EQUIPMENT_TIME_RANGES = {
-  morning: { start_hour: 6, end_hour: 12 },
-  afternoon: { start_hour: 12, end_hour: 17 },
-  evening: { start_hour: 17, end_hour: 22 },
-  flexible: { start_hour: 6, end_hour: 22 },
+const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const PROGRAM_SCHEDULES = {
+  2: ["Upper", "Lower"],
+  3: ["Push", "Pull", "Legs"],
+  4: ["Upper", "Lower", "Upper", "Lower"],
+  5: ["Push", "Pull", "Legs", "Upper", "Lower"],
+  6: ["Push", "Pull", "Legs", "Chest & Back", "Shoulders & Arms", "Legs"],
+};
+
+const getTodayProgramTotals = (members, today, includeMemberNames) => {
+  const totals = new Map();
+  for (const member of members) {
+    const preferredDays = Array.isArray(member.preferred_days) ? member.preferred_days : [];
+    const orderedDays = WEEKDAYS.filter((day) => preferredDays.some(
+      (preferredDay) => String(preferredDay).toLowerCase() === day.toLowerCase()
+    ));
+    const dayIndex = orderedDays.findIndex((day) => day.toLowerCase() === today.toLowerCase());
+    if (dayIndex < 0) continue;
+
+    const schedule = PROGRAM_SCHEDULES[orderedDays.length] || ["Full Body"];
+    const program = schedule[dayIndex % schedule.length];
+    if (!totals.has(program)) {
+      totals.set(program, { program, count: 0, members: [] });
+    }
+    const total = totals.get(program);
+    total.count += 1;
+    if (includeMemberNames && member.member_name) {
+      total.members.push(member.member_name);
+    }
+  }
+  return [...totals.values()]
+    .sort((left, right) => right.count - left.count || left.program.localeCompare(right.program));
+};
+
+const getTrainingPulse = async (req, res) => {
+  try {
+    const audience = req.trainingAudience;
+    const trainerId = audience === "trainer" ? Number(req.trainer.trainer_id) : null;
+    const todayParts = new Intl.DateTimeFormat("en", {
+      timeZone: "Asia/Manila",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(new Date());
+    const todayValues = Object.fromEntries(todayParts.map(({ type, value }) => [type, value]));
+    const todayDate = `${todayValues.year}-${todayValues.month}-${todayValues.day}`;
+    const requestedDate = audience === "user" && typeof req.query.date === "string"
+      ? req.query.date
+      : todayDate;
+    const parsedDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate)
+      ? new Date(`${requestedDate}T00:00:00.000Z`)
+      : null;
+    if (!parsedDate || !Number.isFinite(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== requestedDate) {
+      return res.status(400).json({ success: false, message: "Choose a valid overview date." });
+    }
+    const dateForQueries = new Date(`${requestedDate}T12:00:00.000Z`);
+    const selectedWeekday = new Intl.DateTimeFormat("en", {
+      timeZone: "UTC",
+      weekday: "long",
+    }).format(dateForQueries);
+    const selectedDateLabel = new Intl.DateTimeFormat("en-PH", {
+      timeZone: "UTC",
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    }).format(dateForQueries);
+    const isToday = requestedDate === todayDate;
+    const memberResult = await pool.query(`
+      SELECT preferred_days, CONCAT_WS(' ', first_name, last_name) AS member_name
+      FROM users
+      WHERE LOWER(COALESCE(account_status, 'pending')) = 'active'
+        AND ($1::int IS NULL OR trainer_id = $1)
+    `, [trainerId]);
+
+    const includeMemberNames = audience === "admin" || audience === "trainer";
+    const todayPrograms = getTodayProgramTotals(memberResult.rows, selectedWeekday, includeMemberNames);
+    const currentDay = WEEKDAYS.find((day) => day.toLowerCase() === selectedWeekday.toLowerCase());
+    const availabilityResult = await pool.query(`
+      SELECT period.label, COUNT(DISTINCT member.user_id)::int AS count
+      FROM (VALUES
+        ('Morning', TIME '06:00', TIME '12:00'),
+        ('Afternoon', TIME '12:00', TIME '17:00'),
+        ('Evening', TIME '17:00', TIME '22:00')
+      ) AS period(label, start_time, end_time)
+      LEFT JOIN user_workout_availability availability
+        ON LOWER(availability.day_of_week) = LOWER($1)
+        AND availability.start_time < period.end_time
+        AND availability.end_time > period.start_time
+      LEFT JOIN users member
+        ON member.user_id = availability.user_id
+        AND LOWER(COALESCE(member.account_status, 'pending')) = 'active'
+        AND ($2::int IS NULL OR member.trainer_id = $2)
+      GROUP BY period.label, period.start_time
+      ORDER BY period.start_time
+    `, [currentDay, trainerId]);
+    const equipmentResult = await pool.query(`
+      SELECT BTRIM(e.equipment) AS equipment, COUNT(*)::int AS count
+      FROM workout_sessions ws
+      JOIN workout_plans wp ON wp.workout_plan_id = ws.workout_plan_id
+      JOIN exercises e ON e.exercise_id = ws.exercise_id
+      WHERE wp.approval_status = 'Approved'
+        AND NULLIF(BTRIM(e.equipment), '') IS NOT NULL
+        AND (
+          (
+            ws.session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+            AND ws.session_date = $1
+          )
+          OR (
+            ws.session_date::text !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+            AND LOWER(BTRIM(ws.session_date::text)) = LOWER($2)
+          )
+        )
+      GROUP BY BTRIM(e.equipment)
+      ORDER BY count DESC, equipment ASC
+      LIMIT 5
+    `, [requestedDate, selectedWeekday]);
+
+    return res.json({
+      success: true,
+      data: {
+        today: selectedWeekday,
+        dateLabel: isToday ? `Today · ${selectedWeekday}` : selectedDateLabel,
+        dayLabel: isToday ? "today" : `on ${selectedDateLabel}`,
+        todayPrograms,
+        busiestProgram: todayPrograms[0] || null,
+        todayAvailability: availabilityResult.rows,
+        mostUsedEquipment: equipmentResult.rows,
+      },
+    });
+  } catch (err) {
+    console.error("getTrainingPulse error:", err.message);
+    return res.status(500).json({ success: false, message: "Unable to load the training overview." });
+  }
+};
+
+const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
+})[character]);
+
+const getWeeklyProgressRows = async (userId = null) => {
+  const result = await pool.query(`
+      SELECT
+        u.user_id,
+        CONCAT_WS(' ', u.first_name, u.last_name) AS member_name,
+        u.email,
+        current_progress.weight AS current_weight,
+        current_progress.bmi AS current_bmi,
+        current_progress.body_fat AS current_body_fat,
+        current_progress.log_date AS progress_date,
+        previous_progress.weight AS previous_weight,
+        COALESCE(workout_progress.completed_count, 0)::int AS completed_workouts,
+        COALESCE(workout_progress.plan_names, '') AS completed_plan_names
+      FROM users u
+      LEFT JOIN LATERAL (
+        SELECT weight, bmi, body_fat, log_date
+        FROM progress_logs
+        WHERE user_id = u.user_id
+          AND log_date >= (NOW() AT TIME ZONE 'Asia/Manila')::date - 6
+        ORDER BY log_date DESC
+        LIMIT 1
+      ) current_progress ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT weight
+        FROM progress_logs
+        WHERE user_id = u.user_id
+          AND log_date < (NOW() AT TIME ZONE 'Asia/Manila')::date - 6
+        ORDER BY log_date DESC
+        LIMIT 1
+      ) previous_progress ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT
+          COUNT(*) FILTER (WHERE ws.completed = TRUE AND ws.completed_at >= NOW() - INTERVAL '7 days')::int AS completed_count,
+          STRING_AGG(DISTINCT wp.plan_name, ', ') FILTER (
+            WHERE ws.completed = TRUE AND ws.completed_at >= NOW() - INTERVAL '7 days'
+          ) AS plan_names
+        FROM workout_plans wp
+        JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
+        WHERE wp.user_id = u.user_id
+      ) workout_progress ON TRUE
+      WHERE LOWER(COALESCE(u.account_status, 'pending')) = 'active'
+        AND NULLIF(BTRIM(u.email), '') IS NOT NULL
+        AND ($1::int IS NULL OR u.user_id = $1)
+      ORDER BY u.first_name, u.last_name, u.user_id
+    `, [userId]);
+
+  return result.rows;
+};
+
+const buildWeeklyProgressReport = (member) => {
+      const achievements = [];
+      if (member.completed_workouts > 0) {
+        achievements.push(`Completed ${member.completed_workouts} workout ${member.completed_workouts === 1 ? "session" : "sessions"}${member.completed_plan_names ? ` (${member.completed_plan_names})` : ""}`);
+      }
+      if (member.progress_date) {
+        const measurements = [
+          ["Weight", member.current_weight, "kg"],
+          ["BMI", member.current_bmi, ""],
+          ["Body fat", member.current_body_fat, "%"],
+        ].filter(([, value]) => value !== null && value !== undefined)
+          .map(([label, value, unit]) => `${label}: ${value}${unit}`);
+        achievements.push(`Logged progress on ${new Date(member.progress_date).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" })}${measurements.length ? ` — ${measurements.join(", ")}` : ""}`);
+        if (member.current_weight != null && member.previous_weight != null) {
+          const change = Number(member.current_weight) - Number(member.previous_weight);
+          achievements.push(`Weight ${change < 0 ? "decreased" : change > 0 ? "increased" : "remained stable"} by ${Math.abs(change).toFixed(1)} kg since the previous report period`);
+        }
+      }
+      return {
+        name: member.member_name || member.email,
+        email: member.email,
+        achievements: achievements.length ? achievements : ["No progress entries or completed workouts recorded this week."],
+      };
+};
+
+const sendMemberWeeklyProgressReport = async (member) => {
+    const report = buildWeeklyProgressReport(member);
+    const text = [
+      `Weekly Progress Report for ${report.name}`,
+      "Reporting window: the last 7 days",
+      "",
+      ...report.achievements.map((achievement) => `- ${achievement}`),
+      "",
+      "Avenue Power & Fitness Gym",
+    ].join("\n");
+    const achievementsHtml = report.achievements
+      .map((achievement) => `<li style="margin:0 0 8px;">${escapeHtml(achievement)}</li>`)
+      .join("");
+    const html = `<!doctype html><html lang="en"><body style="margin:0;padding:24px;background:#f8fafc;font-family:Segoe UI,Helvetica,Arial,sans-serif;color:#0f172a;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:620px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;"><tr><td style="padding:22px 28px;background:#f97316;color:#fff;"><strong style="font-size:20px;">Weekly Progress Report</strong><p style="margin:6px 0 0;">Last 7 days · ${escapeHtml(new Date().toLocaleDateString("en-PH", { timeZone: "Asia/Manila" }))}</p></td></tr><tr><td style="padding:24px 28px;"><p style="margin:0 0 16px;">Hi ${escapeHtml(report.name)}, here is your progress summary for the past week:</p><ul style="padding-left:20px;line-height:1.6;">${achievementsHtml}</ul><p style="margin:24px 0 0;color:#64748b;font-size:13px;">Avenue Power &amp; Fitness Gym</p></td></tr></table></body></html>`;
+    return sendMail({
+      to: report.email,
+      subject: "Weekly Progress Report",
+      text,
+      html,
+    });
+};
+
+const sendWeeklyProgressReport = async (req, res) => {
+  if (!isMailConfigured()) {
+    return res.status(503).json({ success: false, message: "Weekly report email is unavailable: SMTP is not configured." });
+  }
+
+  const userId = req.params.userId ? Number(req.params.userId) : null;
+  if (userId !== null && (!Number.isInteger(userId) || userId < 1)) {
+    return res.status(400).json({ success: false, message: "Choose a valid active member." });
+  }
+
+  try {
+    const members = await getWeeklyProgressRows(userId);
+    if (userId !== null && !members.length) {
+      return res.status(404).json({ success: false, message: "Active member not found." });
+    }
+
+    let sentCount = 0;
+    const failed = [];
+    for (const member of members) {
+      try {
+        const delivery = await sendMemberWeeklyProgressReport(member);
+        if (delivery.delivered) sentCount += 1;
+        else failed.push(member.email);
+      } catch (emailError) {
+        console.error(`Weekly progress report delivery failed for user ${member.user_id}:`, emailError.message);
+        failed.push(member.email);
+      }
+    }
+
+    if (userId !== null && sentCount === 0) {
+      return res.status(502).json({ success: false, message: "The weekly progress report was not delivered. Check the email service configuration." });
+    }
+    if (userId === null && members.length > 0 && sentCount === 0) {
+      return res.status(502).json({ success: false, message: "No weekly progress reports could be delivered. Check the email service configuration.", sent_count: 0, failed_count: failed.length });
+    }
+
+    return res.json({
+      success: true,
+      message: userId === null
+        ? `Weekly Progress Report sent to ${sentCount} of ${members.length} active users${failed.length ? `; ${failed.length} failed` : ""}.`
+        : "Weekly Progress Report sent.",
+      member_count: members.length,
+      sent_count: sentCount,
+      failed_count: failed.length,
+    });
+  } catch (err) {
+    console.error("sendWeeklyProgressReport error:", err.message);
+    return res.status(500).json({ success: false, message: "Unable to generate or send the weekly progress report." });
+  }
 };
 
 // GET dashboard summary stats
@@ -53,7 +335,17 @@ const getDashboardStats = async (req, res) => {
 const getAnalytics = async (req, res) => {
   try {
     const equipmentDay = req.query.equipment_day || "";
+    const equipmentPeriod = req.query.equipment_period || "today";
     const equipmentHour = req.query.equipment_hour || "";
+    const equipmentTimePeriod = req.query.equipment_time_period || "";
+    const manilaDateParts = new Intl.DateTimeFormat("en", {
+      timeZone: "Asia/Manila",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(new Date());
+    const manilaDateValues = Object.fromEntries(manilaDateParts.map(({ type, value }) => [type, value]));
+    const todayInManila = `${manilaDateValues.year}-${manilaDateValues.month}-${manilaDateValues.day}`;
     const parsedEquipmentDay = typeof equipmentDay === "string" && /^\d{4}-\d{2}-\d{2}$/.test(equipmentDay)
       ? new Date(`${equipmentDay}T00:00:00.000Z`)
       : null;
@@ -64,20 +356,22 @@ const getAnalytics = async (req, res) => {
     )) {
       return res.status(400).json({ success: false, message: "Equipment day must be a valid date." });
     }
+    if (equipmentDay && equipmentDay > todayInManila) {
+      return res.status(400).json({ success: false, message: "Equipment day can't be in the future." });
+    }
+    if (!["today", "week", "month"].includes(equipmentPeriod)) {
+      return res.status(400).json({ success: false, message: "Choose today, week, or month for the equipment period." });
+    }
     if (equipmentHour && (
       typeof equipmentHour !== "string" ||
       !/^(?:[0-9]|1[0-9]|2[0-3])$/.test(equipmentHour)
     )) {
       return res.status(400).json({ success: false, message: "Equipment hour must be between 0 and 23." });
     }
-    const equipmentTimeRange = typeof req.query.equipment_time_range === "string"
-      ? req.query.equipment_time_range.trim().toLowerCase()
-      : "";
-    const timeRange = equipmentTimeRange ? EQUIPMENT_TIME_RANGES[equipmentTimeRange] : null;
-    if (equipmentTimeRange && !timeRange) {
+    if (equipmentTimePeriod && !["Morning", "Afternoon", "Evening", "Flexible"].includes(equipmentTimePeriod)) {
       return res.status(400).json({
         success: false,
-        message: "Equipment time range must be morning, afternoon, evening, or flexible.",
+        message: "Choose Morning, Afternoon, Evening, or Flexible for the equipment time period.",
       });
     }
 
@@ -89,7 +383,9 @@ const getAnalytics = async (req, res) => {
       year: { granularity: "month", offset: "11 months", step: "1 month", labelFormat: "Mon YYYY" },
     };
     const requestedGrowthPeriod = req.query.period || "sixMonths";
-    const growthPeriod = growthPeriods[requestedGrowthPeriod];
+    const growthPeriod = Object.prototype.hasOwnProperty.call(growthPeriods, requestedGrowthPeriod)
+      ? growthPeriods[requestedGrowthPeriod]
+      : null;
 
     if (!growthPeriod) {
       return res.status(400).json({
@@ -130,8 +426,8 @@ const getAnalytics = async (req, res) => {
     const growthOverview = await pool.query(`
       WITH bounds AS (
         SELECT
-          DATE_TRUNC('${growthPeriod.granularity}', NOW() AT TIME ZONE 'Asia/Manila') - INTERVAL '${growthPeriod.offset}' AS start_at,
-          DATE_TRUNC('${growthPeriod.granularity}', NOW() AT TIME ZONE 'Asia/Manila') AS end_at
+          DATE_TRUNC($1, NOW() AT TIME ZONE 'Asia/Manila') - $2::interval AS start_at,
+          DATE_TRUNC($1, NOW() AT TIME ZONE 'Asia/Manila') AS end_at
       ),
       buckets AS (
         SELECT generated.bucket_start
@@ -139,45 +435,68 @@ const getAnalytics = async (req, res) => {
         CROSS JOIN LATERAL GENERATE_SERIES(
           bounds.start_at,
           bounds.end_at,
-          INTERVAL '${growthPeriod.step}'
+          $3::interval
         ) AS generated(bucket_start)
       ),
       new_members AS (
-        SELECT DATE_TRUNC('${growthPeriod.granularity}', ${createdAtManila}) AS bucket_start,
+        SELECT DATE_TRUNC($1, ${createdAtManila}) AS bucket_start,
           COUNT(*)::int AS count
         FROM users
         WHERE LOWER(COALESCE(account_status, 'pending')) = 'active'
           AND ${createdAtManila} >= (SELECT start_at FROM bounds)
-          AND ${createdAtManila} < (SELECT end_at FROM bounds) + INTERVAL '${growthPeriod.step}'
-        GROUP BY DATE_TRUNC('${growthPeriod.granularity}', ${createdAtManila})
+          AND ${createdAtManila} < (SELECT end_at FROM bounds) + $3::interval
+        GROUP BY DATE_TRUNC($1, ${createdAtManila})
       ),
       completed_workouts AS (
-        SELECT DATE_TRUNC('${growthPeriod.granularity}', ${completedAtManila}) AS bucket_start,
+        SELECT DATE_TRUNC($1, ${completedAtManila}) AS bucket_start,
           COUNT(*)::int AS count
         FROM workout_sessions
         WHERE completed = true
           AND completed_at IS NOT NULL
           AND ${completedAtManila} >= (SELECT start_at FROM bounds)
-          AND ${completedAtManila} < (SELECT end_at FROM bounds) + INTERVAL '${growthPeriod.step}'
-        GROUP BY DATE_TRUNC('${growthPeriod.granularity}', ${completedAtManila})
+          AND ${completedAtManila} < (SELECT end_at FROM bounds) + $3::interval
+        GROUP BY DATE_TRUNC($1, ${completedAtManila})
       )
       SELECT
-        TO_CHAR(buckets.bucket_start, '${growthPeriod.labelFormat}') AS label,
+        TO_CHAR(buckets.bucket_start, $4) AS label,
         COALESCE(new_members.count, 0)::int AS new_members,
         COALESCE(completed_workouts.count, 0)::int AS workout_sessions
       FROM buckets
       LEFT JOIN new_members USING (bucket_start)
       LEFT JOIN completed_workouts USING (bucket_start)
       ORDER BY buckets.bucket_start
-    `);
+    `, [
+      growthPeriod.granularity,
+      growthPeriod.offset,
+      growthPeriod.step,
+      growthPeriod.labelFormat,
+    ]);
 
     // Fitness goal distribution
     const goalDistribution = await pool.query(`
-      SELECT fitness_goal AS goal, COUNT(*) AS count
-      FROM users
-      WHERE LOWER(COALESCE(account_status, 'pending')) = 'active'
-        AND fitness_goal IS NOT NULL
-      GROUP BY fitness_goal ORDER BY count DESC
+      WITH categorized_goals AS (
+        SELECT
+          CASE
+            WHEN LOWER(fitness_goal) LIKE '%lose%' THEN 'Lose Weight'
+            WHEN LOWER(fitness_goal) LIKE '%gain%'
+              OR LOWER(fitness_goal) LIKE '%muscle%'
+              OR LOWER(fitness_goal) LIKE '%strength%' THEN 'Gain Weight'
+            ELSE 'Maintain Weight'
+          END AS goal
+        FROM users
+        WHERE LOWER(COALESCE(account_status, 'pending')) = 'active'
+          AND fitness_goal IS NOT NULL
+      )
+      SELECT
+        goal,
+        COUNT(*)::int AS count
+      FROM categorized_goals
+      GROUP BY goal
+      ORDER BY CASE goal
+        WHEN 'Maintain Weight' THEN 1
+        WHEN 'Lose Weight' THEN 2
+        ELSE 3
+      END
     `);
 
     // BMI distribution
@@ -249,42 +568,79 @@ const getAnalytics = async (req, res) => {
       ORDER BY weekdays.day_order
     `);
 
-    const equipmentCompletedAtManila = `CASE
-      WHEN pg_typeof(ws.completed_at) = 'timestamp with time zone'::regtype
-        THEN ws.completed_at AT TIME ZONE 'Asia/Manila'
-      ELSE ws.completed_at::timestamp
-    END`;
     const mostUsedEquipment = await pool.query(`
-      SELECT BTRIM(e.equipment) AS equipment, COUNT(*)::int AS count
-      FROM workout_sessions ws
-      JOIN workout_plans wp ON wp.workout_plan_id = ws.workout_plan_id
-      JOIN exercises e ON e.exercise_id = ws.exercise_id
-      WHERE ws.completed = TRUE
-        AND NULLIF(BTRIM(e.equipment), '') IS NOT NULL
-        AND ($1::date IS NULL OR (
-          ws.completed_at IS NOT NULL
-          AND (${equipmentCompletedAtManila})::date = $1::date
-        ))
-        AND ($2::integer IS NULL OR (
-          ws.completed_at IS NOT NULL
-          AND EXTRACT(HOUR FROM (${equipmentCompletedAtManila}))::integer = $2::integer
-        ))
-        AND ($3::integer IS NULL OR (
-          ws.completed_at IS NOT NULL
-          AND EXTRACT(HOUR FROM (${equipmentCompletedAtManila}))::integer >= $3::integer
-        ))
-        AND ($4::integer IS NULL OR (
-          ws.completed_at IS NOT NULL
-          AND EXTRACT(HOUR FROM (${equipmentCompletedAtManila}))::integer < $4::integer
-        ))
-      GROUP BY BTRIM(e.equipment)
-      ORDER BY COUNT(*) DESC, BTRIM(e.equipment) ASC
-      LIMIT 10
+      WITH equipment_catalog AS (
+        SELECT BTRIM(equipment) AS equipment
+        FROM UNNEST($4::text[]) AS equipment_option(equipment)
+        UNION
+        SELECT DISTINCT BTRIM(equipment) AS equipment
+        FROM exercises
+        WHERE NULLIF(BTRIM(equipment), '') IS NOT NULL
+      ),
+      period_bounds AS (
+        SELECT
+          COALESCE($1::date, CASE $5
+            WHEN 'week' THEN DATE_TRUNC('week', NOW() AT TIME ZONE 'Asia/Manila')::date
+            WHEN 'month' THEN DATE_TRUNC('month', NOW() AT TIME ZONE 'Asia/Manila')::date
+            ELSE (NOW() AT TIME ZONE 'Asia/Manila')::date
+          END) AS starts_on,
+          COALESCE($1::date, CASE $5
+            WHEN 'week' THEN (DATE_TRUNC('week', NOW() AT TIME ZONE 'Asia/Manila') + INTERVAL '6 days')::date
+            WHEN 'month' THEN (DATE_TRUNC('month', NOW() AT TIME ZONE 'Asia/Manila') + INTERVAL '1 month - 1 day')::date
+            ELSE (NOW() AT TIME ZONE 'Asia/Manila')::date
+          END) AS ends_on
+      ),
+      scheduled_occurrences AS (
+        SELECT BTRIM(e.equipment) AS equipment,
+          occurrence.scheduled_on,
+          wp.scheduled_start_time,
+          u.preferred_workout_time
+        FROM workout_sessions ws
+        JOIN workout_plans wp ON wp.workout_plan_id = ws.workout_plan_id
+        JOIN users u ON u.user_id = wp.user_id
+        JOIN exercises e ON e.exercise_id = ws.exercise_id
+        CROSS JOIN period_bounds bounds
+        CROSS JOIN LATERAL GENERATE_SERIES(
+          bounds.starts_on::timestamp,
+          bounds.ends_on::timestamp,
+          INTERVAL '1 day'
+        ) AS occurrence(scheduled_on)
+        WHERE wp.approval_status = 'Approved'
+          AND NULLIF(BTRIM(e.equipment), '') IS NOT NULL
+          AND (
+            (
+              ws.session_date::text = TO_CHAR(occurrence.scheduled_on, 'YYYY-MM-DD')
+            )
+            OR LOWER(BTRIM(ws.session_date::text)) = LOWER(TO_CHAR(occurrence.scheduled_on, 'FMDay'))
+          )
+      ),
+      filtered_usage AS (
+        SELECT occurrence.equipment, COUNT(*)::int AS count
+        FROM scheduled_occurrences occurrence
+        WHERE ($2::integer IS NULL OR EXTRACT(HOUR FROM occurrence.scheduled_start_time)::integer = $2::integer)
+          AND ($3::text IS NULL OR CASE $3
+              WHEN 'Morning' THEN COALESCE(EXTRACT(HOUR FROM occurrence.scheduled_start_time), CASE occurrence.preferred_workout_time WHEN 'Morning' THEN 6 ELSE NULL END) >= 6
+                AND COALESCE(EXTRACT(HOUR FROM occurrence.scheduled_start_time), CASE occurrence.preferred_workout_time WHEN 'Morning' THEN 6 ELSE NULL END) < 12
+              WHEN 'Afternoon' THEN COALESCE(EXTRACT(HOUR FROM occurrence.scheduled_start_time), CASE occurrence.preferred_workout_time WHEN 'Afternoon' THEN 12 ELSE NULL END) >= 12
+                AND COALESCE(EXTRACT(HOUR FROM occurrence.scheduled_start_time), CASE occurrence.preferred_workout_time WHEN 'Afternoon' THEN 12 ELSE NULL END) < 17
+              WHEN 'Evening' THEN COALESCE(EXTRACT(HOUR FROM occurrence.scheduled_start_time), CASE occurrence.preferred_workout_time WHEN 'Evening' THEN 17 ELSE NULL END) >= 17
+                AND COALESCE(EXTRACT(HOUR FROM occurrence.scheduled_start_time), CASE occurrence.preferred_workout_time WHEN 'Evening' THEN 17 ELSE NULL END) < 22
+              WHEN 'Flexible' THEN COALESCE(EXTRACT(HOUR FROM occurrence.scheduled_start_time), 6) >= 6
+                AND COALESCE(EXTRACT(HOUR FROM occurrence.scheduled_start_time), 6) < 22
+              ELSE FALSE
+            END)
+        GROUP BY occurrence.equipment
+      )
+      SELECT catalog.equipment, COALESCE(usage_stats.count, 0)::int AS count
+      FROM equipment_catalog catalog
+      LEFT JOIN filtered_usage usage_stats ON usage_stats.equipment = catalog.equipment
+      ORDER BY count DESC, catalog.equipment ASC
     `, [
       equipmentDay || null,
       equipmentHour === "" ? null : Number(equipmentHour),
-      timeRange ? timeRange.start_hour : null,
-      timeRange ? timeRange.end_hour : null,
+      equipmentTimePeriod || null,
+      equipmentOptions,
+      equipmentPeriod,
     ]);
 
     // Summary
@@ -324,4 +680,4 @@ const getAnalytics = async (req, res) => {
   }
 };
 
-module.exports = { getDashboardStats, getAnalytics };
+module.exports = { getDashboardStats, getAnalytics, getTrainingPulse, sendWeeklyProgressReport };

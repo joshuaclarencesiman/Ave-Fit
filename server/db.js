@@ -72,33 +72,93 @@ const getDatabaseConfig = () => {
 const pool = new Pool(getDatabaseConfig());
 
 const expireMemberships = async (userId = null) => {
-  const result = await pool.query(`
-    UPDATE users
-    SET account_status = 'Inactive',
-        token_version = token_version + 1,
-        updated_at = CURRENT_TIMESTAMP
+  const { createNotification } = require("./utils/notifications");
+  const { isMailConfigured, sendMembershipReminderEmail } = require("./utils/mailer");
+  const dueMembers = await pool.query(`
+    SELECT user_id, first_name, email, membership_end_date::text AS membership_end_date,
+           (membership_end_date - (NOW() AT TIME ZONE 'Asia/Manila')::date)::int AS days_remaining
+    FROM users
     WHERE LOWER(COALESCE(account_status, 'pending')) = 'active'
       AND membership_end_date IS NOT NULL
-      AND membership_end_date < (NOW() AT TIME ZONE 'Asia/Manila')::date
+      AND (
+        (
+          membership_end_date > (NOW() AT TIME ZONE 'Asia/Manila')::date
+          AND membership_end_date <= (NOW() AT TIME ZONE 'Asia/Manila')::date + 3
+          AND membership_expiry_notified_for IS DISTINCT FROM membership_end_date
+        )
+        OR (
+          membership_end_date < (NOW() AT TIME ZONE 'Asia/Manila')::date
+          AND membership_expired_notified_for IS DISTINCT FROM membership_end_date
+        )
+      )
       AND ($1::integer IS NULL OR user_id = $1)
-    RETURNING user_id, first_name, last_name
+    ORDER BY membership_end_date, user_id
   `, [userId]);
 
-  if (result.rowCount > 0) {
-    const { createNotification } = require("./utils/notifications");
-    await Promise.all(result.rows.map((user) => createNotification({
-      audience: "user",
-      recipientId: user.user_id,
-      notificationType: "membership",
-      message: "Your membership has ended. Please contact the gym administrator for assistance.",
-      userName: `${user.first_name || ""} ${user.last_name || ""}`.trim() || null,
-      targetUrl: "/user/profile",
-    }).catch((err) => {
-      console.error("Membership expiry notification failed:", err.message);
-    })));
+  let notifiedCount = 0;
+  for (const member of dueMembers.rows) {
+    const expired = Number(member.days_remaining) < 0;
+    const marker = expired ? "membership_expired_notified_for" : "membership_expiry_notified_for";
+    const eventType = expired ? "membership_expired" : "membership_expiring";
+    const notificationClaim = await pool.query(`
+      UPDATE users
+      SET ${marker} = membership_end_date
+      WHERE user_id = $1
+        AND ${marker} IS DISTINCT FROM membership_end_date
+      RETURNING user_id
+    `, [member.user_id]);
+    if (!notificationClaim.rowCount) continue;
+
+    const dateText = member.membership_end_date;
+    const daysRemaining = Number(member.days_remaining);
+    const message = expired
+      ? `Your membership ended on ${dateText}. You can still use AveFit, but workout plan requests are unavailable until your membership is renewed.`
+      : `Your membership ends in ${daysRemaining} ${daysRemaining === 1 ? "day" : "days"} (${dateText}). Renew before it ends to keep requesting workout plans.`;
+    try {
+      await createNotification({
+        audience: "user",
+        recipientId: member.user_id,
+        notificationType: eventType,
+        message,
+        targetUrl: "/user/profile",
+      });
+      notifiedCount += 1;
+    } catch (error) {
+      console.error(`Membership notification failed for user ${member.user_id}:`, error.message);
+      await pool.query(
+        `UPDATE users SET ${marker} = NULL
+         WHERE user_id = $1 AND COALESCE(${marker}::text, '') = COALESCE($2::text, '')`,
+        [member.user_id, dateText]
+      );
+      continue;
+    }
+
+    if (!member.email || !isMailConfigured()) continue;
+    const emailMarker = expired ? "membership_expired_email_attempted_for" : "membership_expiry_email_attempted_for";
+    const emailClaim = await pool.query(`
+      UPDATE users
+      SET ${emailMarker} = membership_end_date
+      WHERE user_id = $1
+        AND ${emailMarker} IS DISTINCT FROM membership_end_date
+      RETURNING user_id
+    `, [member.user_id]);
+    if (!emailClaim.rowCount) continue;
+    try {
+      const delivery = await sendMembershipReminderEmail({
+        to: member.email,
+        firstName: member.first_name,
+        membershipEndDate: dateText,
+        daysRemaining,
+      });
+      if (!delivery.delivered) {
+        console.error(`Membership reminder email was not delivered to user ${member.user_id}.`);
+      }
+    } catch (error) {
+      console.error(`Membership reminder email failed for user ${member.user_id}:`, error.message);
+    }
   }
 
-  return result.rowCount;
+  return notifiedCount;
 };
 
 pool.on("error", (err) => {
@@ -126,6 +186,81 @@ const initializeDatabase = async () => {
         CHECK (start_time < end_time),
         UNIQUE (trainer_id, day_of_week, start_time, end_time)
       )
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS equipment_inventory (
+        equipment_id BIGSERIAL PRIMARY KEY,
+        equipment_name VARCHAR(120) NOT NULL,
+        quantity INTEGER NOT NULL DEFAULT 0 CHECK (quantity >= 0),
+        equipment_condition VARCHAR(40) NOT NULL DEFAULT 'Not assessed',
+        condition_notes VARCHAR(500) NOT NULL DEFAULT '',
+        status VARCHAR(40) NOT NULL DEFAULT 'Needs inspection',
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      ALTER TABLE equipment_inventory
+      ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT FALSE
+    `);
+    await client.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = current_schema()
+            AND table_name = 'equipment_inventory'
+            AND column_name = 'condition'
+        ) AND NOT EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = current_schema()
+            AND table_name = 'equipment_inventory'
+            AND column_name = 'equipment_condition'
+        ) THEN
+          ALTER TABLE equipment_inventory RENAME COLUMN condition TO equipment_condition;
+        ELSIF NOT EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = current_schema()
+            AND table_name = 'equipment_inventory'
+            AND column_name = 'equipment_condition'
+        ) THEN
+          ALTER TABLE equipment_inventory
+          ADD COLUMN equipment_condition VARCHAR(40) NOT NULL DEFAULT 'Not assessed';
+        END IF;
+      END
+      $$
+    `);
+    await client.query("DELETE FROM equipment_inventory WHERE is_deleted = TRUE");
+    await client.query("ALTER TABLE equipment_inventory DROP COLUMN is_deleted");
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS equipment_inventory_name_unique
+      ON equipment_inventory (LOWER(BTRIM(equipment_name)))
+    `);
+    await client.query(`
+      UPDATE equipment_inventory
+      SET status = CASE status
+        WHEN 'Repaired' THEN 'In service'
+        WHEN 'Replaced' THEN 'In service'
+        WHEN 'Retired' THEN 'Needs replacement'
+        ELSE status
+      END
+      WHERE status IN ('Repaired', 'Replaced', 'Retired')
+    `);
+    await client.query(`
+      UPDATE equipment_inventory
+      SET equipment_condition = CASE status
+        WHEN 'Needs inspection' THEN 'Not assessed'
+        WHEN 'Under repair' THEN 'Damaged'
+        WHEN 'In service' THEN CASE WHEN equipment_condition = 'Rusty' THEN 'Rusty' ELSE 'Good' END
+        WHEN 'Needs replacement' THEN CASE
+          WHEN equipment_condition IN ('Poor', 'Damaged', 'Worn') THEN equipment_condition
+          ELSE 'Worn'
+        END
+        ELSE equipment_condition
+      END
+      WHERE status IN ('Needs inspection', 'Under repair', 'In service', 'Needs replacement')
     `);
     await client.query(`
       DO $$
@@ -221,6 +356,24 @@ const initializeDatabase = async () => {
     `);
 
     await client.query(`
+      CREATE TABLE IF NOT EXISTS user_membership_term_requests (
+        request_id BIGSERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+        membership_months INTEGER NOT NULL CHECK (membership_months IN (1, 3, 6, 12)),
+        status VARCHAR(20) NOT NULL DEFAULT 'Pending'
+          CHECK (status IN ('Pending', 'Approved', 'Rejected')),
+        reviewed_by INTEGER REFERENCES admins(admin_id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        reviewed_at TIMESTAMPTZ
+      )
+    `);
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS user_membership_term_requests_one_pending_per_user
+      ON user_membership_term_requests (user_id)
+      WHERE status = 'Pending'
+    `);
+
+    await client.query(`
       CREATE UNIQUE INDEX IF NOT EXISTS user_profile_change_requests_one_pending_per_type
       ON user_profile_change_requests (user_id, request_type)
       WHERE status = 'Pending'
@@ -243,38 +396,19 @@ const initializeDatabase = async () => {
     `);
 
     await client.query(`
+      CREATE TABLE IF NOT EXISTS trainer_workout_reminder_emails (
+        user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+        trainer_id INTEGER NOT NULL REFERENCES trainers(trainer_id) ON DELETE CASCADE,
+        workout_date DATE NOT NULL,
+        sent_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (user_id, trainer_id, workout_date)
+      )
+    `);
+
+    await client.query(`
       ALTER TABLE workout_sessions
       ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ
-    `);
-
-    // Workout session status lifecycle: Scheduled -> Active -> Complete /
-    // Incomplete / Absent. The column is kept in step by the background
-    // evaluation in utils/workoutStatus.js.
-    await client.query(`
-      ALTER TABLE workout_sessions
-      ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'Scheduled'
-    `);
-
-    await client.query(`
-      DO $$
-      BEGIN
-        IF NOT EXISTS (
-          SELECT 1
-          FROM pg_constraint
-          WHERE conrelid = 'workout_sessions'::regclass
-            AND conname = 'workout_sessions_status_check'
-        ) THEN
-          ALTER TABLE workout_sessions
-          ADD CONSTRAINT workout_sessions_status_check
-          CHECK (status IN ('Scheduled', 'Active', 'Complete', 'Incomplete', 'Absent'));
-        END IF;
-      END
-      $$
-    `);
-
-    await client.query(`
-      CREATE INDEX IF NOT EXISTS workout_sessions_status_date_idx
-      ON workout_sessions (status, session_date)
     `);
 
     await client.query(`
@@ -285,6 +419,107 @@ const initializeDatabase = async () => {
     await client.query(`
       ALTER TABLE users
       ADD COLUMN IF NOT EXISTS preferred_workout_time VARCHAR(20)
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS user_workout_availability (
+        availability_id BIGSERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+        day_of_week VARCHAR(10) NOT NULL
+          CHECK (day_of_week IN ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday')),
+        start_time TIME NOT NULL
+          CHECK (start_time >= TIME '06:00' AND start_time < TIME '22:00'),
+        end_time TIME NOT NULL
+          CHECK (end_time > start_time AND end_time <= TIME '22:00'),
+        time_preference VARCHAR(20) NOT NULL
+          CHECK (time_preference IN ('Morning', 'Afternoon', 'Evening', 'Flexible')),
+        UNIQUE (user_id, day_of_week)
+      )
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS user_workout_availability_user_day_idx
+      ON user_workout_availability (user_id, day_of_week)
+    `);
+    await client.query(`
+      INSERT INTO user_workout_availability
+        (user_id, day_of_week, start_time, end_time, time_preference)
+      SELECT users.user_id,
+             INITCAP(LOWER(available.day_name)),
+             CASE COALESCE(users.preferred_workout_time, 'Flexible')
+               WHEN 'Morning' THEN TIME '06:00'
+               WHEN 'Afternoon' THEN TIME '12:00'
+               WHEN 'Evening' THEN TIME '17:00'
+               ELSE TIME '06:00'
+             END,
+             CASE COALESCE(users.preferred_workout_time, 'Flexible')
+               WHEN 'Morning' THEN TIME '12:00'
+               WHEN 'Afternoon' THEN TIME '17:00'
+               WHEN 'Evening' THEN TIME '22:00'
+               ELSE TIME '22:00'
+             END,
+             COALESCE(users.preferred_workout_time, 'Flexible')
+      FROM users
+      CROSS JOIN LATERAL UNNEST(COALESCE(users.preferred_days, ARRAY[]::text[])) AS available(day_name)
+      WHERE LOWER(BTRIM(available.day_name)) IN
+        ('monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday')
+        AND COALESCE(users.preferred_workout_time, 'Flexible') IN
+          ('Morning', 'Afternoon', 'Evening', 'Flexible')
+      ON CONFLICT (user_id, day_of_week) DO NOTHING
+    `);
+    await client.query(`
+      ALTER TABLE workout_plans
+      ADD COLUMN IF NOT EXISTS scheduled_start_time TIME
+    `);
+    await client.query(`
+      ALTER TABLE workout_plans
+      ADD COLUMN IF NOT EXISTS scheduled_duration_minutes INTEGER
+    `);
+    await client.query(`
+      ALTER TABLE workout_plans
+      ADD COLUMN IF NOT EXISTS approval_status VARCHAR(20) NOT NULL DEFAULT 'Approved'
+    `);
+    await client.query(`
+      ALTER TABLE workout_plans
+      ADD COLUMN IF NOT EXISTS trainer_change_reason TEXT
+    `);
+    await client.query(`
+      ALTER TABLE workout_plans
+      ADD COLUMN IF NOT EXISTS deletion_request_status VARCHAR(20)
+    `);
+    await client.query(`
+      ALTER TABLE workout_plans
+      ADD COLUMN IF NOT EXISTS deletion_request_reason TEXT
+    `);
+    await client.query(`
+      ALTER TABLE workout_plans
+      ADD COLUMN IF NOT EXISTS deletion_requested_at TIMESTAMPTZ
+    `);
+    await client.query(`
+      ALTER TABLE workout_plans
+      ADD COLUMN IF NOT EXISTS deletion_review_reason TEXT
+    `);
+    await client.query(`
+      ALTER TABLE workout_plans
+      ADD COLUMN IF NOT EXISTS training_program VARCHAR(40)
+    `);
+    await client.query(`
+      ALTER TABLE workout_plans
+      ADD COLUMN IF NOT EXISTS previous_training_program VARCHAR(40)
+    `);
+    await client.query(`
+      ALTER TABLE workout_plans
+      ADD COLUMN IF NOT EXISTS is_program_switch BOOLEAN NOT NULL DEFAULT FALSE
+    `);
+    await client.query(`
+      ALTER TABLE workout_plans
+      ADD COLUMN IF NOT EXISTS request_type VARCHAR(30) NOT NULL DEFAULT 'member_plan',
+      ADD COLUMN IF NOT EXISTS requested_session_date DATE,
+      ADD COLUMN IF NOT EXISTS request_note TEXT
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS workout_plans_user_program_switch_idx
+      ON workout_plans (user_id, training_program)
+      WHERE is_program_switch = TRUE
     `);
 
     await client.query(`
@@ -327,6 +562,13 @@ const initializeDatabase = async () => {
         ADD COLUMN IF NOT EXISTS membership_months INTEGER,
         ADD COLUMN IF NOT EXISTS membership_start_date DATE,
         ADD COLUMN IF NOT EXISTS membership_end_date DATE
+    `);
+    await client.query(`
+      ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS membership_expiry_notified_for DATE,
+        ADD COLUMN IF NOT EXISTS membership_expired_notified_for DATE,
+        ADD COLUMN IF NOT EXISTS membership_expiry_email_attempted_for DATE,
+        ADD COLUMN IF NOT EXISTS membership_expired_email_attempted_for DATE
     `);
 
     await client.query(`

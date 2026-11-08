@@ -9,9 +9,10 @@ const {
   validateEmail,
   validatePassword,
   validateName,
-  validatePhone,
+  validatePhilippinePhone,
   validateAge,
-  validateImageDataUrl,
+  validateProfileImage,
+  validateGoogleProfileImageUrl,
   normalizeEmail,
   publicUser,
 } = require("../utils/security");
@@ -20,8 +21,12 @@ const {
   sendVerificationEmail,
   sendPasswordChangeVerificationEmail,
   sendCoachAssignmentEmail,
+  sendCoachCapacityStatusEmail,
+  sendUserCoachAssignedEmail,
 } = require("../utils/mailer");
 const { notifyNewUser, createNotification } = require("../utils/notifications");
+const { getCapacityStatus } = require("../utils/coachAssignment");
+const { deliverCoachEmail } = require("../utils/coachEmailNotifications");
 const {
   buildProfileChangePayload,
   createProfileChangeRequest,
@@ -603,6 +608,9 @@ const login = async (req, res) => {
         activity_level,
         setup_completed,
         profile_image,
+        membership_months,
+        membership_start_date,
+        membership_end_date,
         token_version
       FROM users
       WHERE LOWER(email) = $1
@@ -729,8 +737,6 @@ const googleLogin = async (req, res) => {
     credential,
     intent,
     phone,
-    first_name,
-    last_name,
     termsAccepted,
     rememberMe,
   } = req.body || {};
@@ -763,6 +769,11 @@ const googleLogin = async (req, res) => {
     });
   }
 
+  let googlePicture = null;
+  if (validateGoogleProfileImageUrl(googleProfile.picture)) {
+    googlePicture = new URL(googleProfile.picture).href;
+  }
+
   const email = normalizeEmail(googleProfile.email);
 
   try {
@@ -772,6 +783,7 @@ const googleLogin = async (req, res) => {
       `SELECT user_id, first_name, last_name, email, password, phone, google_sub,
               account_status, email_verified, trainer_id, fitness_goal, height,
               weight, gender, activity_level, setup_completed, profile_image,
+              membership_months, membership_start_date, membership_end_date,
               token_version
        FROM users
        WHERE google_sub = $1`,
@@ -791,6 +803,7 @@ const googleLogin = async (req, res) => {
         `SELECT user_id, first_name, last_name, email, password, phone, google_sub,
                 account_status, email_verified, trainer_id, fitness_goal, height,
                 weight, gender, activity_level, setup_completed, profile_image,
+                membership_months, membership_start_date, membership_end_date,
                 token_version
          FROM users
          WHERE LOWER(email) = $1
@@ -827,31 +840,35 @@ const googleLogin = async (req, res) => {
         });
       }
 
+      const googleNameParts = typeof googleProfile.name === "string"
+        ? googleProfile.name.trim().split(/\s+/).filter(Boolean)
+        : [];
       const firstName = validateName(googleProfile.given_name)
         ? googleProfile.given_name
-        : first_name;
+        : googleNameParts[0];
       const lastName = validateName(googleProfile.family_name)
         ? googleProfile.family_name
-        : last_name;
+        : googleNameParts.slice(1).join(" ");
       if (!validateName(firstName) || !validateName(lastName)) {
         return res.status(400).json({
           success: false,
           code: "NAME_REQUIRED",
-          message: "Enter a valid first and last name to create your AveFit account.",
+          message: "Google did not provide a complete first and last name. Update your name in Google and try again.",
         });
       }
 
       const passwordHash = await bcrypt.hash(crypto.randomBytes(32).toString("hex"), 12);
       const result = await pool.query(
         `INSERT INTO users (
-           first_name, last_name, email, password, phone, google_sub,
+           first_name, last_name, email, password, phone, google_sub, profile_image,
            account_status, email_verified, email_verified_at
          )
-         VALUES ($1, $2, $3, $4, $5, $6, 'Pending', TRUE, NOW())
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'Pending', TRUE, NOW())
          RETURNING user_id, first_name, last_name, email, phone, google_sub,
                    account_status, email_verified, trainer_id, fitness_goal,
                    height, weight, gender, activity_level, setup_completed,
-                   profile_image, token_version`,
+                   profile_image, membership_months, membership_start_date,
+                   membership_end_date, token_version`,
         [
           String(firstName).trim(),
           String(lastName).trim(),
@@ -859,6 +876,7 @@ const googleLogin = async (req, res) => {
           passwordHash,
           normalizedPhone,
           googleProfile.sub,
+          googlePicture,
         ]
       );
       user = result.rows[0];
@@ -875,13 +893,21 @@ const googleLogin = async (req, res) => {
         `UPDATE users
          SET google_sub = $1,
              email_verified = TRUE,
-             email_verified_at = COALESCE(email_verified_at, NOW())
-         WHERE user_id = $2
+             email_verified_at = COALESCE(email_verified_at, NOW()),
+             profile_image = CASE
+               WHEN profile_image IS NULL
+                 OR BTRIM(profile_image) = ''
+                 OR profile_image ~* '^https://([^.]+\\.)*(googleusercontent\\.com|google\\.com)/'
+               THEN COALESCE($2, profile_image)
+               ELSE profile_image
+             END
+         WHERE user_id = $3
          RETURNING user_id, first_name, last_name, email, phone, google_sub,
                    account_status, email_verified, trainer_id, fitness_goal,
                    height, weight, gender, activity_level, setup_completed,
-                   profile_image, token_version`,
-        [googleProfile.sub, user.user_id]
+                   profile_image, membership_months, membership_start_date,
+                   membership_end_date, token_version`,
+        [googleProfile.sub, googlePicture, user.user_id]
       );
       user = result.rows[0];
     }
@@ -1201,7 +1227,7 @@ const updatePhoto = async (req, res) => {
       });
     }
 
-    const imageCheck = validateImageDataUrl(profile_image);
+    const imageCheck = validateProfileImage(profile_image);
 
     if (!imageCheck.ok) {
       return res.status(400).json({
@@ -1288,6 +1314,9 @@ const getProfile = async (req, res) => {
         trainer_id,
         setup_completed,
         account_status,
+        membership_months,
+        membership_start_date,
+        membership_end_date,
         email_verified,
         email_verified_at
       FROM users
@@ -1344,6 +1373,13 @@ const updateProfile = async (req, res) => {
       trainer_id,
       setup_completed,
     } = req.body;
+    const normalizeHealthSelections = (value) => {
+      if (value === undefined || value === null) return setup_completed ? ["None"] : null;
+      if (!Array.isArray(value)) return ["None"];
+      return value.length ? value : ["None"];
+    };
+    const normalizedInjuries = normalizeHealthSelections(injuries);
+    const normalizedHealthConditions = normalizeHealthSelections(health_conditions);
 
     if (
       first_name !== undefined &&
@@ -1377,11 +1413,11 @@ const updateProfile = async (req, res) => {
 
     if (
       phone !== undefined &&
-      !validatePhone(phone)
+      !validatePhilippinePhone(phone)
     ) {
       return res.status(400).json({
         success: false,
-        message: "Please provide a valid phone number.",
+        message: "Phone number must start with 09 and contain exactly 11 digits.",
       });
     }
 
@@ -1415,98 +1451,12 @@ const updateProfile = async (req, res) => {
       profile_image !== ""
     ) {
       const imageCheck =
-        validateImageDataUrl(profile_image);
+        validateProfileImage(profile_image);
 
       if (!imageCheck.ok) {
         return res.status(400).json({
           success: false,
           message: imageCheck.message,
-        });
-      }
-    }
-
-    // When onboarding selects a coach, make sure the coach is still active.
-    if (
-      trainer_id !== undefined &&
-      trainer_id !== null &&
-      trainer_id !== ""
-    ) {
-      const trainerCheck = await pool.query(
-        `
-        SELECT trainer_id
-        FROM trainers
-        WHERE trainer_id = $1
-          AND (status = 'Active' OR status IS NULL)
-        `,
-        [trainer_id]
-      );
-
-      if (trainerCheck.rows.length === 0) {
-        return res.status(400).json({
-          success: false,
-          message: "The selected coach is not available.",
-        });
-      }
-
-      const memberAvailabilityResult = await pool.query(
-        "SELECT preferred_days, preferred_workout_time FROM users WHERE user_id = $1",
-        [req.user.user_id]
-      );
-      const memberAvailability = memberAvailabilityResult.rows[0] || {};
-      const selectedDays = preferred_days !== undefined
-        ? preferred_days
-        : memberAvailability.preferred_days;
-      const selectedTime = preferred_workout_time !== undefined
-        ? preferred_workout_time
-        : memberAvailability.preferred_workout_time;
-      const timeWindows = {
-        Morning: [360, 720],
-        Afternoon: [720, 1020],
-        Evening: [1020, 1320],
-        Flexible: [360, 1320],
-      };
-      const dayIndexes = {
-        sunday: 0,
-        monday: 1,
-        tuesday: 2,
-        wednesday: 3,
-        thursday: 4,
-        friday: 5,
-        saturday: 6,
-      };
-      const workoutDays = Array.isArray(selectedDays) ? selectedDays : [];
-      const preferredWindow = timeWindows[selectedTime];
-
-      const coachAvailabilityResult = await pool.query(
-        `SELECT day_of_week,
-                TO_CHAR(start_time, 'HH24:MI') AS start_time,
-                TO_CHAR(end_time, 'HH24:MI') AS end_time
-         FROM trainer_availability
-         WHERE trainer_id = $1`,
-        [trainer_id]
-      );
-      const coachAvailability = coachAvailabilityResult.rows;
-      const timeToMinutes = (value) => {
-        const [hours, minutes] = value.split(":").map(Number);
-        return hours * 60 + minutes;
-      };
-      const matchesAvailability = preferredWindow &&
-        workoutDays.length > 0 &&
-        workoutDays.every((day) => {
-          const dayIndex = dayIndexes[String(day).toLowerCase()];
-          return coachAvailability.some((slot) => {
-            const start = timeToMinutes(slot.start_time);
-            const end = timeToMinutes(slot.end_time);
-            return Number(slot.day_of_week) === dayIndex &&
-              start < preferredWindow[1] &&
-              preferredWindow[0] < end;
-          });
-        });
-
-      if (!matchesAvailability) {
-        return res.status(400).json({
-          success: false,
-          message: "The selected coach is not available on every preferred workout day during your preferred time. Choose another coach or update your availability.",
         });
       }
     }
@@ -1555,6 +1505,40 @@ const updateProfile = async (req, res) => {
     "SELECT * FROM users WHERE user_id = $1",
       [req.user.user_id]
     );
+    if (!current.rowCount) {
+      return res.status(404).json({ success: false, message: "User not found." });
+    }
+    let selectedTrainerId = null;
+    let selectedCoach = null;
+    const trainerChanged = trainer_id !== undefined &&
+      String(trainer_id ?? "") !== String(current.rows[0].trainer_id ?? "");
+    if (trainerChanged) {
+      if (current.rows[0].setup_completed === true || setup_completed !== true || trainer_id === null || trainer_id === "") {
+        return res.status(403).json({
+          success: false,
+          message: "Coach assignments can only be selected during initial setup.",
+        });
+      }
+      selectedTrainerId = Number(trainer_id);
+      if (!Number.isInteger(selectedTrainerId) || selectedTrainerId < 1) {
+        return res.status(400).json({ success: false, message: "Choose a valid coach." });
+      }
+      const coachResult = await pool.query(
+        `SELECT trainer_id, full_name, email, status, max_members
+         FROM trainers
+         WHERE trainer_id = $1 AND status = 'Active'`,
+        [selectedTrainerId]
+      );
+      if (!coachResult.rowCount) {
+        return res.status(409).json({ success: false, message: "This coach is inactive or no longer available." });
+      }
+      selectedCoach = coachResult.rows[0];
+      const assignedCountResult = await pool.query(
+        "SELECT COUNT(*)::integer AS count FROM users WHERE trainer_id = $1",
+        [selectedTrainerId]
+      );
+      selectedCoach.assigned_member_count = assignedCountResult.rows[0].count;
+    }
 
     const currentEmail =
       current.rows[0]?.email || null;
@@ -1598,15 +1582,6 @@ const updateProfile = async (req, res) => {
       });
     }
 
-    const selectedNewCoach = setup_completed === true &&
-      trainer_id !== undefined &&
-      trainer_id !== null &&
-      trainer_id !== "" &&
-      !current.rows[0]?.trainer_id &&
-      Number.isInteger(Number(trainer_id)) &&
-      Number(trainer_id) > 0;
-    let coachAssignmentEmailSent = null;
-
     await pool.query(
       `
       UPDATE users
@@ -1629,9 +1604,9 @@ const updateProfile = async (req, res) => {
           intensity=COALESCE($17, intensity),
           injuries=COALESCE($18, injuries),
           health_conditions=COALESCE($19, health_conditions),
-          trainer_id=COALESCE($20, trainer_id),
-          setup_completed=COALESCE($21, setup_completed),
-          profile_image=COALESCE($22, profile_image),
+          setup_completed=COALESCE($20, setup_completed),
+          profile_image=COALESCE($21, profile_image),
+          trainer_id=COALESCE($22, trainer_id),
           updated_at=NOW()
       WHERE user_id=$23
       `,
@@ -1659,63 +1634,16 @@ const updateProfile = async (req, res) => {
         preferred_days ?? null,
         preferred_workout_time ?? null,
         intensity ?? null,
-        injuries ?? null,
-        health_conditions ?? null,
-        trainer_id ?? null,
+        normalizedInjuries,
+        normalizedHealthConditions,
         typeof setup_completed === "boolean"
           ? setup_completed
           : null,
         profile_image ?? null,
+        selectedTrainerId,
         req.user.user_id,
       ]
     );
-
-    if (selectedNewCoach) {
-      const coachResult = await pool.query(
-        `SELECT trainer_id, full_name, email
-         FROM trainers
-         WHERE trainer_id = $1`,
-        [trainer_id]
-      );
-      const coach = coachResult.rows[0];
-      if (coach) {
-        const memberName = `${first_name || current.rows[0].first_name || ""} ${last_name || current.rows[0].last_name || ""}`.trim();
-        try {
-          const delivery = await sendCoachAssignmentEmail({
-            to: coach.email,
-            trainerName: coach.full_name,
-            memberName,
-            memberEmail: nextEmail || current.rows[0].email,
-            preferredDays: Array.isArray(preferred_days)
-              ? preferred_days
-              : current.rows[0].preferred_days,
-            preferredWorkoutTime: preferred_workout_time || current.rows[0].preferred_workout_time,
-          });
-          coachAssignmentEmailSent = delivery.delivered;
-          if (!delivery.delivered) {
-            console.error(`Coach assignment email for trainer ${coach.trainer_id} was not delivered.`);
-          }
-        } catch (err) {
-          coachAssignmentEmailSent = false;
-          console.error(`Coach assignment email for trainer ${coach.trainer_id} failed:`, err.message);
-        }
-        try {
-          await createNotification({
-            audience: "trainer",
-            recipientId: coach.trainer_id,
-            message: `${memberName || "A new member"} selected you as their coach. Assign their workout plan.`,
-            notificationType: "workout",
-            userName: memberName || "New member",
-            targetUrl: "/trainer/workout-plans",
-          });
-        } catch (err) {
-          console.error(`Coach assignment notification for trainer ${coach.trainer_id} failed:`, err.message);
-        }
-      } else {
-        coachAssignmentEmailSent = false;
-        console.error(`Selected coach ${trainer_id} could not be found after the profile was saved.`);
-      }
-    }
 
     // Keep the admin member record synchronized with the registered user.
     // A member record is created the first time onboarding is completed;
@@ -1833,6 +1761,68 @@ const updateProfile = async (req, res) => {
         .catch(() => {});
     }
 
+    if (selectedCoach) {
+      const memberName = `${first_name || current.rows[0].first_name || ""} ${last_name || current.rows[0].last_name || ""}`.trim() || "A new member";
+      const capacityBefore = getCapacityStatus(
+        selectedCoach.assigned_member_count,
+        selectedCoach.max_members,
+        selectedCoach.status
+      );
+      const capacityAfter = getCapacityStatus(
+        selectedCoach.assigned_member_count + 1,
+        selectedCoach.max_members,
+        selectedCoach.status
+      );
+      if ((capacityBefore === "Full") !== (capacityAfter === "Full")) {
+        await deliverCoachEmail({
+          trainer: selectedCoach,
+          event: "capacity status",
+          send: (to) => sendCoachCapacityStatusEmail({
+            to,
+            accountName: selectedCoach.full_name,
+            status: capacityAfter,
+            assignedMembers: selectedCoach.assigned_member_count + 1,
+            maxMembers: selectedCoach.max_members,
+          }),
+        });
+      }
+      try {
+        if (selectedCoach.email) {
+          await sendCoachAssignmentEmail({
+            to: selectedCoach.email,
+            trainerName: selectedCoach.full_name,
+            memberName,
+            memberEmail: email || current.rows[0].email,
+            preferredDays: preferred_days,
+            preferredWorkoutTime: preferred_workout_time,
+          });
+        }
+      } catch (notificationError) {
+        console.error(`Coach assignment email failed for trainer ${selectedTrainerId}:`, notificationError.message);
+      }
+      try {
+        await sendUserCoachAssignedEmail({
+          to: email || current.rows[0].email,
+          firstName: first_name || current.rows[0].first_name,
+          trainerName: selectedCoach.full_name,
+        });
+      } catch (notificationError) {
+        console.error(`Coach assignment email failed for user ${req.user.user_id}:`, notificationError.message);
+      }
+      try {
+        await createNotification({
+          audience: "trainer",
+          recipientId: selectedTrainerId,
+          message: `${memberName} selected you as their coach during setup.`,
+          notificationType: "workout",
+          userName: memberName,
+          targetUrl: "/trainer/roster",
+        });
+      } catch (notificationError) {
+        console.error(`Coach assignment notification failed for trainer ${selectedTrainerId}:`, notificationError.message);
+      }
+    }
+
     // A new address has to be confirmed again before the account stays usable.
     if (emailChanged) {
       await pool.query(
@@ -1860,14 +1850,9 @@ const updateProfile = async (req, res) => {
       success: true,
       message: emailChanged
         ? "Profile updated. Enter the verification code sent to your new email address."
-        : coachAssignmentEmailSent === false
-          ? "Profile updated, but the coach assignment email could not be delivered."
-          : "Profile updated.",
+        : "Profile updated.",
       ...(emailChanged
         ? { email_verification_required: true }
-        : {}),
-      ...(coachAssignmentEmailSent !== null
-        ? { coach_assignment_email_sent: coachAssignmentEmailSent }
         : {}),
     });
   } catch (err) {
@@ -1880,6 +1865,56 @@ const updateProfile = async (req, res) => {
       success: false,
       message: err.message,
     });
+  }
+};
+
+const updateHealthAssessment = async (req, res) => {
+  const { injuries, health_conditions } = req.body;
+  const allowedInjuries = new Set(["Knee", "Back", "Shoulder", "Hip", "Ankle", "Wrist", "Neck", "None"]);
+  const allowedConditions = new Set(["Heart Condition", "Diabetes", "Asthma", "High Blood Pressure", "Arthritis", "None"]);
+  const hasInjuries = Object.prototype.hasOwnProperty.call(req.body, "injuries");
+  const hasHealthConditions = Object.prototype.hasOwnProperty.call(req.body, "health_conditions");
+  if (!hasInjuries && !hasHealthConditions) {
+    return res.status(400).json({ success: false, message: "Choose an injury or health condition update to save." });
+  }
+  const normalizeSelection = (value, allowed, label) => {
+    if (!Array.isArray(value) || value.length === 0 || value.some((item) => typeof item !== "string" || !allowed.has(item))) {
+      throw Object.assign(new Error(`Choose valid ${label}.`), { status: 400 });
+    }
+    const selection = [...new Set(value)];
+    if (selection.includes("None") && selection.length > 1) {
+      return ["None"];
+    }
+    return selection;
+  };
+
+  let normalizedInjuries = null;
+  let normalizedConditions = null;
+  try {
+    if (hasInjuries) normalizedInjuries = normalizeSelection(injuries, allowedInjuries, "injury or pain areas");
+    if (hasHealthConditions) normalizedConditions = normalizeSelection(health_conditions, allowedConditions, "health conditions");
+  } catch (error) {
+    return res.status(error.status || 400).json({ success: false, message: error.message });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE users
+       SET injuries = CASE WHEN $1::boolean THEN $2::text ELSE injuries END,
+           health_conditions = CASE WHEN $3::boolean THEN $4::text ELSE health_conditions END,
+           updated_at = NOW()
+       WHERE user_id = $5
+         AND LOWER(COALESCE(account_status, 'pending')) = 'active'
+       RETURNING injuries, health_conditions`,
+      [hasInjuries, normalizedInjuries, hasHealthConditions, normalizedConditions, req.user.user_id]
+    );
+    if (!result.rowCount) {
+      return res.status(403).json({ success: false, message: "An active member account is required to update health information." });
+    }
+    return res.json({ success: true, data: result.rows[0], message: "Health information saved." });
+  } catch (error) {
+    console.error("updateHealthAssessment error:", error.message);
+    return res.status(500).json({ success: false, message: "Unable to save health information." });
   }
 };
 
@@ -1896,6 +1931,7 @@ module.exports = {
   getVerificationStatus,
   getProfile,
   updateProfile,
+  updateHealthAssessment,
   updatePhoto,
   getUserChangeRequests,
 };

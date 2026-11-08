@@ -1,0 +1,284 @@
+const pool = require("../db");
+const { sendProfileChangeRequestEmail } = require("../utils/mailer");
+const { getConfiguredAdminEmail } = require("../utils/adminAccess");
+const { notifyAdmins } = require("../utils/notifications");
+
+const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const TIME_WINDOWS = {
+  Morning: { start: "06:00", end: "12:00" },
+  Afternoon: { start: "12:00", end: "17:00" },
+  Evening: { start: "17:00", end: "22:00" },
+  Flexible: { start: "06:00", end: "22:00" },
+};
+const EXPERIENCE_DAYS = {
+  beginner: [2, 3],
+  intermediate: [3, 5],
+  advanced: [4, 6],
+};
+
+const getExperienceRange = (activityLevel) =>
+  EXPERIENCE_DAYS[String(activityLevel || "Beginner").trim().toLowerCase()] || EXPERIENCE_DAYS.beginner;
+
+const normalizeAvailability = (availability) => {
+  if (!Array.isArray(availability) || availability.length > DAYS.length) {
+    return { error: "Select no more than one availability time for each day." };
+  }
+  const seenDays = new Set();
+  const normalized = [];
+  for (const slot of availability) {
+    const day = DAYS.find((candidate) => candidate.toLowerCase() === String(slot?.day_of_week || "").trim().toLowerCase());
+    const timePreference = String(slot?.time_preference || "");
+    if (!day || !Object.prototype.hasOwnProperty.call(TIME_WINDOWS, timePreference)) {
+      return { error: "Choose a valid day and time preference for every available day." };
+    }
+    if (seenDays.has(day)) {
+      return { error: `Availability for ${day} can only be selected once.` };
+    }
+    seenDays.add(day);
+    normalized.push({
+      day_of_week: day,
+      time_preference: timePreference,
+      ...TIME_WINDOWS[timePreference],
+    });
+  }
+  return { availability: normalized.sort((a, b) => DAYS.indexOf(a.day_of_week) - DAYS.indexOf(b.day_of_week)) };
+};
+
+const getAvailability = async (req, res) => {
+  try {
+    const [userResult, availabilityResult] = await Promise.all([
+      pool.query(
+        `SELECT activity_level, workout_days_per_week, workout_duration, preferred_days,
+                preferred_workout_time, setup_completed
+         FROM users WHERE user_id = $1`,
+        [req.user.user_id]
+      ),
+      pool.query(
+        `SELECT day_of_week, time_preference,
+                TO_CHAR(start_time, 'HH24:MI') AS start_time,
+                TO_CHAR(end_time, 'HH24:MI') AS end_time
+         FROM user_workout_availability
+         WHERE user_id = $1
+         ORDER BY array_position(ARRAY['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'], day_of_week)`,
+        [req.user.user_id]
+      ),
+    ]);
+    if (!userResult.rowCount) {
+      return res.status(404).json({ success: false, message: "User not found." });
+    }
+    const user = userResult.rows[0];
+    let availability = availabilityResult.rows;
+    if (!availability.length && Array.isArray(user.preferred_days) && TIME_WINDOWS[user.preferred_workout_time]) {
+      availability = user.preferred_days
+        .map((day) => DAYS.find((candidate) => candidate.toLowerCase() === String(day).toLowerCase()))
+        .filter(Boolean)
+        .map((day) => ({
+          day_of_week: day,
+          time_preference: user.preferred_workout_time,
+          ...TIME_WINDOWS[user.preferred_workout_time],
+        }));
+    }
+    res.json({
+      success: true,
+      data: {
+        activity_level: user.activity_level || "Beginner",
+        workout_days_per_week: user.workout_days_per_week,
+        workout_duration: user.workout_duration,
+        setup_completed: user.setup_completed === true,
+        availability,
+      },
+    });
+  } catch (err) {
+    console.error("getUserWorkoutAvailability error:", err.message);
+    res.status(500).json({ success: false, message: "Unable to load your weekly availability." });
+  }
+};
+
+const saveAvailability = async (req, res) => {
+  const normalized = normalizeAvailability(req.body?.availability);
+  if (normalized.error) {
+    return res.status(400).json({ success: false, message: normalized.error });
+  }
+
+  const frequency = Number(req.body?.workout_days_per_week);
+  const requestedLevel = req.body?.activity_level;
+  if (!Number.isInteger(frequency)) {
+    return res.status(400).json({ success: false, message: "Choose a valid number of workout days per week." });
+  }
+  if (requestedLevel !== undefined && !["Beginner", "Intermediate", "Advanced"].includes(requestedLevel)) {
+    return res.status(400).json({ success: false, message: "Choose Beginner, Intermediate, or Advanced as your experience level." });
+  }
+
+  let client;
+  try {
+    client = await pool.connect();
+    await client.query("BEGIN");
+    const userResult = await client.query(
+      `SELECT activity_level, setup_completed, account_status, first_name, last_name, email,
+              workout_days_per_week, workout_duration, preferred_days, preferred_workout_time
+       FROM users WHERE user_id = $1 FOR UPDATE`,
+      [req.user.user_id]
+    );
+    if (!userResult.rowCount) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ success: false, message: "User not found." });
+    }
+
+    const user = userResult.rows[0];
+    const activityLevel = requestedLevel || user.activity_level || "Beginner";
+    const [minimum, maximum] = getExperienceRange(activityLevel);
+    if (frequency < minimum || frequency > maximum) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        success: false,
+        message: `${activityLevel} users should select ${minimum}–${maximum} workout days per week.`,
+      });
+    }
+    if (frequency !== normalized.availability.length) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        success: false,
+        message: `Select exactly ${frequency} available days to match your weekly workout frequency.`,
+      });
+    }
+
+    if (user.setup_completed === true) {
+      if (String(user.account_status || "").toLowerCase() !== "active") {
+        await client.query("ROLLBACK");
+        return res.status(403).json({ success: false, message: "An active member account is required to request availability changes." });
+      }
+      const payload = {
+        weekly_availability: {
+          workout_days_per_week: frequency,
+          activity_level: activityLevel,
+          availability: normalized.availability,
+        },
+      };
+      const currentAvailability = await client.query(
+        `SELECT day_of_week, time_preference,
+                TO_CHAR(start_time, 'HH24:MI') AS start_time,
+                TO_CHAR(end_time, 'HH24:MI') AS end_time
+         FROM user_workout_availability
+         WHERE user_id = $1
+         ORDER BY array_position(ARRAY['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'], day_of_week)`,
+        [req.user.user_id]
+      );
+      const previousAvailability = currentAvailability.rows.length
+        ? currentAvailability.rows
+        : (Array.isArray(user.preferred_days) && TIME_WINDOWS[user.preferred_workout_time]
+          ? user.preferred_days.map((day_of_week) => ({
+            day_of_week,
+            time_preference: user.preferred_workout_time,
+          }))
+          : []);
+      const currentValues = {
+        weekly_availability: {
+          workout_days_per_week: user.workout_days_per_week,
+          activity_level: user.activity_level,
+          availability: previousAvailability,
+        },
+      };
+      let request;
+      try {
+        const inserted = await client.query(
+          `INSERT INTO user_profile_change_requests (user_id, request_type, payload)
+           VALUES ($1, 'profile', $2::jsonb)
+           RETURNING request_id, request_type, status, created_at`,
+          [req.user.user_id, JSON.stringify(payload)]
+        );
+        request = inserted.rows[0];
+      } catch (insertError) {
+        await client.query("ROLLBACK");
+        if (insertError.code === "23505") {
+          return res.status(409).json({ success: false, message: "You already have a profile change request awaiting admin review." });
+        }
+        throw insertError;
+      }
+      await client.query("COMMIT");
+      const memberName = `${user.first_name || ""} ${user.last_name || ""}`.trim() || "AveFit member";
+      const adminEmail = getConfiguredAdminEmail();
+      let emailSent = false;
+      if (adminEmail) {
+        try {
+          const delivery = await sendProfileChangeRequestEmail({
+            to: adminEmail,
+            memberName,
+            memberEmail: user.email,
+            requestType: "profile",
+            changes: payload,
+            currentValues,
+          });
+          emailSent = delivery.delivered;
+        } catch (emailError) {
+          console.error("Weekly availability request email failed:", emailError.message);
+        }
+      } else {
+        console.error("Weekly availability request email was not sent because ADMIN_EMAIL is not configured.");
+      }
+      try {
+        await notifyAdmins({
+          message: `${memberName} submitted a weekly workout availability change for review.`,
+          notificationType: "profile_change",
+          userName: memberName,
+          targetUrl: "/admin/members",
+        });
+      } catch (notificationError) {
+        console.error("Weekly availability admin notification failed:", notificationError.message);
+      }
+      return res.status(202).json({
+        success: true,
+        message: "Your weekly workout availability change was submitted for admin approval.",
+        email_sent: emailSent,
+        request: { ...request, payload },
+      });
+    }
+
+    await client.query("DELETE FROM user_workout_availability WHERE user_id = $1", [req.user.user_id]);
+    for (const slot of normalized.availability) {
+      await client.query(
+        `INSERT INTO user_workout_availability
+           (user_id, day_of_week, start_time, end_time, time_preference)
+         VALUES ($1, $2, $3::time, $4::time, $5)`,
+        [req.user.user_id, slot.day_of_week, slot.start, slot.end, slot.time_preference]
+      );
+    }
+    await client.query(
+      `UPDATE users
+       SET workout_days_per_week = $1,
+           preferred_days = $2,
+           activity_level = COALESCE($3, activity_level),
+           preferred_workout_time = NULL,
+           updated_at = NOW()
+       WHERE user_id = $4`,
+      [
+        frequency,
+        normalized.availability.map((slot) => slot.day_of_week),
+        requestedLevel || null,
+        req.user.user_id,
+      ]
+    );
+    await client.query("COMMIT");
+    res.json({
+      success: true,
+      message: "Weekly workout availability saved.",
+      data: {
+        workout_days_per_week: frequency,
+        activity_level: activityLevel,
+        availability: normalized.availability.map(({ day_of_week, time_preference, start, end }) => ({
+          day_of_week,
+          time_preference,
+          start_time: start,
+          end_time: end,
+        })),
+      },
+    });
+  } catch (err) {
+    if (client) await client.query("ROLLBACK");
+    console.error("saveUserWorkoutAvailability error:", err.message);
+    res.status(500).json({ success: false, message: "Unable to save your weekly availability." });
+  } finally {
+    client?.release();
+  }
+};
+
+module.exports = { getAvailability, saveAvailability, getExperienceRange, normalizeAvailability };

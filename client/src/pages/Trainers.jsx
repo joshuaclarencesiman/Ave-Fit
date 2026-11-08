@@ -1,10 +1,27 @@
-import { useEffect, useState, useRef } from "react";
-import { UserCheck, Plus, Search, Edit2, XCircle, Users, UserCircle, X, Camera, Check, Eye, EyeOff, CalendarClock } from "lucide-react";
+import { useCallback, useEffect, useState, useRef } from "react";
+import { UserCheck, Plus, Search, Edit2, XCircle, Users, UserCircle, X, Camera, Check, Eye, EyeOff, CalendarClock, TrendingUp } from "lucide-react";
 import api from "../services/api";
 import { fileToCompressedDataUrl } from "../utils/imageUpload";
 import TrainerAvailabilityManager from "../components/trainers/TrainerAvailabilityManager";
 import ScrollReveal from "../components/ScrollReveal";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
+import ProgressHistoryModal from "../components/progress/ProgressHistoryModal";
+
+const fetchMemberProgress = (userId) => api.get(`/members/${userId}/progress`);
+
+function toList(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.filter(Boolean);
+  if (typeof value === "string") return value.replace(/^\{|\}$/g, "").split(",").map((item) => item.trim()).filter(Boolean);
+  return [];
+}
+
+function toHealthNotes(value) {
+  const noReportValues = new Set(["none", "no injury", "no injuries", "no condition", "no conditions", "n/a"]);
+  return toList(value)
+    .map((item) => String(item).trim().replace(/^["']|["']$/g, ""))
+    .filter((item) => item && !noReportValues.has(item.toLowerCase()));
+}
 
 const SPECIALIZATION_OPTIONS = [
   "High-Intensity Interval Training (HIIT)",
@@ -20,9 +37,6 @@ const SPECIALIZATION_OPTIONS = [
   "Group Fitness",
 ];
 
-const TRAINER_EMAIL_DOMAIN = "@avefit.com";
-const emailLocalPart = (value) => String(value || "").replace(/\s/g, "").split("@")[0];
-
 const normalizeSpecializations = (trainer) => Array.isArray(trainer?.specializations) ? trainer.specializations.filter(Boolean) : [];
 
 const statusColors = {
@@ -37,7 +51,9 @@ const TRAINER_STATUS_OPTIONS = ["Active", "Inactive"];
 function TrainerModal({ trainer, onClose, onSave }) {
   const fileInputRef = useRef(null);
   const [form, setForm] = useState(
-    trainer || { full_name: "", email: "", phone: "09", specializations: [], goal_specialty: "" }
+    trainer
+      ? { ...trainer, goal_specialty: trainer.goal_specialty === "Muscle Gain" ? "Gain Weight" : trainer.goal_specialty }
+      : { full_name: "", email: "", phone: "09", specializations: [], goal_specialty: "" }
   );
   const [selectedSpecializations, setSelectedSpecializations] = useState(normalizeSpecializations(trainer));
   const [photo, setPhoto] = useState(trainer?.photo_url || null);
@@ -52,14 +68,10 @@ function TrainerModal({ trainer, onClose, onSave }) {
   // value (e.g. Pending/Rejected) selectable so editing never silently changes it.
   const statusOptions = [...new Set([...(form.status ? [form.status] : []), ...TRAINER_STATUS_OPTIONS])];
 
-  // The exact address the coach will type on the login screen. Surfaced in the
-  // form so an edit can never change the login email without the admin seeing it.
-  const loginUsername = emailLocalPart(form.email);
-  const loginEmail = loginUsername ? `${loginUsername}${TRAINER_EMAIL_DOMAIN}` : "";
   const storedEmailMismatch =
     Boolean(trainer?.email) &&
-    Boolean(loginEmail) &&
-    String(trainer.email).trim().toLowerCase() !== loginEmail.toLowerCase();
+    Boolean(form.email) &&
+    String(trainer.email).trim().toLowerCase() !== String(form.email).trim().toLowerCase();
 
   const handlePhotoChange = async (e) => {
     const file = e.target.files?.[0];
@@ -92,17 +104,13 @@ function TrainerModal({ trainer, onClose, onSave }) {
       return;
     }
 
-    const username = emailLocalPart(form.email);
-    if (!username) {
-      setError(`Enter the email username before ${TRAINER_EMAIL_DOMAIN}.`);
+    const email = String(form.email || "").trim();
+    if (!email) {
+      setError("Enter a valid email address for the coach.");
       return;
     }
-    if (username.length < 3 || username.length > 64) {
-      setError(`Email username must be 3 to 64 characters (currently ${username.length}).`);
-      return;
-    }
-    if (!/^[A-Za-z0-9](?:[A-Za-z0-9._%+-]*[A-Za-z0-9])?$/.test(username)) {
-      setError("Email username may only use letters, numbers, and . _ % + - and must start and end with a letter or number.");
+    if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(email)) {
+      setError("Enter a valid email address, such as name@example.com.");
       return;
     }
 
@@ -168,7 +176,7 @@ function TrainerModal({ trainer, onClose, onSave }) {
     setSaving(true);
     setError("");
     try {
-      const payload = { ...form, email: `${username}${TRAINER_EMAIL_DOMAIN}`, specializations: selectedSpecializations, photo_url: photo, ...(password ? { password } : {}) };
+      const payload = { ...form, email, specializations: selectedSpecializations, photo_url: photo, ...(password ? { password } : {}) };
       delete payload.specialization;
       if (trainer) {
         await api.put(`/trainers/${trainer.trainer_id}`, { ...payload, status: form.status || trainer.status });
@@ -237,31 +245,22 @@ function TrainerModal({ trainer, onClose, onSave }) {
 
           <div>
             <label className="block text-sm font-medium text-slate-600 mb-1">Email *</label>
-            <div className="flex items-stretch overflow-hidden rounded-lg border border-slate-300 focus-within:ring-2 focus-within:ring-orange-500">
-              <input
-                type="text"
-                autoComplete="off"
-                required
-                spellCheck={false}
-                maxLength={64}
-                placeholder="username"
-                value={emailLocalPart(form.email)}
-                onChange={(e) => {
-                  const username = e.target.value.replace(/[^A-Za-z0-9._%+-]/g, "").slice(0, 64);
-                  setForm({ ...form, email: username ? `${username}${TRAINER_EMAIL_DOMAIN}` : "" });
-                }}
-                className="min-w-0 flex-1 px-4 py-2.5 text-sm focus:outline-none"
-              />
-              <span className="flex select-none items-center border-l border-slate-300 bg-slate-100 px-3 text-sm font-semibold text-slate-500">
-                {TRAINER_EMAIL_DOMAIN}
-              </span>
-            </div>
+            <input
+              type="email"
+              autoComplete="email"
+              required
+              spellCheck={false}
+              placeholder="coach@email.com"
+              value={form.email || ""}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              className="w-full border border-slate-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+            />
             <p className="text-xs text-slate-400 mt-1">
-              Coach signs in with <strong className="text-slate-600">{loginEmail || `username${TRAINER_EMAIL_DOMAIN}`}</strong>. The domain cannot be changed.
+              Use the coach's full email address. Any valid email domain is accepted.
             </p>
             {storedEmailMismatch && (
               <p className="text-xs text-amber-600 mt-1">
-                Current login email is <strong>{trainer.email}</strong>. Saving changes it to <strong>{loginEmail}</strong> &mdash; tell the coach to use the new address.
+                Current login email is <strong>{trainer.email}</strong>. Saving changes it to <strong>{form.email}</strong> &mdash; tell the coach to use the new address.
               </p>
             )}
           </div>
@@ -340,7 +339,7 @@ function TrainerModal({ trainer, onClose, onSave }) {
             >
               <option value="">No specific match</option>
               <option value="Weight Loss">Weight Loss</option>
-              <option value="Muscle Gain">Muscle Gain</option>
+              <option value="Gain Weight">Gain Weight</option>
               <option value="Maintain Weight">Maintain Weight</option>
               <option value="General Fitness">General Fitness</option>
             </select>
@@ -425,6 +424,47 @@ function TrainerModal({ trainer, onClose, onSave }) {
   );
 }
 
+function CapacityModal({ trainer, onClose, onSaved }) {
+  const [maxMembers, setMaxMembers] = useState(String(trainer.max_members ?? 15));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSave = async () => {
+    const capacity = Number(maxMembers);
+    if (!Number.isInteger(capacity) || capacity < 1 || capacity > 10000) {
+      setError("Enter a whole-number capacity between 1 and 10,000.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      await api.put(`/trainers/${trainer.trainer_id}/capacity`, { max_members: capacity });
+      await onSaved();
+      onClose();
+    } catch (err) {
+      setError(err.response?.data?.message || "Unable to update coach capacity.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+      <section role="dialog" aria-modal="true" aria-labelledby="coach-capacity-title" className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-white/10 dark:bg-[#151515]" onClick={(event) => event.stopPropagation()}>
+        <h2 id="coach-capacity-title" className="text-xl font-bold text-slate-900 dark:text-white">Coach member capacity</h2>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{trainer.full_name} currently has {trainer.assigned_member_count} assigned member(s).</p>
+        <label htmlFor="coach-max-members" className="mt-5 block text-sm font-semibold text-slate-700 dark:text-slate-200">Maximum members</label>
+        <input id="coach-max-members" type="number" min="1" max="10000" step="1" value={maxMembers} onChange={(event) => setMaxMembers(event.target.value)} className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-slate-900 outline-none focus:ring-2 focus:ring-orange-500 dark:border-white/10 dark:bg-[#111] dark:text-white" />
+        {error && <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p>}
+        <div className="mt-6 flex justify-end gap-3">
+          <button type="button" onClick={onClose} disabled={saving} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 disabled:opacity-50 dark:border-white/10 dark:text-slate-300">Cancel</button>
+          <button type="button" onClick={handleSave} disabled={saving} className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-bold text-white hover:bg-orange-600 disabled:opacity-50">{saving ? "Saving..." : "Save capacity"}</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function TrainerProfileModal({ trainer, onClose, onEdit }) {
   const specializations = normalizeSpecializations(trainer);
   const expertise = [...new Set([...specializations, trainer.goal_specialty].filter(Boolean))];
@@ -460,7 +500,7 @@ function TrainerProfileModal({ trainer, onClose, onEdit }) {
             <header className="border-b border-slate-200 pb-5 pr-12 dark:border-white/10">
               <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Trainer profile</p>
               <h2 id="trainer-profile-title" className="mt-2 text-2xl font-black tracking-tight text-slate-900 dark:text-white sm:text-3xl">{trainer.full_name}</h2>
-              <p className="mt-1 text-sm font-semibold text-orange-600 dark:text-orange-400">{trainer.goal_specialty || "General Fitness Coach"}</p>
+              <p className="mt-1 text-sm font-semibold text-orange-600 dark:text-orange-400">{trainer.goal_specialty === "Muscle Gain" ? "Gain Weight" : trainer.goal_specialty || "General Fitness Coach"}</p>
               <span className={`mt-3 inline-flex rounded-full px-3 py-1.5 text-xs font-bold ${statusColors[trainer.status] || statusColors.Active}`}>
                 {trainer.status || "Active"}
               </span>
@@ -520,35 +560,164 @@ function TrainerProfileModal({ trainer, onClose, onEdit }) {
   );
 }
 
-function MemberRow({ member }) {
+function MemberRow({ member, onViewProfile }) {
   return (
-    <div className="border border-[#303030] bg-[#171717] rounded-xl px-4 py-3">
-      <div className="flex items-center gap-3">
-        <div className="w-8 h-8 rounded-full bg-orange-500/15 flex items-center justify-center text-orange-400 font-bold text-xs">
-          {member.first_name?.charAt(0)}{member.last_name?.charAt(0)}
+    <div className="flex items-center justify-between gap-3 border border-[#303030] bg-[#171717] rounded-xl px-4 py-3">
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="w-9 h-9 shrink-0 overflow-hidden rounded-full bg-orange-500/15 flex items-center justify-center text-orange-400 font-bold text-xs">
+          {member.profile_image
+            ? <img src={member.profile_image} alt="" className="h-full w-full object-cover" />
+            : <>{member.first_name?.charAt(0)}{member.last_name?.charAt(0)}</>}
         </div>
-        <div>
-          <p className="font-semibold text-gray-100 text-sm">{member.first_name} {member.last_name}</p>
-          <p className="text-gray-400 text-xs">{member.fitness_goal || "No goal set"} · {member.email}</p>
+        <div className="min-w-0">
+          <p className="truncate font-semibold text-gray-100 text-sm">{member.first_name} {member.last_name}</p>
+          <p className="truncate text-gray-400 text-xs">{member.fitness_goal || "No goal set"} · {member.email}</p>
         </div>
       </div>
+      <button type="button" onClick={() => onViewProfile(member)} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-orange-500/30 px-2.5 py-2 text-xs font-semibold text-orange-400 transition hover:bg-orange-500/10" aria-label={`View ${member.first_name} ${member.last_name}'s profile`}>
+        <UserCircle size={15} /> <span className="hidden sm:inline">View Profile</span><span className="sm:hidden">Profile</span>
+      </button>
+    </div>
+  );
+}
+
+function RosterMemberProfileModal({ member, onClose, onViewProgress }) {
+  const currentWeight = member.latest_weight ?? member.weight;
+  const currentBmi = member.latest_bmi ?? (currentWeight && member.height
+    ? (Number(currentWeight) / ((Number(member.height) / 100) ** 2)).toFixed(1)
+    : null);
+  const profileFields = [
+    ["Email", member.email],
+    ["Phone", member.phone],
+    ["Gender", member.gender],
+    ["Age", member.age ? `${member.age} years` : null],
+    ["Birth date", member.birth_date ? new Date(member.birth_date).toLocaleDateString() : null],
+    ["Height", member.height ? `${member.height} cm` : null],
+    ["Current weight", currentWeight ? `${currentWeight} kg` : null],
+    ["BMI", currentBmi],
+    ["Fitness goal", member.fitness_goal],
+    ["Target weight", member.target_weight ? `${member.target_weight} kg` : null],
+    ["Experience level", member.activity_level],
+    ["Workout intensity", member.intensity],
+    ["Workout frequency", member.workout_days_per_week ? `${member.workout_days_per_week} days/week` : null],
+    ["Preferred time", member.preferred_workout_time],
+  ];
+  const availability = Array.isArray(member.weekly_availability) ? member.weekly_availability : [];
+  const injuries = toHealthNotes(member.injuries);
+  const conditions = toHealthNotes(member.health_conditions);
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={onClose}>
+      <section role="dialog" aria-modal="true" aria-labelledby="roster-member-profile-title" className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/10 bg-[#151515] text-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <header className="flex items-center gap-4 border-b border-white/10 p-5 sm:p-6">
+          <div className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-full bg-orange-500/15 text-lg font-bold text-orange-300">
+            {member.profile_image
+              ? <img src={member.profile_image} alt="" className="h-full w-full object-cover" />
+              : `${member.first_name?.charAt(0) || ""}${member.last_name?.charAt(0) || ""}`}
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 id="roster-member-profile-title" className="truncate text-xl font-bold">{member.first_name} {member.last_name}</h2>
+            <p className="truncate text-sm text-slate-400">Member profile</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close member profile" className="rounded-lg p-2 text-slate-400 hover:bg-white/10 hover:text-white"><X size={20} /></button>
+        </header>
+        <div className="space-y-5 p-5 sm:p-6">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {profileFields.map(([label, value]) => (
+              <div key={label} className="min-w-0 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                <p className="text-xs text-slate-400">{label}</p>
+                <p className="mt-1 break-words text-sm font-semibold text-slate-100">{value || "Not set"}</p>
+              </div>
+            ))}
+          </div>
+          <section className="rounded-xl border border-white/10 p-4">
+            <h3 className="text-sm font-bold text-slate-200">Weekly availability</h3>
+            {availability.length ? (
+              <ul className="mt-2 space-y-1 text-sm text-slate-300">
+                {availability.map((slot) => <li key={slot.day_of_week}><span className="font-semibold">{slot.day_of_week}:</span> {slot.time_preference || `${slot.start_time || "—"}–${slot.end_time || "—"}`}</li>)}
+              </ul>
+            ) : <p className="mt-2 text-sm text-slate-400">{toList(member.preferred_days).join(", ") || "No availability recorded."}</p>}
+          </section>
+          {(injuries.length || conditions.length) > 0 && (
+            <section className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
+              <h3 className="text-sm font-bold text-amber-300">Health and safety notes</h3>
+              <div className="mt-2 space-y-1 text-sm text-slate-300">
+                <p><span className="font-semibold">Injury:</span> {injuries.join(", ") || "None"}</p>
+                <p><span className="font-semibold">Health Condition:</span> {conditions.join(", ") || "None"}</p>
+              </div>
+            </section>
+          )}
+          <section className="rounded-xl border border-white/10 p-4">
+            <h3 className="text-sm font-bold text-slate-200">Workout progress</h3>
+            <p className="mt-1 text-sm text-slate-400">{member.completed_workouts ?? 0} completed of {member.assigned_workouts ?? 0} assigned workouts</p>
+          </section>
+          <div className="flex justify-end">
+            <button type="button" onClick={() => onViewProgress(member)} className="inline-flex items-center gap-2 rounded-xl bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-700">
+              <TrendingUp size={16} /> View Progress History
+            </button>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
 
 function RosterModal({ trainer, onClose }) {
   const [members, setMembers] = useState([]);
+  const [profileMember, setProfileMember] = useState(null);
+  const [progressMember, setProgressMember] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const refreshRoster = useCallback(async () => {
+    const rosterRes = await api.get(`/trainers/${trainer.trainer_id}/roster`);
+    const rows = Array.isArray(rosterRes.data)
+      ? rosterRes.data
+      : rosterRes.data?.data;
+    if (!Array.isArray(rows)) throw new Error("The roster response was invalid.");
+    setMembers(rows);
+    setProfileMember((current) => current
+      ? rows.find((member) => String(member.user_id) === String(current.user_id)) || current
+      : current);
+    setError("");
+  }, [trainer.trainer_id]);
 
   useEffect(() => {
-    api.get(`/trainers/${trainer.trainer_id}/roster`)
-      .then((rosterRes) => setMembers(rosterRes.data.data || []))
-      .catch((err) => console.error(err))
+    refreshRoster()
+      .catch((err) => {
+        console.error("Failed to load coach roster:", err);
+        setError(err.response?.data?.message || "Unable to load this coach’s roster.");
+      })
       .finally(() => setLoading(false));
-  }, [trainer.trainer_id]);
+  }, [refreshRoster]);
+
+  useEffect(() => {
+    const refreshVisibleRoster = () => {
+      if (document.visibilityState !== "visible") return;
+
+      refreshRoster().catch((err) => {
+        console.error("Couldn't refresh workout counts:", err);
+        setError(err.response?.data?.message || "Workout counts couldn't be refreshed.");
+      });
+    };
+    const refreshWhenVisible = () => {
+      refreshVisibleRoster();
+    };
+    const intervalId = window.setInterval(refreshVisibleRoster, 15000);
+    window.addEventListener("focus", refreshVisibleRoster);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshVisibleRoster);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [refreshRoster]);
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      {profileMember && <RosterMemberProfileModal member={profileMember} onClose={() => setProfileMember(null)} onViewProgress={setProgressMember} />}
+      {progressMember && <ProgressHistoryModal member={progressMember} fetchProgress={fetchMemberProgress} onClose={() => setProgressMember(null)} />}
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col">
         <div className="p-6 border-b flex items-center justify-between">
           <div>
@@ -565,10 +734,12 @@ function RosterModal({ trainer, onClose }) {
             <div className="space-y-3">
               {[...Array(3)].map((_, i) => <div key={i} className="h-14 bg-slate-100 rounded-xl animate-pulse" />)}
             </div>
+          ) : error ? (
+            <p role="alert" className="text-center text-red-600 py-12 text-sm">{error}</p>
           ) : members.length === 0 ? (
             <p className="text-center text-slate-400 py-12 text-sm">No members have chosen this coach yet.</p>
           ) : (
-            members.map((m) => <MemberRow key={m.user_id} member={m} />)
+            members.map((m) => <MemberRow key={m.user_id} member={m} onViewProfile={setProfileMember} />)
           )}
         </div>
       </div>
@@ -587,6 +758,7 @@ export default function Trainers() {
   const [rosterTrainer, setRosterTrainer] = useState(null);
   const [profileTrainer, setProfileTrainer] = useState(null);
   const [availabilityTrainer, setAvailabilityTrainer] = useState(null);
+  const [capacityTrainer, setCapacityTrainer] = useState(null);
   const [trainerAction, setTrainerAction] = useState(null);
   const [trainerActionLoading, setTrainerActionLoading] = useState(false);
   const [trainerActionError, setTrainerActionError] = useState("");
@@ -610,14 +782,6 @@ export default function Trainers() {
     fetchTrainers();
   };
 
-  const handleReject = async (id) => {
-    const trainer = trainers.find((row) => Number(row.trainer_id) === Number(id));
-    if (trainer) {
-      setTrainerAction({ kind: "reject", trainer });
-      setTrainerActionError("");
-    }
-  };
-
   const handleRemove = async (trainer) => {
     setTrainerAction({ kind: "remove", trainer });
     setTrainerActionError("");
@@ -628,16 +792,11 @@ export default function Trainers() {
     setTrainerActionLoading(true);
     setTrainerActionError("");
     try {
-      if (trainerAction.kind === "remove") {
-        await api.delete(`/trainers/${trainerAction.trainer.trainer_id}`);
-      } else {
-        await api.put(`/trainers/${trainerAction.trainer.trainer_id}/reject`);
-      }
+      await api.delete(`/trainers/${trainerAction.trainer.trainer_id}`);
       setTrainerAction(null);
       fetchTrainers();
     } catch (err) {
-      const action = trainerAction.kind === "remove" ? "remove this trainer" : "reject this trainer";
-      setTrainerActionError(err.response?.data?.message || `Failed to ${action}. Please try again.`);
+      setTrainerActionError(err.response?.data?.message || "Failed to remove this trainer. Please try again.");
     } finally {
       setTrainerActionLoading(false);
     }
@@ -694,16 +853,19 @@ export default function Trainers() {
           onClose={() => setAvailabilityTrainer(null)}
         />
       )}
+      {capacityTrainer && (
+        <CapacityModal
+          trainer={capacityTrainer}
+          onClose={() => setCapacityTrainer(null)}
+          onSaved={fetchTrainers}
+        />
+      )}
 
       {trainerAction && (
         <ConfirmDialog
-          title={trainerAction.kind === "remove"
-            ? `Permanently remove ${trainerAction.trainer.full_name}?`
-            : `Reject ${trainerAction.trainer.full_name}?`}
-          description={trainerAction.kind === "remove"
-            ? "This permanently deletes the trainer account. Existing member and workout assignments will be unassigned."
-            : "This will mark the trainer account as rejected so they cannot access the coach portal."}
-          confirmLabel={trainerAction.kind === "remove" ? "Remove trainer" : "Reject trainer"}
+          title={`Permanently remove ${trainerAction.trainer.full_name}?`}
+          description="This permanently deletes the trainer account. Existing member and workout assignments will be unassigned."
+          confirmLabel="Remove trainer"
           isLoading={trainerActionLoading}
           error={trainerActionError}
           onCancel={() => {
@@ -737,8 +899,8 @@ export default function Trainers() {
         </div>
       )}
 
-      <section aria-label="Trainer summary" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {[{label:"Total trainers",value:trainers.length},{label:"Active trainers",value:activeCount},{label:"Pending approval",value:pendingCount}].map(item=><div key={item.label} className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-[#111]"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{item.label}</p><p className="mt-2 text-2xl font-black text-slate-900 dark:text-white">{loading?"—":item.value}</p></div>)}
+      <section aria-label="Coach summary" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {[{label:"Total coaches",value:trainers.length},{label:"Active coaches",value:activeCount},{label:"Pending approval",value:pendingCount}].map(item=><div key={item.label} className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-[#111]"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{item.label}</p><p className="mt-2 text-2xl font-black text-slate-900 dark:text-white">{loading?"—":item.value}</p></div>)}
       </section>
 
       {/* Search */}
@@ -755,7 +917,7 @@ export default function Trainers() {
           />
         </label>
         <div className="flex gap-2 overflow-x-auto" role="group" aria-label="Filter trainers by status">
-          {["All","Active","Pending","Inactive","Rejected"].map(status=><button key={status} type="button" aria-pressed={statusFilter===status} onClick={()=>setStatusFilter(status)} className={`min-h-9 rounded-lg px-3 text-sm font-semibold transition ${statusFilter===status?"bg-orange-500 text-white":"bg-slate-100 text-slate-600 dark:bg-white/5 dark:text-slate-300"}`}>{status}{status==="Pending"&&pendingCount?` (${pendingCount})`:""}</button>)}
+          {["All","Active","Pending","Inactive"].map(status=><button key={status} type="button" aria-pressed={statusFilter===status} onClick={()=>setStatusFilter(status)} className={`min-h-9 rounded-lg px-3 text-sm font-semibold transition ${statusFilter===status?"bg-orange-500 text-white":"bg-slate-100 text-slate-600 dark:bg-white/5 dark:text-slate-300"}`}>{status}{status==="Pending"&&pendingCount?` (${pendingCount})`:""}</button>)}
         </div>
       </div>
 
@@ -771,9 +933,10 @@ export default function Trainers() {
           <table className="w-full text-sm">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
-                <th className="text-left px-6 py-4 font-semibold text-slate-600">Trainer</th>
+                <th className="text-left px-6 py-4 font-semibold text-slate-600">Coach</th>
                 <th className="text-left px-6 py-4 font-semibold text-slate-600">Specialization</th>
                 <th className="text-left px-6 py-4 font-semibold text-slate-600">Phone</th>
+                <th className="text-left px-6 py-4 font-semibold text-slate-600">Member capacity</th>
                 <th className="text-left px-6 py-4 font-semibold text-slate-600">Status</th>
                 <th className="text-left px-6 py-4 font-semibold text-slate-600">Joined</th>
                 <th className="text-left px-6 py-4 font-semibold text-slate-600">Actions</th>
@@ -782,7 +945,7 @@ export default function Trainers() {
             <tbody className="divide-y divide-slate-100">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-12 text-slate-400">No trainers found.</td>
+                  <td colSpan={7} className="text-center py-12 text-slate-400">No coaches found.</td>
                 </tr>
               ) : (
                 filtered.map((trainer, index) => (
@@ -804,8 +967,48 @@ export default function Trainers() {
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-slate-600"><div className="flex flex-wrap gap-1.5 max-w-sm">{(trainer.specializations || normalizeSpecializations(trainer)).length ? (trainer.specializations || normalizeSpecializations(trainer)).slice(0, 3).map((item) => <span key={item} className="px-2 py-1 rounded-full bg-orange-50 text-orange-700 text-xs font-medium">{item}</span>) : <span>—</span>}{(trainer.specializations || normalizeSpecializations(trainer)).length > 3 && <span className="text-xs text-slate-400">+{(trainer.specializations || normalizeSpecializations(trainer)).length - 3} more</span>}</div></td>
+                    <td className="px-6 py-4 text-slate-600">
+                      <div className="flex max-w-sm flex-wrap items-center gap-1.5">
+                        {(() => {
+                          const specializations = normalizeSpecializations(trainer);
+                          return specializations.length ? (
+                            <>
+                              {specializations.slice(0, 3).map((item) => (
+                                <span
+                                  key={item}
+                                  title={item}
+                                  className="inline-flex max-w-[180px] items-center gap-1.5 rounded-lg border border-orange-200/80 bg-gradient-to-br from-orange-50 to-white px-2.5 py-1.5 text-xs font-semibold leading-tight text-orange-800 shadow-sm shadow-orange-900/[0.03] dark:border-orange-400/20 dark:from-orange-500/15 dark:to-orange-500/[0.06] dark:text-orange-300"
+                                >
+                                  <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-orange-500 dark:bg-orange-400" />
+                                  <span className="truncate">{item}</span>
+                                </span>
+                              ))}
+                              {specializations.length > 3 && (
+                                <span
+                                  title={specializations.slice(3).join(", ")}
+                                  className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-[11px] font-semibold text-slate-600 dark:border-white/10 dark:bg-white/[0.06] dark:text-slate-300"
+                                >
+                                  +{specializations.length - 3} more
+                                </span>
+                              )}
+                            </>
+                          ) : <span className="text-slate-400">—</span>;
+                        })()}
+                      </div>
+                    </td>
                     <td className="px-6 py-4 text-slate-600">{trainer.phone || "—"}</td>
+                    <td className="px-6 py-4">
+                      <div className="min-w-36">
+                        <div className="flex items-center justify-between gap-3 text-xs">
+                          <span className="font-semibold text-slate-700 dark:text-slate-200">{trainer.assigned_member_count ?? 0}/{trainer.max_members ?? 15} members</span>
+                          <button type="button" onClick={() => setCapacityTrainer(trainer)} className="font-semibold text-orange-600 hover:underline dark:text-orange-400" aria-label={`Edit ${trainer.full_name}'s capacity`}>Edit</button>
+                        </div>
+                        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-white/10">
+                          <div className={`h-full rounded-full ${trainer.capacity_status === "Full" ? "bg-red-500" : trainer.capacity_status === "Near Capacity" ? "bg-orange-500" : trainer.capacity_status === "Inactive" ? "bg-slate-400" : "bg-green-500"}`} style={{ width: `${Math.min(Number(trainer.capacity_percent) || 0, 100)}%` }} />
+                        </div>
+                        <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${trainer.capacity_status === "Full" ? "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300" : trainer.capacity_status === "Near Capacity" ? "bg-orange-100 text-orange-700 dark:bg-orange-500/15 dark:text-orange-300" : trainer.capacity_status === "Inactive" ? "bg-slate-100 text-slate-600 dark:bg-slate-500/15 dark:text-slate-300" : "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-300"}`}>{trainer.capacity_status || "Available"}</span>
+                      </div>
+                    </td>
                     <td className="px-6 py-4">
                       <span className={`px-3 py-1 rounded-full text-xs font-semibold ${statusColors[trainer.status] || statusColors.Inactive}`}>
                         {trainer.status}
@@ -848,10 +1051,7 @@ export default function Trainers() {
                           <Edit2 size={16} />
                         </button>
                         {trainer.status === "Pending" && (
-                          <>
-                            <button onClick={() => handleApprove(trainer.trainer_id)} className="p-1.5 rounded-lg hover:bg-green-50 text-green-500 transition" title="Approve"><UserCheck size={16} /></button>
-                            <button onClick={() => handleReject(trainer.trainer_id)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-400 transition" title="Reject"><XCircle size={16} /></button>
-                          </>
+                          <button onClick={() => handleApprove(trainer.trainer_id)} className="p-1.5 rounded-lg hover:bg-green-50 text-green-500 transition" title="Approve"><UserCheck size={16} /></button>
                         )}
                         {trainer.status === "Active" && (
                           <button
@@ -880,7 +1080,7 @@ export default function Trainers() {
           </table>
         )}
         <div className="px-6 py-3 border-t border-slate-100 text-sm text-slate-400">
-          {filtered.length} of {trainers.length} trainers
+          {filtered.length} of {trainers.length} coaches
         </div>
       </div>
     </div>

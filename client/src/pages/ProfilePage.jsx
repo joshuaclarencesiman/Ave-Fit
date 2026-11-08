@@ -5,6 +5,55 @@ import { useUserAuth } from "../context/UserAuthContext";
 import { PasswordField } from "../components/ui/Form";
 import userApi from "../userApi";
 import { fileToCompressedDataUrl } from "../utils/imageUpload";
+import WeeklyWorkoutAvailability from "../components/WeeklyWorkoutAvailability";
+
+const getBmiCategory = (value) => {
+  const bmiValue = Number(value);
+  if (!Number.isFinite(bmiValue) || bmiValue <= 0) return null;
+  if (bmiValue < 18.5) return { label: "Underweight", style: "bg-orange-100 text-orange-800 dark:bg-orange-500/15 dark:text-orange-300" };
+  if (bmiValue < 25) return { label: "Normal", style: "bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-300" };
+  if (bmiValue < 30) return { label: "Overweight", style: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300" };
+  return { label: "Obese", style: "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300" };
+};
+const normalizeFitnessGoal = (goal) => goal === "Muscle Gain" ? "Gain Weight" : goal;
+const isValidPhoneNumber = (phone) => /^09\d{9}$/.test(phone);
+const normalizePhoneNumber = (phone) => {
+  const digits = String(phone || "").replace(/\D/g, "");
+  return digits.startsWith("09") ? digits.slice(0, 11) : `09${digits.slice(-9)}`;
+};
+const injuryOptions = ["Knee", "Back", "Shoulder", "Hip", "Ankle", "Wrist", "Neck", "None"];
+const healthConditionOptions = ["Heart Condition", "Diabetes", "Asthma", "High Blood Pressure", "Arthritis", "None"];
+
+const toSelectionList = (value) => {
+  let items = value;
+  if (typeof items === "string") {
+    const trimmed = items.trim();
+    if (!trimmed) return ["None"];
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) items = parsed;
+    } catch {
+      items = trimmed.replace(/^\{|\}$/g, "").split(",");
+    }
+  }
+  if (!Array.isArray(items)) return ["None"];
+  const selected = [...new Set(items
+    .map((item) => String(item).trim().replace(/^["']|["']$/g, ""))
+    .filter(Boolean))];
+  if (!selected.length) return ["None"];
+  return selected.includes("None") && selected.length > 1
+    ? selected.filter((item) => item !== "None")
+    : selected;
+};
+
+const toggleHealthSelection = (selection, value) => {
+  if (value === "None") return ["None"];
+  const selected = selection.filter((item) => item !== "None");
+  const updated = selected.includes(value)
+    ? selected.filter((item) => item !== value)
+    : [...selected, value];
+  return updated.length ? updated : ["None"];
+};
 
 export default function ProfilePage() {
   const navigate = useNavigate();
@@ -15,11 +64,16 @@ export default function ProfilePage() {
     first_name: "", last_name: "", email: "", phone: "",
     gender: "", birth_date: "", height: "", weight: "",
     fitness_goal: "", activity_level: "",
+    injuries: ["None"], health_conditions: ["None"],
   });
   const [photo, setPhoto] = useState(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [bmi, setBmi] = useState(null);
+  const [savingBmi, setSavingBmi] = useState(false);
+  const [bmiLogFeedback, setBmiLogFeedback] = useState({ message: "", isError: false });
   const [saving, setSaving] = useState(false);
+  const [savingHealth, setSavingHealth] = useState(false);
+  const [healthSaveMessage, setHealthSaveMessage] = useState("");
   const [msg, setMsg] = useState("");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -29,6 +83,7 @@ export default function ProfilePage() {
   const [passwordNotice, setPasswordNotice] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [changeRequests, setChangeRequests] = useState([]);
+  const bmiCategory = getBmiCategory(bmi);
 
   useEffect(() => {
     Promise.all([
@@ -41,14 +96,15 @@ export default function ProfilePage() {
           first_name: d.first_name || "",
           last_name: d.last_name || "",
           email: d.email || "",
-          phone: d.phone || "",
+          phone: normalizePhoneNumber(d.phone),
           gender: d.gender || "",
           birth_date: d.birth_date ? d.birth_date.split("T")[0] : "",
           height: d.height || "",
           weight: d.weight || "",
-          fitness_goal: d.fitness_goal || "",
+          fitness_goal: normalizeFitnessGoal(d.fitness_goal || ""),
           activity_level: d.activity_level || "",
-          preferred_workout_time: d.preferred_workout_time || "",
+          injuries: toSelectionList(d.injuries),
+          health_conditions: toSelectionList(d.health_conditions),
         };
         originalFormRef.current = profileForm;
         setForm(profileForm);
@@ -57,10 +113,13 @@ export default function ProfilePage() {
           first_name: d.first_name,
           last_name: d.last_name,
           email: d.email,
-          fitness_goal: d.fitness_goal,
+          fitness_goal: normalizeFitnessGoal(d.fitness_goal),
           height: d.height,
           weight: d.weight,
           profile_image: d.profile_image || null,
+          membership_months: d.membership_months,
+          membership_start_date: d.membership_start_date,
+          membership_end_date: d.membership_end_date,
         });
         if (d.height && d.weight) {
           const h = parseFloat(d.height) / 100;
@@ -99,6 +158,7 @@ export default function ProfilePage() {
   };
 
   const handleChange = (key, val) => {
+    setBmiLogFeedback({ message: "", isError: false });
     setForm((f) => {
       const updated = { ...f, [key]: val };
       if ((key === "weight" || key === "height") && updated.weight && updated.height) {
@@ -109,11 +169,91 @@ export default function ProfilePage() {
     });
   };
 
+  const handleHealthSelection = async (key, value) => {
+    if (savingHealth) return;
+    const previousInjuries = form.injuries;
+    const previousConditions = form.health_conditions;
+    const nextInjuries = key === "injuries"
+      ? toggleHealthSelection(previousInjuries, value)
+      : previousInjuries;
+    const nextConditions = key === "health_conditions"
+      ? toggleHealthSelection(previousConditions, value)
+      : previousConditions;
+    const updatedSelection = key === "injuries" ? nextInjuries : nextConditions;
+    setForm((current) => ({
+      ...current,
+      injuries: nextInjuries,
+      health_conditions: nextConditions,
+    }));
+    setSavingHealth(true);
+    setHealthSaveMessage("Saving...");
+
+    try {
+      const response = await userApi.put("/profile/health", { [key]: updatedSelection });
+      setForm((current) => ({
+        ...current,
+        injuries: key === "injuries" ? toSelectionList(response.data.data.injuries) : current.injuries,
+        health_conditions: key === "health_conditions" ? toSelectionList(response.data.data.health_conditions) : current.health_conditions,
+      }));
+      if (originalFormRef.current) {
+        originalFormRef.current = {
+          ...originalFormRef.current,
+          [key]: updatedSelection,
+        };
+      }
+      setHealthSaveMessage("Saved");
+    } catch (error) {
+      console.error("Health assessment save failed:", error);
+      setForm((current) => ({
+        ...current,
+        injuries: previousInjuries,
+        health_conditions: previousConditions,
+      }));
+      setHealthSaveMessage(error.response?.data?.message || "Unable to save health information. Please try again.");
+    } finally {
+      setSavingHealth(false);
+    }
+  };
+
+  const handleCalculateBmi = async () => {
+    const heightCm = Number(form.height);
+    const weightKg = Number(form.weight);
+    if (!Number.isFinite(heightCm) || heightCm <= 0 || !Number.isFinite(weightKg) || weightKg < 20 || weightKg > 200) {
+      setBmiLogFeedback({ message: "Enter a valid height and a weight between 20 and 200 kg.", isError: true });
+      return;
+    }
+
+    const heightMeters = heightCm / 100;
+    const calculatedBmi = (weightKg / (heightMeters * heightMeters)).toFixed(1);
+    setBmi(calculatedBmi);
+    setSavingBmi(true);
+    setBmiLogFeedback({ message: "", isError: false });
+    try {
+      await userApi.post("/progress", { weight: weightKg, bmi: Number(calculatedBmi) });
+      setBmiLogFeedback({ message: "BMI calculated and added to your progress trend.", isError: false });
+    } catch (err) {
+      console.error(err);
+      setBmiLogFeedback({
+        message: err.response?.data?.message || "BMI calculated, but it could not be added to your progress trend.",
+        isError: true,
+      });
+    } finally {
+      setSavingBmi(false);
+    }
+  };
+
   const handleSave = async () => {
+    if (!isValidPhoneNumber(form.phone)) {
+      setMsg("Phone number must start with 09 and contain exactly 11 digits.");
+      return;
+    }
     setSaving(true);
     setMsg("");
     try {
-      const res = await userApi.put("/profile", form);
+      const profileChanges = Object.fromEntries(
+        Object.entries(form).filter(([key]) => !["injuries", "health_conditions"].includes(key))
+      );
+      const res = await userApi.put("/profile", profileChanges);
       if (res.data.request) {
         setChangeRequests((current) => [res.data.request, ...current]);
         if (originalFormRef.current) {
@@ -246,9 +386,14 @@ export default function ProfilePage() {
         <h1 className="text-xl font-bold text-slate-900 dark:text-white">{form.first_name} {form.last_name}</h1>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{form.email}</p>
         {bmi && (
-          <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-orange-500/30 bg-orange-500/10 px-4 py-1.5">
+          <div className="mt-3 inline-flex flex-wrap items-center justify-center gap-2 rounded-full border border-orange-500/30 bg-orange-500/10 px-4 py-1.5">
             <Activity size={15} className="text-orange-500" />
             <span className="text-sm font-semibold text-orange-700 dark:text-orange-300">BMI {bmi}</span>
+            {bmiCategory && (
+              <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${bmiCategory.style}`}>
+                {bmiCategory.label}
+              </span>
+            )}
           </div>
         )}
       </div>
@@ -262,7 +407,7 @@ export default function ProfilePage() {
 
         {msg && (
           <p role="status" className={`rounded-xl border px-4 py-3 text-sm font-medium ${
-            /unable|failed|error/i.test(msg)
+            /unable|failed|error|could not be delivered/i.test(msg)
               ? "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300"
               : "border-green-500/20 bg-green-500/10 text-green-700 dark:text-green-300"
           }`}>
@@ -283,6 +428,17 @@ export default function ProfilePage() {
             </ul>
           </section>
         )}
+
+        <section className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/5 dark:bg-[#111]">
+          <div>
+            <h2 className="font-bold text-slate-900 dark:text-white">Membership period</h2>
+            <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+              {user?.membership_months
+                ? `${user.membership_months === 12 ? "1 year" : `${user.membership_months} ${user.membership_months === 1 ? "month" : "months"}`} · ${user.membership_start_date ? String(user.membership_start_date).slice(0, 10) : "Start date pending"} to ${user.membership_end_date ? String(user.membership_end_date).slice(0, 10) : "End date pending"}`
+                : "No membership period has been set."}
+            </p>
+          </div>
+        </section>
 
         {/* Personal Info */}
         <section className="space-y-4 rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/5 dark:bg-[#111] sm:p-6">
@@ -310,7 +466,6 @@ export default function ProfilePage() {
 
           {[
             { label: "Email Address", key: "email", type: "email", span: true },
-            { label: "Phone Number", key: "phone", type: "text", span: true },
           ].map((f) => (
             <div key={f.key} className={f.span ? "" : "grid grid-cols-2 gap-3"}>
               <div>
@@ -324,17 +479,31 @@ export default function ProfilePage() {
           ))}
 
           <div>
-            <p className="mb-1 text-xs font-medium text-slate-600 dark:text-slate-300">Gender</p>
-            <div className="flex rounded-xl bg-slate-50 p-1 dark:bg-white/5" role="group" aria-label="Gender">
-              {["Male", "Female"].map((g) => (
-                <button key={g} type="button" aria-pressed={form.gender === g} onClick={() => handleChange("gender", g)}
-                  className={`flex-1 py-2 rounded-lg text-sm font-medium transition ${
-                    form.gender === g ? "bg-orange-500 text-white shadow-sm" : "text-slate-500 hover:text-slate-900 dark:hover:text-white"
-                  }`}>
-                  {g}
-                </button>
-              ))}
+            <label htmlFor="profile-phone" className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Phone Number</label>
+            <div className="flex min-h-12 w-full items-stretch overflow-hidden rounded-xl border border-slate-200 bg-slate-50 shadow-sm transition hover:border-slate-300 focus-within:border-orange-500 focus-within:ring-4 focus-within:ring-orange-500/15 dark:border-white/10 dark:bg-white/[0.04] dark:hover:border-white/20 dark:focus-within:border-orange-500">
+              <span aria-hidden="true" className="flex select-none items-center border-r border-slate-200 bg-slate-100 px-4 text-sm font-semibold tracking-wide text-slate-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-200">09</span>
+              <input
+                id="profile-phone"
+                type="tel"
+                inputMode="numeric"
+                autoComplete="tel"
+                maxLength={9}
+                pattern="[0-9]{9}"
+                required
+                aria-invalid={Boolean(form.phone.slice(2)) && !isValidPhoneNumber(form.phone)}
+                value={form.phone.startsWith("09") ? form.phone.slice(2) : ""}
+                onChange={(event) => handleChange("phone", `09${event.target.value.replace(/\D/g, "").slice(0, 9)}`)}
+                placeholder="000 000 000"
+                className="min-w-0 flex-1 bg-transparent px-4 py-3 text-sm font-medium tracking-wide text-slate-900 outline-none placeholder:text-slate-400 dark:text-white dark:placeholder:text-slate-500"
+              />
             </div>
+          </div>
+
+          <div>
+            <p className="mb-1 text-xs font-medium text-slate-600 dark:text-slate-300">Gender</p>
+            <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-300">
+              {form.gender || "Not set"}
+            </p>
           </div>
         </section>
 
@@ -360,10 +529,23 @@ export default function ProfilePage() {
               </div>
             ))}
           </div>
+          <button type="button" onClick={handleCalculateBmi} disabled={savingBmi} className="inline-flex min-h-10 items-center justify-center rounded-xl bg-orange-600 px-4 text-sm font-semibold text-white transition hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50">
+            {savingBmi ? "Calculating..." : "Calculate BMI"}
+          </button>
+          {bmiLogFeedback.message && (
+            <p role={bmiLogFeedback.isError ? "alert" : "status"} className={`text-sm ${bmiLogFeedback.isError ? "text-red-600 dark:text-red-300" : "text-green-700 dark:text-green-300"}`}>
+              {bmiLogFeedback.message}
+            </p>
+          )}
           {bmi && (
             <div className="rounded-xl border border-orange-100 bg-orange-50/70 p-3 text-center dark:border-orange-500/20 dark:bg-orange-500/[0.06]">
               <p className="text-xs text-slate-500">Calculated BMI</p>
               <p className="mt-1 text-2xl font-bold text-orange-600 dark:text-orange-400">{bmi}</p>
+              {bmiCategory && (
+                <span className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-bold ${bmiCategory.style}`}>
+                  {bmiCategory.label}
+                </span>
+              )}
             </div>
           )}
         </section>
@@ -374,7 +556,7 @@ export default function ProfilePage() {
             <span className="grid h-10 w-10 place-items-center rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400"><Dumbbell size={19} /></span>
             <div>
               <h2 className="font-bold text-slate-900 dark:text-white">Fitness settings</h2>
-              <p className="text-xs text-slate-500">Adjust your goal and experience level.</p>
+              <p className="text-xs text-slate-500">Adjust your goal. Your coach manages your experience level.</p>
             </div>
           </div>
           <div>
@@ -382,41 +564,68 @@ export default function ProfilePage() {
             <select id="profile-fitness-goal" value={form.fitness_goal} onChange={(e) => handleChange("fitness_goal", e.target.value)}
               className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-500 dark:border-white/10 dark:bg-white/5 dark:text-white">
               <option value="">Select goal...</option>
-              {["Weight Loss", "Muscle Gain", "General Fitness", "Endurance", "Maintain Weight"].map((g) => (
+              {["Weight Loss", "Gain Weight", "General Fitness", "Endurance", "Maintain Weight"].map((g) => (
                 <option key={g}>{g}</option>
               ))}
             </select>
           </div>
-          <div>
-            <p className="mb-1 text-xs font-medium text-slate-600 dark:text-slate-300">Experience level</p>
-            <div className="flex gap-2">
-              {["Beginner", "Intermediate", "Advanced"].map((l) => (
-                <button key={l} type="button" aria-pressed={form.activity_level === l} onClick={() => handleChange("activity_level", l)}
-                  className={`flex-1 py-2 rounded-xl text-xs font-semibold border-2 transition ${
-                    form.activity_level === l
-                      ? "border-orange-500 bg-orange-500/20 text-orange-500"
-                      : "border-slate-200 text-slate-500"
-                  }`}>
-                  {l}
-                </button>
-              ))}
-            </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-white/10 dark:bg-white/[0.03]">
+                <label htmlFor="profile-experience-level" className="text-xs font-medium text-slate-500">Experience level</label>
+                <select id="profile-experience-level" value={form.activity_level || "Beginner"} onChange={(e) => handleChange("activity_level", e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-500 dark:border-white/10 dark:bg-[#111] dark:text-white">
+                  {["Beginner", "Intermediate", "Advanced"].map((level) => <option key={level} value={level}>{level}</option>)}
+                </select>
+                <p className="mt-1 text-xs text-slate-500">Experience-level changes are sent to the gym administrator for approval.</p>
           </div>
+        </section>
+
+        <section className="space-y-5 rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/5 dark:bg-[#111] sm:p-6">
           <div>
-            <label htmlFor="profile-preferred-workout-time" className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Preferred workout time</label>
-            <select
-              id="profile-preferred-workout-time"
-              value={form.preferred_workout_time}
-              onChange={(e) => handleChange("preferred_workout_time", e.target.value)}
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-500 dark:border-white/10 dark:bg-white/5 dark:text-white"
-            >
-              <option value="">Not set</option>
-              <option value="Morning">Morning (6:00 AM – 12:00 PM)</option>
-              <option value="Afternoon">Afternoon (12:00 PM – 5:00 PM)</option>
-              <option value="Evening">Evening (5:00 PM – 10:00 PM)</option>
-              <option value="Flexible">Flexible (6:00 AM – 10:00 PM)</option>
-            </select>
+            <h2 className="font-bold text-slate-900 dark:text-white">Injury &amp; health conditions</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Changes save immediately and are shared with your coach and gym administrator.
+            </p>
           </div>
+          {[
+            { label: "Injury or pain areas", key: "injuries", options: injuryOptions },
+            { label: "Health conditions", key: "health_conditions", options: healthConditionOptions },
+          ].map(({ label, key, options }) => (
+            <fieldset key={key}>
+              <legend className="mb-2 block text-sm font-semibold text-slate-700 dark:text-slate-200">{label}</legend>
+              <div className="flex flex-wrap gap-2">
+                {options.map((option) => {
+                  const selected = form[key].includes(option);
+                  return (
+                    <button
+                      key={option}
+                      type="button"
+                      aria-pressed={selected}
+                      disabled={savingHealth}
+                      onClick={() => handleHealthSelection(key, option)}
+                      className={`rounded-xl border px-3.5 py-2 text-sm font-medium transition disabled:cursor-wait disabled:opacity-60 ${
+                        selected
+                          ? "border-orange-500 bg-orange-500/10 text-orange-700 dark:text-orange-300"
+                          : "border-slate-200 text-slate-600 hover:border-orange-300 dark:border-white/10 dark:text-slate-300 dark:hover:border-orange-500/50"
+                      }`}
+                    >
+                      {option}
+                    </button>
+                  );
+                })}
+              </div>
+            </fieldset>
+          ))}
+          {healthSaveMessage && (
+            <p role={healthSaveMessage === "Saved" ? "status" : "alert"} className={`text-xs ${
+              healthSaveMessage === "Saved" ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-300"
+            }`}>
+              {savingHealth ? "Saving..." : healthSaveMessage}
+            </p>
+          )}
+        </section>
+
+        <section className="rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/5 dark:bg-[#111] sm:p-6">
+          <WeeklyWorkoutAvailability experienceLevel={form.activity_level || undefined} />
         </section>
 
         <section className="space-y-4 rounded-2xl border border-orange-100 bg-white p-5 shadow-sm dark:border-white/5 dark:bg-[#111] sm:p-6">

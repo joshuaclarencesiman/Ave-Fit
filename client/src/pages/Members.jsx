@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Search, CheckCircle, XCircle, Trash2, X, UserRoundCog, UserRound, Save, KeyRound, ShieldCheck } from "lucide-react";
+import { Search, CheckCircle, XCircle, Trash2, X, UserRoundCog, UserRound, Save, KeyRound, ShieldCheck, TrendingUp, Mail } from "lucide-react";
 import api from "../services/api";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
+import ProgressHistoryModal from "../components/progress/ProgressHistoryModal";
 
 const statusColors = {
   Active: "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-400",
@@ -9,7 +10,7 @@ const statusColors = {
   Inactive: "bg-slate-100 text-slate-500 dark:bg-slate-700/50 dark:text-slate-400",
 };
 
-const MEMBER_STATUS_OPTIONS = ["Active", "Inactive"];
+const fetchAdminProgress = (memberId) => api.get(`/members/${memberId}/progress`);
 const PROFILE_CHANGE_LABELS = {
   first_name: "First name",
   last_name: "Last name",
@@ -24,8 +25,8 @@ const PROFILE_CHANGE_LABELS = {
   activity_level: "Experience level",
   target_weight: "Target weight",
   workout_days_per_week: "Workout days per week",
-  workout_duration: "Workout duration",
   preferred_days: "Preferred days",
+  weekly_availability: "Weekly workout availability",
   preferred_workout_time: "Preferred workout time",
   intensity: "Preferred intensity",
   injuries: "Injuries",
@@ -36,6 +37,15 @@ const PROFILE_CHANGE_LABELS = {
 const formatChangeValue = (value) => {
   if (value === null || value === undefined || value === "") return "Not set";
   if (Array.isArray(value)) return value.length ? value.join(", ") : "None";
+  const schedule = typeof value === "object" ? value.weekly_availability || value : null;
+  if (schedule && Array.isArray(schedule.availability)) {
+    const days = schedule.availability.map((slot) => (
+      `${slot.day_of_week} (${slot.time_preference || `${slot.start_time}-${slot.end_time}`})`
+    ));
+    const frequency = schedule.workout_days_per_week ? `${schedule.workout_days_per_week} workout days/week` : "";
+    const level = schedule.activity_level || "";
+    return [...days, frequency, level].filter(Boolean).join(" · ") || "No availability selected";
+  }
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 };
@@ -47,6 +57,7 @@ function getBMICategory(bmi) {
   if (bmi < 30) return { label: "Overweight", color: "text-orange-500" };
   return { label: "Obese", color: "text-red-500" };
 }
+const formatFitnessGoal = (goal) => goal === "Muscle Gain" ? "Gain Weight" : goal;
 
 const getManilaToday = () => {
   const parts = new Intl.DateTimeFormat("en", {
@@ -83,7 +94,7 @@ const getMembershipStatus = (member) => {
   if (!member.membership_months || !member.membership_end_date) return "Not recorded";
   if (member.membership_start_date &&
       String(member.membership_start_date).slice(0, 10) > getManilaToday()) return "Upcoming";
-  return String(member.membership_end_date).slice(0, 10) >= getManilaToday() ? "Active" : "Expired";
+  return String(member.membership_end_date).slice(0, 10) >= getManilaToday() ? "Active" : "Inactive";
 };
 
 function MemberPhoto({ member, large = false }) {
@@ -99,109 +110,122 @@ function MemberPhoto({ member, large = false }) {
   );
 }
 
-function MemberModal({ member, onClose, onSave }) {
-  const [form, setForm] = useState(member || { full_name: "", email: "", phone: "", gender: "", age: "", height: "", weight: "", fitness_goal: "", preferred_workout_time: "" });
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  // Active/Inactive are the admin-selectable statuses; keep the member's current
-  // value (e.g. Pending/Rejected) selectable so editing never silently changes it.
-  const statusOptions = [...new Set([...(form.status ? [form.status] : []), ...MEMBER_STATUS_OPTIONS])];
-
-  const handleSubmit = async () => {
-    if (!form.full_name || !form.email) return setError("Full name and email are required.");
-    setSaving(true); setError("");
-    try {
-      const response = member
-        ? await api.put(`/members/${member.member_id}`, { ...form, status: form.status || member.status })
-        : await api.post("/members", form);
-      const savedMember = response?.data?.member || response?.data?.data || (member ? { ...member, ...form, status: form.status || member.status } : null);
-      await onSave(savedMember); onClose();
-    } catch (err) {
-      setError(err.response?.data?.message || "Failed to save member.");
-    } finally { setSaving(false); }
-  };
+function MembershipStatusModal({ member, onClose, onSave, isSaving = false }) {
+  const [membershipMonths, setMembershipMonths] = useState(member?.membership_months || 1);
+  const hasNoMembership = !member?.membership_months || Number(member.membership_months) <= 0;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-sm">
-      <div className="bg-white dark:bg-[#171717] rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto border border-slate-200 dark:border-gray-800">
-        <div className="p-6 border-b border-slate-200 dark:border-gray-800 flex items-center justify-between">
-          <h2 className="text-xl font-bold text-slate-800 dark:text-white">{member ? "Edit Member" : "Add New Member"}</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-700 dark:hover:text-white"><X size={20}/></button>
-        </div>
-        <div className="p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            {[
-              {label:"Full Name *",key:"full_name",type:"text",span:true}, {label:"Email *",key:"email",type:"email",span:true},
-              {label:"Phone",key:"phone",type:"text"}, {label:"Gender",key:"gender",type:"select",options:["","Male","Female"]},
-              {label:"Age",key:"age",type:"number"}, {label:"Fitness Goal",key:"fitness_goal",type:"select",options:["","Weight Loss","Muscle Gain","General Fitness","Endurance"]},
-              {label:"Preferred Workout Time",key:"preferred_workout_time",type:"select",options:["","Morning","Afternoon","Evening","Flexible"]},
-              {label:"Height (cm)",key:"height",type:"number"}, {label:"Weight (kg)",key:"weight",type:"number"},
-            ].map(f => <div key={f.key} className={f.span ? "col-span-2" : ""}>
-              <label className="block text-sm font-medium text-slate-600 dark:text-gray-300 mb-1">{f.label}</label>
-              {f.type === "select" ? <select value={form[f.key] || ""} onChange={e=>setForm({...form,[f.key]:e.target.value})} className="w-full border border-slate-300 dark:border-gray-700 rounded-lg bg-white dark:bg-[#111] text-slate-800 dark:text-white px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-orange-500">{f.options.map(o=><option key={o} value={o}>{o || "Select..."}</option>)}</select> : <input type={f.type} value={form[f.key] || ""} onChange={e=>setForm({...form,[f.key]:e.target.value})} className="w-full border border-slate-300 dark:border-gray-700 rounded-lg bg-white dark:bg-[#111] text-slate-800 dark:text-white px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-orange-500" />}
-            </div>)}
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-800 dark:bg-[#111]" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-orange-600 dark:text-orange-400">Membership status</p>
+            <h3 className="mt-1 text-xl font-black text-slate-900 dark:text-white">{member?.full_name || "Member"}</h3>
           </div>
-          {form.height && form.weight && <p className="text-sm text-orange-600 dark:text-orange-400 font-medium">BMI: {(parseFloat(form.weight)/Math.pow(parseFloat(form.height)/100,2)).toFixed(1)} (auto-calculated)</p>}
-          {member && (
-            <div>
-              <label className="block text-sm font-medium text-slate-600 dark:text-gray-300 mb-1">Status</label>
-              <select value={form.status || ""} onChange={e => setForm({ ...form, status: e.target.value })} className="w-full border border-slate-300 dark:border-gray-700 rounded-lg bg-white dark:bg-[#111] text-slate-800 dark:text-white px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-orange-500">{statusOptions.map(s => <option key={s} value={s}>{s}</option>)}</select>
-              <p className="text-xs text-slate-400 mt-1">Set the member Active or Inactive. Inactive members cannot sign in.</p>
-            </div>
-          )}
-          {error && <p className="text-red-500 text-sm">{error}</p>}
+          <button type="button" onClick={onClose} className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Close membership status modal">
+            <X size={18} />
+          </button>
         </div>
-        <div className="p-6 border-t border-slate-200 dark:border-gray-800 flex gap-3 justify-end">
-          <button onClick={onClose} className="px-5 py-2.5 rounded-xl border border-slate-300 dark:border-gray-700 text-slate-600 dark:text-gray-300 hover:bg-slate-50 dark:hover:bg-gray-800 text-sm font-medium">Cancel</button>
-          <button onClick={handleSubmit} disabled={saving} className="px-5 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white text-sm font-medium disabled:opacity-50">{saving?"Saving...":member?"Save Changes":"Add Member"}</button>
+
+        {hasNoMembership && (
+          <div className="mt-4 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+            <span className="h-2.5 w-2.5 rounded-full bg-red-500" aria-hidden="true" />
+            No membership has been assigned yet.
+          </div>
+        )}
+
+        <div className="mt-5 space-y-4">
+          <label className="block text-sm font-medium text-slate-600 dark:text-slate-300">
+            Membership term
+            <select
+              value={membershipMonths}
+              onChange={(event) => setMembershipMonths(event.target.value)}
+              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-slate-900 outline-none focus:ring-2 focus:ring-orange-500 dark:border-slate-700 dark:bg-[#171717] dark:text-white"
+            >
+              {[1, 3, 6, 12].map((months) => (
+                <option key={months} value={months}>{months === 12 ? "1 year" : `${months} ${months === 1 ? "month" : "months"}`}</option>
+              ))}
+            </select>
+          </label>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={onClose} className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">
+              Close
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                await onSave(member, Number(membershipMonths) || null);
+              }}
+              disabled={isSaving}
+              className="rounded-xl bg-orange-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSaving ? "Saving..." : "Save membership"}
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function ViewModal({ member, trainers, onClose, onEdit, onAssign, onMembershipUpdate }) {
+function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, onViewProgress }) {
   const bmiInfo = getBMICategory(member.bmi);
   const [selectedTrainer, setSelectedTrainer] = useState(member.trainer_id || "");
+  const [recommendations, setRecommendations] = useState([]);
+  const [recommendationMessage, setRecommendationMessage] = useState("");
+  const [recommendationsLoading, setRecommendationsLoading] = useState(true);
   const [membershipMonths, setMembershipMonths] = useState(member.membership_months || "");
-  const [saving, setSaving] = useState(false);
-  const [savingMembership, setSavingMembership] = useState(false);
-  const [error, setError] = useState("");
-  const [membershipError, setMembershipError] = useState("");
+  const [savingChanges, setSavingChanges] = useState(false);
+  const [changesError, setChangesError] = useState("");
   const assignedTrainer = trainers.find(t => Number(t.trainer_id) === Number(member.trainer_id));
   const canEditMembershipAndCoach = String(member.status || "").trim() === "Active";
-
   useEffect(() => {
     setMembershipMonths(member.membership_months || "");
     setSelectedTrainer(member.trainer_id || "");
+    let active = true;
+    setRecommendationsLoading(true);
+    api.get(`/members/${member.member_id}/coach-recommendations`)
+      .then(({ data }) => {
+        if (!active) return;
+        setRecommendations(data.data?.recommendations || []);
+        setRecommendationMessage(data.data?.message || "");
+      })
+      .catch((err) => {
+        if (active) setRecommendationMessage(err.response?.data?.message || "Unable to load coach recommendations.");
+      })
+      .finally(() => active && setRecommendationsLoading(false));
+    return () => { active = false; };
   }, [member.member_id, member.membership_months, member.trainer_id]);
 
-  const saveCoach = async () => {
-    setSaving(true); setError("");
-    try { await onAssign(member, selectedTrainer || null); }
-    catch (err) { setError(err.response?.data?.message || "Failed to update coach."); }
-    finally { setSaving(false); }
-  };
-
-  const saveMembership = async () => {
-    setSavingMembership(true);
-    setMembershipError("");
+  const saveChanges = async () => {
+    setSavingChanges(true);
+    setChangesError("");
     try {
-      await onMembershipUpdate(member, membershipMonths ? Number(membershipMonths) : null);
+      if (coachChanged) await onAssign(member, selectedTrainer || null);
+      if (membershipChanged) {
+        await onMembershipUpdate(member, membershipMonths ? Number(membershipMonths) : null);
+      }
     } catch (err) {
-      setMembershipError(err.response?.data?.message || "Failed to update membership.");
+      setChangesError(err.response?.data?.message || err.message || "Failed to save member changes.");
     } finally {
-      setSavingMembership(false);
+      setSavingChanges(false);
     }
   };
 
   const membershipStatus = getMembershipStatus(member);
   const membershipStartDate = member.membership_start_date
+    && member.membership_end_date
+    && String(member.membership_end_date).slice(0, 10) >= getManilaToday()
     ? String(member.membership_start_date).slice(0, 10)
-    : member.joined_date ? String(member.joined_date).slice(0, 10) : null;
+    : getManilaToday();
   const membershipEndDate = membershipMonths
     ? getMembershipEndDate(membershipStartDate, membershipMonths)
     : null;
+  const membershipChanged = String(membershipMonths || "") !== String(member.membership_months || "");
+  const selectedCoach = recommendations.find((coach) => String(coach.trainer_id) === String(selectedTrainer));
+  const coachChanged = String(selectedTrainer || "") !== String(member.trainer_id || "");
+  const hasChanges = membershipChanged || coachChanged;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 backdrop-blur-sm" onClick={onClose}>
@@ -221,10 +245,60 @@ function ViewModal({ member, trainers, onClose, onEdit, onAssign, onMembershipUp
         </div>
 
         <div className="p-6 space-y-5">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-            {[{label:"Email",value:member.email},{label:"Email Verified",value:member.email_verified?"Yes":"No"},{label:"Phone",value:member.phone},{label:"Gender",value:member.gender},{label:"Age",value:member.age?`${member.age} yrs`:"—"},{label:"Height",value:member.height?`${member.height} cm`:"—"},{label:"Weight",value:member.weight?`${member.weight} kg`:"—"},{label:"Fitness Goal",value:member.fitness_goal},{label:"Preferred Workout Time",value:member.preferred_workout_time},{label:"Status",value:member.status}].map(x=><div key={x.label} className="bg-slate-50 dark:bg-[#222] rounded-xl p-3"><p className="text-xs text-slate-400">{x.label}</p><p className="mt-1 font-semibold text-slate-700 dark:text-gray-200 break-words">{x.value || "—"}</p></div>)}
+          {member.missing_profile_fields?.length > 0 && (
+            <div role="status" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 dark:border-red-500/30 dark:bg-red-500/10">
+              <p className="text-sm font-bold text-red-700 dark:text-red-300">Profile information to complete</p>
+              <p className="mt-1 text-sm text-red-700 dark:text-red-300">{member.missing_profile_fields.join(", ")}</p>
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+            {[
+              ["First name", member.first_name],
+              ["Last name", member.last_name],
+              ["Email", member.email],
+              ["Phone", member.phone],
+              ["Gender", member.gender],
+              ["Age", member.age],
+              ["Height (cm)", member.height],
+              ["Weight (kg)", member.weight],
+              ["Fitness goal", member.fitness_goal],
+              ["Status", member.status],
+            ].map(([label, value]) => (
+              <div key={label} className="min-w-0 rounded-xl bg-slate-50 p-3 dark:bg-[#222]">
+                <span className="block text-xs text-slate-500 dark:text-slate-400">{label}</span>
+                <p className="mt-1 break-words text-sm font-semibold text-slate-800 dark:text-slate-100">{value || "Not set"}</p>
+              </div>
+            ))}
+            <div className="rounded-xl bg-slate-50 p-3 dark:bg-[#222]"><p className="text-xs text-slate-400">Email verified</p><p className="mt-1 font-semibold text-slate-700 dark:text-gray-200">{member.email_verified ? "Yes" : "No"}</p></div>
           </div>
-
+          <section className="rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Training preferences</p>
+            <p className="mt-2 text-sm text-slate-700 dark:text-slate-200">
+              {Array.isArray(member.preferred_days)
+                ? member.preferred_days.join(", ") || "No preferred days set."
+                : member.preferred_days || "No preferred days set."}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              {member.workout_days_per_week ? `${member.workout_days_per_week} days/week` : "Days/week not set"}
+            </p>
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              <span className="font-semibold">Preferred time:</span> {member.preferred_workout_time || "Not specified"}
+            </p>
+            {Array.isArray(member.weekly_availability) && member.weekly_availability.length > 0 && (
+              <ul className="mt-3 space-y-1 text-xs text-slate-500 dark:text-slate-400">
+                {member.weekly_availability.map((slot) => (
+                  <li key={slot.day_of_week}>
+                    <span className="font-semibold">{slot.day_of_week}:</span> {slot.start_time}–{slot.end_time}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+          <div className="flex justify-end">
+            <button type="button" onClick={() => onViewProgress(member)} className="inline-flex items-center gap-2 rounded-xl border border-orange-200 px-4 py-2 text-sm font-semibold text-orange-700 hover:bg-orange-50 dark:border-orange-500/30 dark:text-orange-300 dark:hover:bg-orange-500/10">
+              <TrendingUp size={16} /> View Progress
+            </button>
+          </div>
           <div className="rounded-2xl border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900 p-4 text-center">
             <p className="text-xs font-medium text-slate-500 dark:text-slate-300">BMI</p>
             <p className="text-3xl font-bold text-slate-900 dark:text-white mt-1">{member.bmi ? parseFloat(member.bmi).toFixed(1) : "—"}</p>
@@ -245,7 +319,7 @@ function ViewModal({ member, trainers, onClose, onEdit, onAssign, onMembershipUp
                 {membershipMonths && membershipEndDate && ` – ${formatMembershipDate(membershipEndDate)}`}
               </p>
               <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                The start date is the join date or latest reactivation date. The end date is calculated from the selected term.
+                The preview starts today when the membership is new or expired; otherwise it uses the current period start date.
               </p>
             </div>
             <div className="grid gap-3">
@@ -257,44 +331,96 @@ function ViewModal({ member, trainers, onClose, onEdit, onAssign, onMembershipUp
                   disabled={!canEditMembershipAndCoach}
                   className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-slate-900 outline-none focus:ring-2 focus:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-[#111] dark:text-white"
                 >
-                  <option value="1">1 month</option>
-                  <option value="3">3 months</option>
-                  <option value="6">6 months</option>
-                  <option value="10">10 months</option>
-                  <option value="12">1 year</option>
+                  <option value="">Not selected</option>
+                  {[1, 3, 6, 12].map((months) => (
+                    <option key={months} value={months}>{months === 12 ? "1 year" : `${months} ${months === 1 ? "month" : "months"}`}</option>
+                  ))}
                 </select>
               </label>
             </div>
-            {membershipError && <p role="alert" className="mt-2 text-sm text-red-500">{membershipError}</p>}
             {!canEditMembershipAndCoach && <p className="mt-2 text-xs text-slate-500">Membership editing is locked until this member is active. Approve or activate the member to edit.</p>}
-            <button
-              type="button"
-              onClick={saveMembership}
-              disabled={!canEditMembershipAndCoach || savingMembership}
-              className="mt-4 w-full rounded-xl bg-orange-500 px-4 py-3 font-bold text-white transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {savingMembership ? "Saving..." : "Save Membership"}
-            </button>
           </div>
 
           <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5">
             <h3 className="flex items-center gap-2 text-lg font-bold text-slate-800 dark:text-white mb-4"><UserRoundCog size={20} className="text-orange-500"/> Designated Coach</h3>
-            {assignedTrainer && <div className="mb-4 flex items-center gap-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3">
+            {assignedTrainer ? <div className="mb-4 flex items-center gap-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3">
               {assignedTrainer.photo_url ? <img src={assignedTrainer.photo_url} alt="" className="w-14 h-14 rounded-full object-contain bg-black"/> : <div className="w-14 h-14 rounded-full bg-orange-100 dark:bg-orange-500/20 flex items-center justify-center text-orange-500"><UserRound/></div>}
-              <div className="min-w-0"><p className="text-xs font-medium text-slate-500 dark:text-slate-300">Current Coach</p><p className="font-bold text-slate-900 dark:text-white truncate">{assignedTrainer.full_name}</p><p className="text-xs text-orange-700 dark:text-orange-400 truncate">{assignedTrainer.goal_specialty || "General Fitness"}</p></div>
-            </div>}
-            <select value={selectedTrainer} onChange={e=>setSelectedTrainer(e.target.value)} disabled={!canEditMembershipAndCoach} className="w-full border border-slate-300 dark:border-gray-700 rounded-2xl bg-white dark:bg-[#111] text-slate-900 dark:text-white px-5 py-4 text-base font-medium outline-none focus:ring-2 focus:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-60 dark:[color-scheme:dark]">
-              {trainers.filter(t=>!t.status || t.status === "Active").map(t=><option key={t.trainer_id} value={t.trainer_id} className="bg-white text-gray-900 dark:bg-[#111] dark:text-white">{t.full_name} — {t.goal_specialty || "General Fitness"}</option>)}
-            </select>
-            {error && <p className="text-sm text-red-500 mt-2">{error}</p>}
+              <div className="min-w-0 flex-1"><p className="text-xs font-medium text-slate-500 dark:text-slate-300">Current Coach</p><p className="font-bold text-slate-900 dark:text-white truncate">{assignedTrainer.full_name}</p><p className="text-xs text-orange-700 dark:text-orange-400 truncate">{assignedTrainer.goal_specialty || "General Fitness"}</p></div>
+              <div className="text-right"><p className="text-xs font-semibold text-slate-600 dark:text-slate-300">{assignedTrainer.assigned_member_count ?? "—"}/{assignedTrainer.max_members ?? 15} members</p><span className={`mt-1 inline-block rounded-full px-2 py-1 text-[10px] font-bold ${assignedTrainer.status === "Active" ? "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-300" : "bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300"}`}>{assignedTrainer.status || "Unknown"}</span></div>
+            </div> : <p className="mb-4 rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">No coach assigned yet.</p>}
+            <p className="mb-2 block text-sm font-medium text-slate-600 dark:text-slate-300">Choose a coach</p>
+            <button
+              type="button"
+              onClick={() => setSelectedTrainer("")}
+              disabled={!canEditMembershipAndCoach}
+              aria-pressed={!selectedTrainer}
+              className={`mb-3 rounded-lg border px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60 ${!selectedTrainer ? "border-orange-500 bg-orange-50 text-orange-700 dark:bg-orange-500/10 dark:text-orange-300" : "border-slate-200 text-slate-600 dark:border-slate-700 dark:text-slate-300"}`}
+            >
+              No designated coach
+            </button>
+            {!recommendationsLoading && recommendations.length > 0 && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {recommendations.map((coach) => {
+                  const capacity = Number(coach.max_members) || 0;
+                  const assigned = Number(coach.assigned_member_count) || 0;
+                  const selected = String(selectedTrainer) === String(coach.trainer_id);
+                  return (
+                    <button
+                      key={coach.trainer_id}
+                      type="button"
+                      onClick={() => setSelectedTrainer(String(coach.trainer_id))}
+                      disabled={!canEditMembershipAndCoach || recommendationsLoading}
+                      aria-pressed={selected}
+                      className={`rounded-xl border p-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-60 ${selected ? "border-orange-500 bg-orange-50 dark:bg-orange-500/10" : "border-slate-200 bg-white hover:border-orange-300 dark:border-slate-700 dark:bg-[#111]"}`}
+                    >
+                      <div className="flex items-center gap-3">
+                        {coach.photo_url ? <img src={coach.photo_url} alt="" className="h-11 w-11 rounded-full bg-black object-contain" /> : <div className="grid h-11 w-11 place-items-center rounded-full bg-orange-100 text-orange-600 dark:bg-orange-500/15 dark:text-orange-300"><UserRound size={20}/></div>}
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-bold text-slate-900 dark:text-white">{coach.full_name}</p>
+                          <p className="truncate text-xs text-orange-600 dark:text-orange-400">{coach.goal_specialty || "General Fitness"}</p>
+                          {coach.specializations?.length > 0 && <p className="mt-1 line-clamp-1 text-[11px] text-slate-600 dark:text-slate-300">{Array.isArray(coach.specializations) ? coach.specializations.join(", ") : coach.specializations}</p>}
+                          <p className="mt-1 line-clamp-2 text-[11px] text-slate-500 dark:text-slate-400">{coach.bio || "No coach bio provided."}</p>
+                          <p className="mt-1 truncate text-[11px] text-slate-500 dark:text-slate-400">{coach.email}{coach.phone ? ` · ${coach.phone}` : ""}</p>
+                        </div>
+                        {selected && <CheckCircle size={18} className="shrink-0 text-orange-500" aria-label="Selected" />}
+                      </div>
+                      <div className="mt-3 flex items-center justify-between gap-2 text-[11px] text-slate-600 dark:text-slate-300">
+                        <span>{assigned}/{capacity} members · {Math.max(capacity - assigned, 0)} slots remaining</span>
+                        <span>{coach.capacity_status || (Number(coach.capacity_percent) >= 80 ? "Near Capacity" : "Active")}</span>
+                      </div>
+                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-white/10">
+                        <span className="block h-full rounded-full bg-orange-500" style={{ width: `${Math.min(Number(coach.capacity_percent) || 0, 100)}%` }} />
+                      </div>
+                      <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+                        Availability: {coach.availability?.length
+                          ? coach.availability.map((slot) => `${slot.day_of_week} ${slot.start_time}-${slot.end_time}`).join(" · ")
+                          : "No schedule set"}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {recommendationsLoading && <p className="mt-2 text-xs text-slate-500">Checking coach capacity and schedule compatibility…</p>}
+            {!recommendationsLoading && !recommendations.length && recommendationMessage && (
+              <p role="status" className="mt-2 rounded-lg border border-amber-300/50 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200">{recommendationMessage}</p>
+            )}
+            {selectedTrainer && selectedCoach && (
+              <div role={selectedCoach.schedule_compatible && Number(selectedCoach.assigned_member_count) < Number(selectedCoach.max_members) ? "status" : "alert"} className={`mt-3 rounded-lg border px-3 py-2 text-xs ${selectedCoach.schedule_compatible && Number(selectedCoach.assigned_member_count) < Number(selectedCoach.max_members) ? "border-green-200 bg-green-50 text-green-800 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-200" : "border-amber-300/50 bg-amber-50 text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200"}`}>
+                {!selectedCoach.schedule_compatible && <p>This coach’s availability does not match the member’s preferred workout schedule. You can still assign this coach.</p>}
+                {Number(selectedCoach.assigned_member_count) >= Number(selectedCoach.max_members) && <p className={!selectedCoach.schedule_compatible ? "mt-1" : ""}>This coach is at full capacity. You can still assign this coach.</p>}
+                {selectedCoach.schedule_compatible && Number(selectedCoach.assigned_member_count) < Number(selectedCoach.max_members) && <p>Schedule matches. Compatible days: {selectedCoach.matched_days.map((day) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][day]).join(", ") || "—"}</p>}
+              </div>
+            )}
             {!canEditMembershipAndCoach && <p className="mt-2 text-xs text-slate-500">Coach assignment is locked until this member is active.</p>}
-            <button onClick={saveCoach} disabled={!canEditMembershipAndCoach || saving} className="w-full mt-4 flex items-center justify-center gap-2 py-4 rounded-2xl bg-orange-500 hover:bg-orange-600 text-white font-bold disabled:opacity-50 disabled:cursor-not-allowed"><Save size={18}/>{saving?"Saving...":"Save Designated Coach"}</button>
           </div>
         </div>
 
         <div className="p-6 border-t border-slate-200 dark:border-gray-800 flex justify-end gap-3">
-          <button onClick={onClose} className="px-5 py-2.5 rounded-xl border border-slate-300 dark:border-gray-700 text-slate-600 dark:text-gray-300 hover:bg-slate-50 dark:hover:bg-gray-800 text-sm font-medium">Close</button>
-          <button onClick={()=>{onClose();onEdit(member);}} className="px-5 py-2.5 rounded-xl bg-orange-600 hover:bg-orange-700 text-white text-sm font-medium">Edit Member</button>
+          <div className="mr-auto min-w-0">
+            {changesError && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{changesError}</p>}
+          </div>
+          <button type="button" onClick={saveChanges} disabled={savingChanges || !hasChanges || (!canEditMembershipAndCoach && (membershipChanged || coachChanged)) || recommendationsLoading} className="inline-flex items-center gap-2 rounded-xl bg-orange-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50"><Save size={16}/>{savingChanges ? "Saving..." : "Save Changes"}</button>
         </div>
       </div>
     </div>
@@ -302,27 +428,34 @@ function ViewModal({ member, trainers, onClose, onEdit, onAssign, onMembershipUp
 }
 
 export default function Members() {
-  const [members,setMembers]=useState([]), [trainers,setTrainers]=useState([]), [loading,setLoading]=useState(true), [fetchError,setFetchError]=useState(""), [search,setSearch]=useState(""), [filter,setFilter]=useState("All"), [showAddModal,setShowAddModal]=useState(false), [viewMember,setViewMember]=useState(null), [editMember,setEditMember]=useState(null);
+  const [members,setMembers]=useState([]), [trainers,setTrainers]=useState([]), [loading,setLoading]=useState(true), [fetchError,setFetchError]=useState(""), [search,setSearch]=useState(""), [filter,setFilter]=useState("All"), [viewMember,setViewMember]=useState(null), [progressMember,setProgressMember]=useState(null), [membershipPromptMember,setMembershipPromptMember]=useState(null), [savingMembershipPrompt,setSavingMembershipPrompt]=useState(false);
   const [confirmMember, setConfirmMember] = useState(null);
   const [deletingMember, setDeletingMember] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const [changeRequests, setChangeRequests] = useState([]);
+  const [membershipRequests, setMembershipRequests] = useState([]);
   const [reviewingRequestId, setReviewingRequestId] = useState(null);
   const [reviewRequestToReject, setReviewRequestToReject] = useState(null);
   const [reviewMessage, setReviewMessage] = useState("");
   const [reviewError, setReviewError] = useState("");
+  const [decisionNotice, setDecisionNotice] = useState("");
+  const [sendingReportMemberId, setSendingReportMemberId] = useState(null);
+  const [sendingAllReports, setSendingAllReports] = useState(false);
+  const [reportNotice, setReportNotice] = useState({ message: "", error: "" });
 
   const fetchData = async () => {
     setLoading(true); setFetchError("");
     try {
-      const [m,t,requests] = await Promise.all([
+      const [m,t,requests,membershipTerms] = await Promise.all([
         api.get("/members"),
         api.get("/trainers"),
         api.get("/members/change-requests"),
+        api.get("/members/membership-term-requests"),
       ]);
 
       // The API returns arrays directly. Also support { data: [...] } responses.
-      const memberRows = Array.isArray(m.data) ? m.data : (m.data?.data || []);
+      const memberRows = (Array.isArray(m.data) ? m.data : (m.data?.data || []))
+        .map((member) => ({ ...member, fitness_goal: formatFitnessGoal(member.fitness_goal) }));
       const trainerRows = Array.isArray(t.data) ? t.data : (t.data?.data || []);
 
       setMembers(memberRows);
@@ -332,10 +465,41 @@ export default function Members() {
       });
       setTrainers(trainerRows);
       setChangeRequests(requests.data?.data || []);
+      setMembershipRequests(membershipTerms.data?.data || []);
+      return memberRows;
     } catch (err) { console.error(err); setFetchError(err.response?.data?.message || err.message || "Couldn't load members."); }
     finally { setLoading(false); }
   };
   useEffect(()=>{fetchData();},[]);
+  useEffect(() => {
+    let active = true;
+    const refreshHealthData = async () => {
+      if (document.visibilityState !== "visible") return;
+      try {
+        const response = await api.get("/members");
+        if (!active) return;
+        const rows = (Array.isArray(response.data) ? response.data : (response.data?.data || []))
+          .map((member) => ({ ...member, fitness_goal: formatFitnessGoal(member.fitness_goal) }));
+        setMembers(rows);
+        setViewMember((current) => current
+          ? rows.find((row) => Number(row.member_id) === Number(current.member_id)) || current
+          : current);
+      } catch (error) {
+        if (!active) return;
+        console.error("Couldn't refresh member health information:", error);
+        setFetchError(error.response?.data?.message || "Member information couldn't be refreshed.");
+      }
+    };
+    const intervalId = window.setInterval(refreshHealthData, 15000);
+    window.addEventListener("focus", refreshHealthData);
+    document.addEventListener("visibilitychange", refreshHealthData);
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshHealthData);
+      document.removeEventListener("visibilitychange", refreshHealthData);
+    };
+  }, []);
 
   const handleReviewChangeRequest = async (request, decision) => {
     setReviewingRequestId(request.request_id);
@@ -353,8 +517,55 @@ export default function Members() {
     }
   };
 
-  const handleApprove=async id=>{try{await api.put(`/members/${id}/approve`);await fetchData();}catch(e){alert(e.response?.data?.message||"Failed to update member status.");}};
-  const handleReject=async id=>{try{await api.put(`/members/${id}/reject`);await fetchData();}catch(e){alert(e.response?.data?.message||"Failed to deactivate member.");}};
+  const handleReviewMembershipRequest = async (request, decision) => {
+    setReviewingRequestId(request.request_id);
+    setReviewMessage("");
+    setReviewError("");
+    try {
+      const response = await api.put(`/members/membership-term-requests/${request.request_id}/${decision}`);
+      setReviewMessage(response.data.message);
+      await fetchData();
+    } catch (error) {
+      setReviewError(error.response?.data?.message || "Unable to review this membership request.");
+    } finally {
+      setReviewingRequestId(null);
+    }
+  };
+
+  const sendMemberReport = async (member) => {
+    setSendingReportMemberId(member.member_id);
+    setReportNotice({ message: "", error: "" });
+    try {
+      const response = await api.post(`/analytics/weekly-progress-report/${member.member_id}`);
+      setReportNotice({ message: `${response.data.message} (${member.full_name})`, error: "" });
+    } catch (error) {
+      setReportNotice({
+        message: "",
+        error: error.response?.data?.message || `Unable to send a progress report to ${member.full_name}.`,
+      });
+    } finally {
+      setSendingReportMemberId(null);
+    }
+  };
+
+  const sendAllMemberReports = async () => {
+    setSendingAllReports(true);
+    setReportNotice({ message: "", error: "" });
+    try {
+      const response = await api.post("/analytics/weekly-progress-report");
+      setReportNotice({ message: response.data.message, error: "" });
+    } catch (error) {
+      setReportNotice({
+        message: "",
+        error: error.response?.data?.message || "Unable to send weekly progress reports.",
+      });
+    } finally {
+      setSendingAllReports(false);
+    }
+  };
+
+  const handleApprove=async id=>{setDecisionNotice("");try{const member = members.find((row) => Number(row.member_id) === Number(id));const response=await api.put(`/members/${id}/approve`);setDecisionNotice(response.data.email_sent===false?"Member approved, but the notification email could not be delivered. Check the email-service configuration.":"Member approved and the notification email was sent.");const updatedMembers=await fetchData();const approvedMember=updatedMembers?.find((row)=>Number(row.member_id)===Number(id)) || member;if(approvedMember){setMembershipPromptMember({ ...approvedMember, membership_months: approvedMember.membership_months || 1 });}}catch(e){alert(e.response?.data?.message||"Failed to update member status.");}};
+  const handleReject=async id=>{setDecisionNotice("");try{const response=await api.put(`/members/${id}/reject`);setDecisionNotice(response.data.email_sent===false?"Member status updated, but the notification email could not be delivered. Check the email-service configuration.":"Member status updated and the notification email was sent.");await fetchData();}catch(e){alert(e.response?.data?.message||"Failed to deactivate member.");}};
   const handleDelete=(id)=>{
     const member = members.find((row) => Number(row.member_id) === Number(id));
     if (member) setConfirmMember(member);
@@ -377,12 +588,12 @@ export default function Members() {
   };
   const handleAssign=async(member,trainer_id)=>{
     await api.put(`/members/${member.member_id}/trainer`,{trainer_id});
-    await fetchData();
-
     const response = await api.get("/members");
-    const rows = Array.isArray(response.data)
+    const rows = (Array.isArray(response.data)
       ? response.data
-      : (response.data?.data || []);
+      : (response.data?.data || []))
+      .map((row) => ({ ...row, fitness_goal: formatFitnessGoal(row.fitness_goal) }));
+    setMembers(rows);
 
     const updated = rows.find(
       m => Number(m.member_id) === Number(member.member_id)
@@ -401,57 +612,24 @@ export default function Members() {
     setViewMember(current => current && Number(current.member_id) === Number(member.member_id)
       ? { ...current, ...updatedMembership }
       : current);
+    setMembershipPromptMember(null);
   };
-
-  const handleMemberSave = async (savedMember = null) => {
-    // Refresh the member list so table status/fields are current.
-    let rows = [];
-    try {
-      const response = await api.get("/members");
-      rows = Array.isArray(response.data)
-        ? response.data
-        : (response.data?.data || []);
-    } catch {
-      // Fall back to a full reload if the refresh request fails.
-      await fetchData();
-      return;
-    }
-
-    setMembers(rows);
-
-    // Update any open profile views in real time using the fresh record.
-    const savedId = Number(savedMember?.member_id ?? savedMember?.user_id);
-    const updated = Number.isNaN(savedId)
-      ? null
-      : rows.find((row) => Number(row.member_id ?? row.user_id) === savedId) || savedMember;
-
-    if (updated) {
-      setViewMember((current) =>
-        current && Number(current.member_id ?? current.user_id) === Number(updated.member_id ?? updated.user_id)
-          ? updated
-          : current
-      );
-      setEditMember((current) =>
-        current && Number(current.member_id ?? current.user_id) === Number(updated.member_id ?? updated.user_id)
-          ? updated
-          : current
-      );
-    }
-  };
-
-  const filtered=members.filter(m=>{const q=search.toLowerCase();return (m.full_name?.toLowerCase().includes(q)||m.email?.toLowerCase().includes(q))&&(filter==="All"||String(m.status||"").trim().toLowerCase()===filter.toLowerCase());});
+  const filtered=members.filter(m=>{const q=search.toLowerCase();const displayStatus=getMembershipStatus(m)==="Inactive"&&String(m.status||"").trim().toLowerCase()==="active"?"inactive":String(m.status||"").trim().toLowerCase();return (m.full_name?.toLowerCase().includes(q)||m.email?.toLowerCase().includes(q))&&(filter==="All"||displayStatus===filter.toLowerCase());});
   const pendingCount=members.filter(m=>String(m.status||"").trim().toLowerCase()==="pending").length;
-  const activeCount=members.filter(m=>String(m.status||"").trim().toLowerCase()==="active").length;
+  const activeCount=members.filter(m=>String(m.status||"").trim().toLowerCase()==="active"&&getMembershipStatus(m)!=="Inactive").length;
 
   return <div className="space-y-6">
-    {showAddModal&&<MemberModal onClose={()=>setShowAddModal(false)} onSave={handleMemberSave}/>} 
-    {editMember&&<MemberModal member={editMember} onClose={()=>setEditMember(null)} onSave={handleMemberSave}/>} 
-    {viewMember&&<ViewModal member={viewMember} trainers={trainers} onClose={()=>setViewMember(null)} onEdit={m=>setEditMember(m)} onAssign={handleAssign} onMembershipUpdate={handleMembershipUpdate}/>}
+    {membershipPromptMember && <MembershipStatusModal member={membershipPromptMember} isSaving={savingMembershipPrompt} onClose={() => setMembershipPromptMember(null)} onSave={async (member, membershipMonths) => { setSavingMembershipPrompt(true); try { await handleMembershipUpdate(member, membershipMonths); } finally { setSavingMembershipPrompt(false); } }} />}
+    {viewMember&&<ViewModal member={viewMember} trainers={trainers} onClose={()=>setViewMember(null)} onAssign={handleAssign} onMembershipUpdate={handleMembershipUpdate} onViewProgress={setProgressMember}/>}
+    {progressMember&&<ProgressHistoryModal member={progressMember} fetchProgress={fetchAdminProgress} onClose={()=>setProgressMember(null)}/>}
     {confirmMember&&<ConfirmDialog title={`Delete ${confirmMember.full_name || "this member"} permanently?`} description="This action cannot be undone. The member’s account and associated records will be permanently deleted." confirmLabel="Delete member" isLoading={deletingMember} error={deleteError} onCancel={()=>{if(!deletingMember){setConfirmMember(null);setDeleteError("");}}} onConfirm={confirmDelete}/>}
     {reviewRequestToReject&&<ConfirmDialog title="Reject this change request?" description="The member's current profile and password will remain unchanged. The member will be notified by email." confirmLabel="Reject request" isLoading={reviewingRequestId === reviewRequestToReject.request_id} error={reviewError} onCancel={()=>{if(!reviewingRequestId)setReviewRequestToReject(null);}} onConfirm={()=>handleReviewChangeRequest(reviewRequestToReject, "reject")}/>}
 
     <header className="ave-page-hero rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8"><p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">People management</p><div className="mt-2 flex flex-wrap items-end justify-between gap-4"><div><h1 className="text-3xl font-black text-slate-900 dark:text-white">Members</h1><p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Manage accounts, approvals, fitness profiles, and coach assignments.</p></div></div></header>
     {fetchError&&<div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">⚠️ {fetchError}</div>}
+    {decisionNotice&&<div role="status" aria-live="polite" className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-800 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-200">{decisionNotice}</div>}
+    {reportNotice.message&&<div role="status" aria-live="polite" className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-200">{reportNotice.message}</div>}
+    {reportNotice.error&&<div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">{reportNotice.error}</div>}
     <section aria-label="Member summary" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
       {[{label:"Total members",value:members.length},{label:"Active members",value:activeCount},{label:"Pending approval",value:pendingCount}].map(item=><div key={item.label} className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-[#111]"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{item.label}</p><p className="mt-2 text-2xl font-black text-slate-900 dark:text-white">{loading?"—":item.value}</p></div>)}
     </section>
@@ -489,7 +667,7 @@ export default function Members() {
                       </div>
                     ) : (
                       <dl className="mt-3 grid gap-2 text-sm">
-                        {Object.entries(changes).map(([key, value]) => (
+                        {Object.entries(changes).filter(([key]) => key !== "workout_duration").map(([key, value]) => (
                           <div key={key} className="min-w-0 rounded-lg bg-slate-50 px-3 py-2 dark:bg-white/[0.04]">
                             <dt className="text-xs font-semibold text-slate-600 dark:text-slate-300">{PROFILE_CHANGE_LABELS[key] || key.replaceAll("_", " ")}</dt>
                             <dd className="mt-1 grid gap-1 break-words text-xs sm:grid-cols-[1fr_auto_1fr] sm:items-center">
@@ -521,10 +699,75 @@ export default function Members() {
         </div>
       </section>
     )}
+    {membershipRequests.length > 0 && (
+      <section aria-labelledby="membership-term-requests-title" className="space-y-4 rounded-2xl border border-orange-200 bg-orange-50/60 p-4 dark:border-orange-500/20 dark:bg-orange-500/[0.04] sm:p-5">
+        <div>
+          <h2 id="membership-term-requests-title" className="text-lg font-bold text-slate-900 dark:text-white">Membership term requests</h2>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Approve or reject each requested membership period. An approved term is applied to the member's account.</p>
+        </div>
+        <div className="grid gap-3">
+          {membershipRequests.map((request) => {
+            const isReviewing = reviewingRequestId === request.request_id;
+            const name = `${request.first_name || ""} ${request.last_name || ""}`.trim() || "Member";
+            return (
+              <article key={request.request_id} className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-[#111] sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 className="font-bold text-slate-900 dark:text-white">{name}</h3>
+                  <p className="text-xs text-slate-500">{request.email}</p>
+                  <p className="mt-1 text-sm text-slate-700 dark:text-slate-300">
+                    Requested {request.membership_months === 12 ? "1 year" : `${request.membership_months} ${request.membership_months === 1 ? "month" : "months"}`}
+                    {request.current_membership_months ? ` · Current: ${request.current_membership_months} months` : " · No current membership"}
+                  </p>
+                  <p className="text-xs text-slate-400">{new Date(request.created_at).toLocaleString()}</p>
+                </div>
+                <div className="flex gap-2">
+                  <button type="button" disabled={isReviewing} onClick={() => handleReviewMembershipRequest(request, "approve")} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-60">
+                    <CheckCircle size={16} /> {isReviewing ? "Saving..." : "Approve"}
+                  </button>
+                  <button type="button" disabled={isReviewing} onClick={() => handleReviewMembershipRequest(request, "reject")} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60 dark:border-red-500/30 dark:text-red-300 dark:hover:bg-red-500/10">
+                    <XCircle size={16} /> Reject
+                  </button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+    )}
+    <details className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-5">
+      <summary className="cursor-pointer list-none text-lg font-bold text-slate-900 marker:hidden dark:text-white">
+        <span className="inline-flex items-center gap-2"><Mail size={18} className="text-orange-500" /> Weekly Progress Reports</span>
+        <span className="mt-1 block text-sm font-normal text-slate-600 dark:text-slate-400">Open to send a report to one member or all active members.</span>
+      </summary>
+      <section aria-labelledby="weekly-progress-report-title" className="mt-4 space-y-4 border-t border-slate-200 pt-4 dark:border-white/10">
+      <div>
+        <h2 id="weekly-progress-report-title" className="text-lg font-bold text-slate-900 dark:text-white">Weekly Progress Report</h2>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Send an individual report or send reports to all active users.</p>
+        <button type="button" onClick={sendAllMemberReports} disabled={sendingAllReports || sendingReportMemberId !== null} className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-lg bg-orange-600 px-4 text-sm font-semibold text-white hover:bg-orange-700 disabled:cursor-wait disabled:opacity-60">
+          <Mail size={15} />{sendingAllReports ? "Sending reports..." : "Send to all active members"}
+        </button>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        {members.filter((member) => String(member.status || "").trim().toLowerCase() === "active").map((member) => (
+          <div key={member.member_id} className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-slate-200 p-3 dark:border-white/10">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-slate-800 dark:text-white">{member.full_name}</p>
+              <p className="truncate text-xs text-slate-500">{member.email}</p>
+            </div>
+            <button type="button" onClick={() => sendMemberReport(member)} disabled={sendingReportMemberId !== null || sendingAllReports} aria-label={`Send weekly progress report to ${member.full_name}`} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-orange-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-orange-700 disabled:cursor-wait disabled:opacity-60">
+              <Mail size={14} />{sendingReportMemberId === member.member_id ? "Sending..." : "Send"}
+            </button>
+          </div>
+        ))}
+        {!members.some((member) => String(member.status || "").trim().toLowerCase() === "active") && (
+          <p className="text-sm text-slate-500">No active users to send reports to.</p>
+        )}
+      </div>
+      </section>
+    </details>
     <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-[#111] sm:flex-row sm:items-center sm:justify-between"><label className="flex min-h-10 w-full items-center gap-2 rounded-xl bg-slate-100 px-3 dark:bg-white/5 sm:max-w-xs"><Search size={16} className="shrink-0 text-slate-400"/><span className="sr-only">Search members</span><input type="search" placeholder="Search name or email..." value={search} onChange={e=>setSearch(e.target.value)} className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-500 dark:text-white"/></label><div role="group" aria-label="Filter  members by status" className="flex gap-2 overflow-x-auto">{["All","Active","Pending","Inactive","Rejected"].map(s=><button key={s} type="button" aria-pressed={filter===s} onClick={()=>setFilter(s)} className={`min-h-9 rounded-lg px-3 text-sm font-semibold transition ${filter===s?"bg-orange-500 text-white":"bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-white/5 dark:text-slate-300 dark:hover:bg-white/10"}`}>{s}{s==="Pending"&&pendingCount>0?` (${pendingCount})`:""}</button>)}</div></div>
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-white/10 dark:bg-[#111]">
-      {loading?<div className="p-8 space-y-3">{[...Array(5)].map((_,i)=><div key={i} className="h-10 bg-slate-100 dark:bg-gray-800 rounded-lg animate-pulse"/>)}</div>:<div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-slate-50 dark:bg-[#202020] border-b border-slate-200 dark:border-gray-800"><tr>{["Member","Goal","Designated Coach","BMI","Status","Membership","Joined","Actions"].map(h=><th key={h} className="text-left px-6 py-4 font-semibold text-slate-600 dark:text-gray-300">{h}</th>)}</tr></thead><tbody className="divide-y divide-slate-100 dark:divide-gray-800">{filtered.length===0?<tr><td colSpan={8} className="text-center py-12 text-slate-400">No members found.</td></tr>:filtered.map(member=>{const bmiInfo=getBMICategory(member.bmi);const membershipStatus=getMembershipStatus(member);const memberStatus=member.status?.trim().toLowerCase();return <tr key={member.member_id} onClick={()=>setViewMember(member)} className="hover:bg-slate-50 dark:hover:bg-[#202020] transition cursor-pointer"><td className="px-6 py-4"><div className="flex items-center gap-3"><MemberPhoto member={member}/><div><p className="font-semibold text-slate-800 dark:text-white">{member.full_name}</p><p className="text-slate-400 text-xs">{member.email}</p><p className={`mt-0.5 text-[11px] font-semibold ${member.email_verified?"text-green-500":"text-orange-500"}`}>{member.email_verified?"✓ Email verified":"⚠ Email not verified"}</p></div></div></td><td className="px-6 py-4 text-slate-600 dark:text-gray-300">{member.fitness_goal||"—"}</td><td className="px-6 py-4">{member.trainer_id?<div className="flex items-center gap-2 text-slate-700 dark:text-gray-200">{member.trainer_photo_url?<img src={member.trainer_photo_url} alt="" className="w-8 h-8 rounded-full object-contain bg-black"/>:<div className="w-8 h-8 rounded-full bg-orange-100 dark:bg-orange-500/15 flex items-center justify-center text-orange-500 text-xs font-bold">{member.trainer_name?.charAt(0)||"?"}</div>}<span>{member.trainer_name||"Assigned Coach"}</span></div>:<span className="text-slate-400">Not assigned</span>}</td><td className="px-6 py-4"><span className="font-semibold text-slate-800 dark:text-white">{member.bmi?parseFloat(member.bmi).toFixed(1):"—"}</span><span className={`ml-2 text-xs font-medium ${bmiInfo.color}`}>{bmiInfo.label}</span></td><td className="px-6 py-4"><span className={`px-3 py-1 rounded-full text-xs font-semibold ${statusColors[member.status]||statusColors.Inactive}`}>{member.status||"Inactive"}</span></td><td className="px-6 py-4"><div className="space-y-1"><p className="font-semibold text-slate-800 dark:text-white">{member.membership_months ? `${member.membership_months === 12 ? "1 year" : `${member.membership_months} ${member.membership_months === 1 ? "month" : "months"}`}` : "Not recorded"}</p><span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${membershipStatus === "Active" ? "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-400" : membershipStatus === "Expired" ? "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400" : membershipStatus === "Upcoming" ? "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400" : "bg-slate-100 text-slate-600 dark:bg-slate-700/50 dark:text-slate-300"}`}>{membershipStatus}</span>{member.membership_start_date && member.membership_end_date && <p className="text-xs text-slate-500 dark:text-slate-400">{formatMembershipDate(member.membership_start_date)} – {formatMembershipDate(member.membership_end_date)}</p>}</div></td><td className="px-6 py-4 text-slate-500 dark:text-gray-400">{member.joined_date?formatMembershipDate(member.joined_date):"—"}</td><td className="px-6 py-4" onClick={e=>e.stopPropagation()}><div className="flex items-center gap-2"><button onClick={()=>setViewMember(member)} className="p-1.5 rounded-lg hover:bg-orange-50 dark:hover:bg-orange-500/10 text-orange-500 transition" title="View member / change coach"><UserRoundCog size={16}/></button>{memberStatus==="pending"&&<><button onClick={()=>handleApprove(member.member_id)} className="p-1.5 rounded-lg transition hover:bg-green-50 dark:hover:bg-green-500/10 text-green-500" title="Approve member"><CheckCircle size={16}/></button><button onClick={()=>handleReject(member.member_id)} className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10 text-red-400 transition" title="Reject"><XCircle size={16}/></button></>}{(memberStatus==="inactive"||memberStatus==="rejected")&&<button onClick={()=>handleApprove(member.member_id)} className="inline-flex items-center gap-1 rounded-lg bg-green-600 px-2 py-1.5 text-xs font-semibold text-white transition hover:bg-green-700" title={memberStatus==="rejected"?"Approve member":"Reactivate member"}><CheckCircle size={14}/>{memberStatus==="rejected"?"Approve":"Activate"}</button>}<button onClick={()=>handleDelete(member.member_id)} className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10 text-red-400 transition" title="Delete"><Trash2 size={16}/></button></div></td></tr>})}</tbody></table></div>}
-      <div className="px-6 py-3 border-t border-slate-100 dark:border-gray-800 text-sm text-slate-400">Showing {filtered.length} of {members.length} registered members</div>
+      {loading?<div className="p-8 space-y-3">{[...Array(5)].map((_,i)=><div key={i} className="h-10 bg-slate-100 dark:bg-gray-800 rounded-lg animate-pulse"/>)}</div>:<div className="overflow-x-auto"><table className="w-full min-w-[1080px] table-fixed text-sm"><colgroup><col style={{ width: "22%" }} /><col style={{ width: "8%" }} /><col style={{ width: "14%" }} /><col style={{ width: "7%" }} /><col style={{ width: "8%" }} /><col style={{ width: "15%" }} /><col style={{ width: "10%" }} /><col style={{ width: "16%" }} /></colgroup><thead className="bg-slate-50 dark:bg-[#202020] border-b border-slate-200 dark:border-gray-800"><tr>{["Member","Goal","Designated Coach","BMI","Status","Membership","Joined","Actions"].map(h=><th key={h} className="text-left px-2 py-4 sm:px-3 font-semibold text-slate-600 dark:text-gray-300">{h}</th>)}</tr></thead><tbody className="divide-y divide-slate-100 dark:divide-gray-800">{filtered.length===0?<tr><td colSpan={8} className="text-center py-12 text-slate-400">No members found.</td></tr>:filtered.map(member=>{const bmiInfo=getBMICategory(member.bmi);const membershipStatus=getMembershipStatus(member);const memberStatus=member.status?.trim().toLowerCase();return <tr key={member.member_id} onClick={()=>setViewMember(member)} className="hover:bg-slate-50 dark:hover:bg-[#202020] transition cursor-pointer"><td className="px-2 py-4 sm:px-3"><div className="flex min-w-0 items-center gap-2"><MemberPhoto member={member}/><div className="min-w-0">      <p className="flex min-w-0 items-center gap-1.5 font-semibold text-slate-800 dark:text-white"><span className="truncate">{member.full_name}</span>{member.missing_profile_fields?.length > 0 && <span title={`Missing information: ${member.missing_profile_fields.join(", ")}`} aria-label={`Incomplete profile: ${member.missing_profile_fields.join(", ")}`} className="h-2 w-2 shrink-0 rounded-full bg-red-500"/>}</p><p className="truncate text-slate-400 text-xs">{member.email}</p><p className={`mt-0.5 text-[11px] font-semibold ${member.email_verified?"text-green-500":"text-orange-500"}`}>{member.email_verified?"✓ Email verified":"⚠ Email not verified"}</p></div></div></td><td className="px-2 py-4 sm:px-3 text-slate-600 dark:text-gray-300">{member.fitness_goal||"—"}</td><td className="px-2 py-4 sm:px-3">{member.trainer_id?<div className="flex items-center gap-2 text-slate-700 dark:text-gray-200">{member.trainer_photo_url?<img src={member.trainer_photo_url} alt="" className="w-8 h-8 rounded-full object-contain bg-black"/>:<div className="w-8 h-8 rounded-full bg-orange-100 dark:bg-orange-500/15 flex items-center justify-center text-orange-500 text-xs font-bold">{member.trainer_name?.charAt(0)||"?"}</div>}<span className="truncate">{member.trainer_name||"Assigned Coach"}</span></div>:<span className="text-slate-400">Not assigned</span>}</td><td className="px-2 py-4 sm:px-3"><div className="flex min-w-0 flex-col items-start"><span className="font-semibold text-slate-800 dark:text-white">{member.bmi?parseFloat(member.bmi).toFixed(1):"?"}</span><span className={`text-xs font-medium ${bmiInfo.color}`}>{bmiInfo.label}</span></div></td><td className="px-2 py-4 sm:px-3 whitespace-nowrap"><span className={`px-3 py-1 rounded-full text-xs font-semibold ${statusColors[member.status]||statusColors.Inactive}`}>{member.status||"Inactive"}</span></td><td className="px-2 py-4 sm:px-3">            <div className="space-y-1"><div className="flex items-center gap-2"><p className="font-semibold text-slate-800 dark:text-white">{member.membership_months ? `${member.membership_months === 12 ? "1 year" : `${member.membership_months} ${member.membership_months === 1 ? "month" : "months"}`}` : "Not recorded"}</p>{!member.membership_months && <span title="No membership assigned yet" aria-label="No membership assigned" className="h-2.5 w-2.5 shrink-0 rounded-full bg-red-500" />}</div><span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${membershipStatus === "Active" ? "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-400" : membershipStatus === "Inactive" ? "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400" : membershipStatus === "Upcoming" ? "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400" : "bg-slate-100 text-slate-600 dark:bg-slate-700/50 dark:text-slate-300"}`}>{membershipStatus}</span>{member.membership_start_date && member.membership_end_date && <p className="text-xs text-slate-500 dark:text-slate-400">{formatMembershipDate(member.membership_start_date)} – {formatMembershipDate(member.membership_end_date)}</p>}</div></td><td className="px-2 py-4 sm:px-3 text-slate-500 dark:text-gray-400">{member.joined_date?formatMembershipDate(member.joined_date):"—"}</td><td className="px-2 py-4 sm:px-3" onClick={e=>e.stopPropagation()}><div className="flex items-center justify-start gap-1"><button onClick={()=>setViewMember(member)} className="grid h-8 w-8 place-items-center rounded-lg text-orange-500 transition hover:bg-orange-50 dark:hover:bg-orange-500/10" title="View member / change coach" aria-label={`View ${member.full_name}`}><UserRoundCog size={16}/></button>{memberStatus==="pending"?<button onClick={()=>handleApprove(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-green-600 text-white transition hover:bg-green-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title="Approve member" aria-label={`Approve ${member.full_name}`}><CheckCircle size={16}/></button>:(memberStatus==="inactive"||memberStatus==="rejected")?<button onClick={()=>handleApprove(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-green-600 text-white transition hover:bg-green-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title={memberStatus==="rejected"?"Approve member":"Reactivate member"} aria-label={`${memberStatus==="rejected"?"Approve":"Reactivate"} ${member.full_name}`}><CheckCircle size={16}/></button>:null}{memberStatus==="pending"?<button onClick={()=>handleReject(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-red-600 text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title="Reject" aria-label={`Reject ${member.full_name}`}><XCircle size={16}/></button>:null}<button onClick={()=>handleDelete(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-red-600 text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title="Delete" aria-label={`Delete ${member.full_name}`}><Trash2 size={16}/></button></div></td></tr>})}</tbody></table></div>}      <div className="px-6 py-3 border-t border-slate-100 dark:border-gray-800 text-sm text-slate-400">Showing {filtered.length} of {members.length} registered members</div>
     </div>
   </div>;
 }

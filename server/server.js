@@ -6,8 +6,8 @@ const { initializeDatabase, expireMemberships } = require("./db");
 const {
   sendWeeklyBmiReminders,
   sendUnassignedWorkoutReminders,
+  sendMemberNoWorkoutPlanReminders,
 } = require("./utils/notifications");
-const { evaluateWorkoutStatuses } = require("./utils/workoutStatus");
 
 // Admin routes
 const adminRoutes = require("./routes/adminRoutes");
@@ -29,7 +29,7 @@ app.disable("x-powered-by");
 // Keep CORS explicit instead of allowing every website to call the API.
 const allowedOrigins = (
   process.env.CLIENT_ORIGINS ||
-  "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5178,http://localhost:5177,https://ave-fit.pages.dev"
+  "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5178,http://localhost:5177,https://avenuepowerfitness.com,https://www.avenuepowerfitness.com"
 )
   .split(",")
   .map((value) => value.trim())
@@ -88,45 +88,66 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 
-initializeDatabase()
+const waitForDatabase = async (maxAttempts = 10, delayMs = 5000) => {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      await initializeDatabase();
+      return true;
+    } catch (err) {
+      if (attempt === maxAttempts) {
+        throw err;
+      }
+      console.warn(`Database unavailable while starting background jobs (${attempt}/${maxAttempts}). Retrying in ${delayMs / 1000}s...`);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  return false;
+};
+
+// Network-level failures (DNS lookup, dropped Wi-Fi, laptop waking from sleep).
+// These are temporary: the job simply runs again on its next interval.
+const NETWORK_ERRORS = [
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "ECONNRESET",
+  "ENETUNREACH",
+  "EHOSTUNREACH",
+];
+const lastNetworkWarning = {};
+
+const runJob = (label, fn) => async () => {
+  try {
+    await fn();
+    delete lastNetworkWarning[label];
+  } catch (err) {
+    if (NETWORK_ERRORS.includes(err.code)) {
+      // Warn once per outage instead of every minute.
+      if (!lastNetworkWarning[label]) {
+        console.warn(`\u26a0\ufe0f ${label} skipped: database unreachable (${err.code || "network"}). Will retry automatically.`);
+        lastNetworkWarning[label] = true;
+      }
+    } else {
+      console.error(`\u274c ${label} failed:`, err.message);
+    }
+  }
+};
+
+const membershipJob = runJob("Membership expiry check", expireMemberships);
+const bmiJob = runJob("Weekly BMI reminder check", sendWeeklyBmiReminders);
+const workoutJob = runJob("No-workout reminder check", sendUnassignedWorkoutReminders);
+const memberWorkoutReminderJob = runJob("Member no-workout reminder check", sendMemberNoWorkoutPlanReminders);
+
+waitForDatabase()
   .then(() => {
-    const membershipExpiryTimer = setInterval(() => {
-      expireMemberships().catch((err) => {
-        console.error("❌ Membership expiry check failed:", err.message);
-      });
-    }, 60 * 1000);
-    membershipExpiryTimer.unref();
-    const bmiReminderTimer = setInterval(() => {
-      sendWeeklyBmiReminders().catch((err) => {
-        console.error("❌ Weekly BMI reminder check failed:", err.message);
-      });
-    }, 60 * 60 * 1000);
-    bmiReminderTimer.unref();
-    sendWeeklyBmiReminders().catch((err) => {
-      console.error("❌ Initial weekly BMI reminder check failed:", err.message);
-    });
-    const workoutReminderTimer = setInterval(() => {
-      sendUnassignedWorkoutReminders().catch((err) => {
-        console.error("❌ No-workout reminder check failed:", err.message);
-      });
-    }, 60 * 60 * 1000);
-    workoutReminderTimer.unref();
-    sendUnassignedWorkoutReminders().catch((err) => {
-      console.error("❌ Initial no-workout reminder check failed:", err.message);
-    });
-    // Workout status lifecycle (Active / Complete / Incomplete / Absent).
-    // Runs on startup so days that ended while the backend was down are
-    // picked up, then every five minutes so members who never open the app
-    // still get their scheduled workouts evaluated.
-    const workoutStatusTimer = setInterval(() => {
-      evaluateWorkoutStatuses().catch((err) => {
-        console.error("❌ Workout status evaluation failed:", err.message);
-      });
-    }, 5 * 60 * 1000);
-    workoutStatusTimer.unref();
-    evaluateWorkoutStatuses().catch((err) => {
-      console.error("❌ Initial workout status evaluation failed:", err.message);
-    });
+    setInterval(membershipJob, 60 * 1000).unref();
+    setInterval(bmiJob, 60 * 60 * 1000).unref();
+    setInterval(workoutJob, 60 * 60 * 1000).unref();
+    setInterval(memberWorkoutReminderJob, 60 * 60 * 1000).unref();
+    bmiJob();
+    workoutJob();
+    memberWorkoutReminderJob();
     app.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));
   })
   .catch((err) => {
