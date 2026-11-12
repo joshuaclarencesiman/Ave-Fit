@@ -4,8 +4,3 @@
 .env.*.local
 dist/
 build/
-
-# Production environment and database backups
-client/.env.production
-Database/avefit-backupfromshared.sql
-Database/avefit.sql

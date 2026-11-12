@@ -182,10 +182,30 @@ const initializeDatabase = async () => {
         day_of_week SMALLINT NOT NULL CHECK (day_of_week BETWEEN 0 AND 6),
         start_time TIME NOT NULL,
         end_time TIME NOT NULL,
+        member_limit SMALLINT NOT NULL DEFAULT 1 CHECK (member_limit BETWEEN 1 AND 5),
         CHECK (start_time >= TIME '06:00' AND end_time <= TIME '22:00'),
         CHECK (start_time < end_time),
         UNIQUE (trainer_id, day_of_week, start_time, end_time)
       )
+    `);
+    await client.query(`
+      ALTER TABLE trainer_availability
+      ADD COLUMN IF NOT EXISTS member_limit SMALLINT NOT NULL DEFAULT 1;
+    `);
+    await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_constraint
+          WHERE conrelid = 'trainer_availability'::regclass
+            AND conname = 'trainer_availability_member_limit_check'
+        ) THEN
+          ALTER TABLE trainer_availability
+          ADD CONSTRAINT trainer_availability_member_limit_check
+          CHECK (member_limit BETWEEN 1 AND 5);
+        END IF;
+      END $$;
     `);
     await client.query(`
       CREATE TABLE IF NOT EXISTS equipment_inventory (
