@@ -1,78 +1,162 @@
 import { useEffect, useMemo, useState } from "react";
 import { BadgeCheck, Briefcase, ChevronLeft, ChevronRight, Sparkles, User, X } from "lucide-react";
+import ScrollReveal from "../components/ScrollReveal";
 import userApi from "../userApi";
+import { formatWorkoutTimeRange } from "../utils/workoutSchedule";
 
 const aliases = {
   "Weight Loss": ["weight loss", "weight management", "hiit", "circuit training", "group fitness", "conditioning"],
+  "Gain Weight": ["muscle", "bodybuilding", "physique", "powerlifting", "olympic weightlifting", "kettlebell training", "calisthenics"],
   "Muscle Gain": ["muscle", "bodybuilding", "physique", "powerlifting", "olympic weightlifting", "kettlebell training", "calisthenics"],
   "Maintain Weight": ["wellness", "maintenance", "functional fitness", "group fitness", "conditioning"],
   "General Fitness": ["general fitness", "fitness", "functional fitness", "group fitness", "hiit", "circuit training", "conditioning"],
 };
 
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const formatGoalSpecialty = (goal) => goal === "Muscle Gain" ? "Gain Weight" : goal;
+
 function score(t, goal) {
   const text = `${(t.specializations || []).join(" ")} ${t.bio || ""} ${t.goal_specialty || ""}`.toLowerCase();
-  return (t.goal_specialty === goal ? 100 : 0) +
+  return (t.goal_specialty === goal || (goal === "Gain Weight" && t.goal_specialty === "Muscle Gain") ? 100 : 0) +
     (aliases[goal] || aliases["General Fitness"]).reduce((n, w) => n + (text.includes(w) ? 15 : 0), 0);
 }
 
 function expertise(t) {
-  return [...new Set([...(t.specializations || []), t.goal_specialty].filter(Boolean))].slice(0, 8);
+  return [...new Set([...(t.specializations || []), formatGoalSpecialty(t.goal_specialty)].filter(Boolean))].slice(0, 8);
 }
 
-function TrainerPhoto({ trainer, className = "" }) {
+function TrainerPhoto({ trainer, className = "", fit = "contain" }) {
   return (
-    <div className={`relative overflow-hidden bg-slate-950 ${className}`}>
+    <div className={`relative isolate flex items-center justify-center overflow-hidden ${fit === "contain" ? "bg-gradient-to-br from-slate-900 via-slate-950 to-orange-950" : "bg-transparent"} ${className}`}>
       {trainer.photo_url ? (
         <>
-          <img src={trainer.photo_url} alt="" aria-hidden="true" className="absolute inset-0 w-full h-full object-cover scale-110 blur-2xl opacity-40" />
-          <div className="absolute inset-0 bg-black/20" />
-          <div className="relative z-10 w-full h-full flex items-center justify-center p-3 sm:p-5">
-            <img src={trainer.photo_url} alt={trainer.full_name} className="max-w-full max-h-full w-auto h-auto object-contain drop-shadow-2xl" />
-          </div>
+          {fit === "contain" && (
+            <>
+              <img src={trainer.photo_url} alt="" aria-hidden="true" className="absolute inset-0 h-full w-full scale-110 object-cover opacity-35 blur-2xl" />
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-950/45 via-slate-950/10 to-slate-950/25" />
+            </>
+          )}
+          <img
+            src={trainer.photo_url}
+            alt={trainer.full_name}
+            className={`absolute inset-0 z-10 h-full w-full transition-transform duration-500 ${fit === "contain" ? "object-contain p-3 sm:p-5 group-hover/card:scale-[1.02]" : "object-cover"}`}
+          />
         </>
       ) : (
-        <div className="w-full h-full flex items-center justify-center"><User size={96} className="text-orange-500" /></div>
+        <div className="flex h-full w-full items-center justify-center"><User size={96} className="text-orange-500" /></div>
       )}
     </div>
   );
 }
 
-function TrainerProfileModal({ trainer, goal, onClose }) {
+function TrainerProfileModal({ trainer, goal, assigned, onClose }) {
   const [photoOpen, setPhotoOpen] = useState(false);
   if (!trainer) return null;
-  const items = [...new Set([...(trainer.specializations || []), trainer.goal_specialty].filter(Boolean))];
+  const items = [...new Set([...(trainer.specializations || []), formatGoalSpecialty(trainer.goal_specialty)].filter(Boolean))];
 
   return (
     <div className="fixed inset-0 z-[70] bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6" onClick={onClose}>
-      <div role="dialog" aria-modal="true" aria-labelledby="coach-profile-title" className="bg-white dark:bg-[#111] rounded-3xl shadow-2xl w-full max-w-3xl max-h-[94vh] overflow-y-auto border border-slate-200 dark:border-slate-800" onClick={(e) => e.stopPropagation()}>
-        <div className="relative h-[55vh] min-h-[360px] max-h-[650px] bg-slate-950">
-          <button type="button" onClick={() => trainer.photo_url && setPhotoOpen(true)} className={`w-full h-full ${trainer.photo_url ? "cursor-zoom-in" : "cursor-default"}`} aria-label={trainer.photo_url ? "View full profile photo" : "Profile photo unavailable"}>
-            <TrainerPhoto trainer={trainer} className="w-full h-full" />
-          </button>
-          <div className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-black/95 via-black/45 to-transparent pointer-events-none" />
-          <button type="button" onClick={onClose} className="absolute top-4 right-4 z-30 w-11 h-11 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center" aria-label="Close profile"><X size={20} /></button>
-          <div className="absolute bottom-6 left-6 right-6 text-white">
-            <p className="text-xs uppercase tracking-widest font-bold text-orange-300">Coach Profile</p>
-            <h2 id="coach-profile-title" className="text-3xl sm:text-4xl font-bold mt-1">{trainer.full_name}</h2>
-            <p className="text-orange-300 font-semibold mt-1">{trainer.goal_specialty || "General Fitness Coach"}</p>
-          </div>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="coach-profile-title"
+        className="relative grid max-h-[94vh] w-full max-w-5xl grid-rows-[minmax(210px,30vh)_minmax(0,1fr)] overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-[#111] lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:grid-rows-1"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute right-4 top-4 z-30 flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-black/70 text-white shadow-lg transition hover:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
+          aria-label="Close coach profile"
+        >
+          <X size={20} />
+        </button>
+
+        <div className="relative flex min-h-0 items-center justify-center overflow-hidden bg-slate-950">
+          {trainer.photo_url ? (
+            <button
+              type="button"
+              onClick={() => setPhotoOpen(true)}
+              className="flex h-full w-full items-center justify-center p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-orange-400"
+              aria-label="View full profile photo"
+            >
+              <img src={trainer.photo_url} alt={trainer.full_name} className="h-full w-full object-contain" />
+            </button>
+          ) : (
+            <User size={96} className="text-orange-500" aria-hidden="true" />
+          )}
+          {assigned && (
+            <span className="absolute bottom-4 left-4 inline-flex items-center gap-1.5 rounded-full bg-green-500 px-3 py-1.5 text-xs font-bold text-white shadow-lg">
+              <BadgeCheck size={14} /> Your assigned coach
+            </span>
+          )}
         </div>
-        <div className="p-6 sm:p-8">
-          <p className="text-xs uppercase tracking-wider font-bold text-slate-400">About the Coach</p>
-          <p className="text-sm sm:text-base leading-7 text-slate-600 dark:text-slate-300 mt-2 whitespace-pre-line">{trainer.bio || "This coach has not added a profile description yet."}</p>
-          <div className="mt-7">
-            <p className="text-xs uppercase tracking-wider font-bold text-slate-400 mb-3">Expertise</p>
+
+        <div className="min-h-0 overflow-y-auto overscroll-contain p-5 sm:p-7 lg:p-8">
+          <header className="border-b border-slate-200 pb-5 pr-12 dark:border-white/10">
+            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Coach profile</p>
+            <h2 id="coach-profile-title" className="mt-2 text-2xl font-black tracking-tight text-slate-900 dark:text-white sm:text-3xl">
+              {trainer.full_name}
+            </h2>
+            <p className="mt-1 text-sm font-semibold text-orange-600 dark:text-orange-400">
+              {formatGoalSpecialty(trainer.goal_specialty) || "General Fitness Coach"}
+            </p>
+            {assigned && (
+              <p className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-green-200 bg-green-50 px-3 py-1.5 text-xs font-semibold text-green-800 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-300">
+                <BadgeCheck size={14} /> This is your currently assigned coach
+              </p>
+            )}
+          </header>
+
+          <section className="mt-5">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">About the coach</h3>
+            <p className="mt-2 whitespace-pre-line text-sm leading-7 text-slate-600 dark:text-slate-300">
+              {trainer.bio || "This coach has not added a profile description yet."}
+            </p>
+          </section>
+
+          <section className="mt-6">
+            <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400">Specialties &amp; expertise</h3>
             <div className="flex flex-wrap gap-2">
-              {items.length ? items.map((item) => <span key={item} className="px-3 py-2 rounded-full bg-orange-50 dark:bg-orange-500/10 text-orange-600 dark:text-orange-400 text-xs font-semibold">{item}</span>) : <span className="text-sm text-slate-400">No specializations listed.</span>}
+              {items.length
+                ? items.map((item) => (
+                    <span key={item} className="rounded-full border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs font-semibold text-orange-700 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300">
+                      {item}
+                    </span>
+                  ))
+                : <span className="text-sm text-slate-400">No specializations listed.</span>}
+            </div>
+          </section>
+
+          <section className="mt-6">
+            <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400">Weekly availability</h3>
+            {trainer.availability?.length ? (
+              <div className="grid gap-2 sm:grid-cols-2">
+                {trainer.availability.map((slot, index) => (
+                  <div key={`${slot.day_of_week}-${slot.start_time}-${index}`} className="flex justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm dark:border-white/10 dark:bg-white/[0.03]">
+                    <span className="font-medium text-slate-700 dark:text-slate-200">{DAY_NAMES[Number(slot.day_of_week)] || "Day"}</span>
+                    <span className="text-right text-slate-500 dark:text-slate-400">
+                      {formatWorkoutTimeRange(slot.start_time, slot.end_time) || "Time not set"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-slate-400">Availability has not been posted yet.</p>
+            )}
+          </section>
+
+          <div className="mt-6 flex items-start gap-3 rounded-2xl border border-orange-200 bg-orange-50/70 p-4 dark:border-orange-500/20 dark:bg-orange-500/[0.06]">
+            <Briefcase size={18} className="mt-0.5 shrink-0 text-orange-500" />
+            <div>
+              <p className="text-xs font-semibold text-orange-700 dark:text-orange-300">Your fitness goal</p>
+              <p className="mt-1 text-sm font-semibold text-slate-700 dark:text-slate-200">{goal || "General Fitness"}</p>
             </div>
           </div>
-          <div className="mt-7 rounded-2xl bg-slate-50 dark:bg-slate-900 p-4 flex items-center gap-3">
-            <Briefcase size={18} className="text-orange-500 shrink-0" />
-            <div><p className="text-xs text-slate-400">Your fitness goal</p><p className="text-sm font-semibold text-slate-700 dark:text-slate-200">{goal || "General Fitness"}</p></div>
-          </div>
-          <div className="mt-6 rounded-2xl border border-orange-200 dark:border-orange-900/50 bg-orange-50/70 dark:bg-orange-500/5 p-4 text-sm text-slate-600 dark:text-slate-300">
-            Your coach is designated by the gym. If you need a coach change, please contact the gym administrator.
-          </div>
+
+          <p className="mt-5 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+            Coach changes are managed by the gym administrator. Contact the gym if you need to request a change.
+          </p>
         </div>
       </div>
       {photoOpen && trainer.photo_url && (
@@ -162,7 +246,14 @@ export default function Coaches() {
           </div>
         </div>
       </header>
-      {assignedTrainerId && <div className="mb-5 flex items-start gap-3 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 dark:border-green-500/20 dark:bg-green-500/[0.08] dark:text-green-300"><BadgeCheck size={19} className="mt-0.5 shrink-0" /><p>Your designated coach is marked as <b>Assigned Coach</b>. Coach changes are managed by the gym administrator.</p></div>}
+      <div className={`mb-5 flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm ${assignedTrainerId ? "border-green-200 bg-green-50 text-green-800 dark:border-green-500/20 dark:bg-green-500/[0.08] dark:text-green-300" : "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-500/20 dark:bg-orange-500/[0.08] dark:text-orange-300"}`}>
+        <BadgeCheck size={19} className="mt-0.5 shrink-0" />
+        <p>
+          {assignedTrainerId
+            ? <>Your designated coach is marked as <b>Assigned Coach</b>. Coach changes are managed by the gym administrator.</>
+            : <>The gym administrator assigns your designated coach. To request an assignment or reassignment, contact the gym administrator.</>}
+        </p>
+      </div>
       {error && <div className="mb-4 rounded-xl bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-sm">{error}</div>}
       {loading ? (
         <div className="mx-auto max-w-3xl animate-pulse overflow-hidden rounded-3xl border border-slate-200 bg-white dark:border-white/10 dark:bg-[#111]" aria-label="Loading coach profiles">
@@ -176,7 +267,7 @@ export default function Coaches() {
           <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-slate-500 dark:text-slate-400">Coach profiles will appear here when they are available. Please check back later or contact the gym team for help.</p>
         </div>
       ) : (
-        <section aria-label="Browse coach profiles" aria-roledescription="carousel" className="mx-auto max-w-3xl">
+        <section aria-label="Browse coach profiles" aria-roledescription="carousel" className="mx-auto max-w-5xl">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Coach spotlight</p>
@@ -187,23 +278,39 @@ export default function Coaches() {
             </span>
           </div>
           <div className="relative px-2 sm:px-5">
-          <button type="button" onClick={() => setI((i - 1 + ranked.length) % ranked.length)} disabled={ranked.length < 2} aria-label="Show previous coach" className="absolute left-0 top-[38%] z-20 flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/70 bg-white text-orange-600 shadow-lg transition hover:scale-105 hover:bg-orange-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-[#1b1b1b] dark:text-orange-400 dark:hover:bg-[#282828]"><ChevronLeft /></button>
-          <button type="button" onClick={() => setI((i + 1) % ranked.length)} disabled={ranked.length < 2} aria-label="Show next coach" className="absolute right-0 top-[38%] z-20 flex h-11 w-11 translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/70 bg-white text-orange-600 shadow-lg transition hover:scale-105 hover:bg-orange-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-[#1b1b1b] dark:text-orange-400 dark:hover:bg-[#282828]"><ChevronRight /></button>
-          <div onTouchStart={swipeStart} onTouchEnd={swipeEnd} onClick={() => setProfileTrainer(t)} role="group" aria-label={`Coach profile: ${t.full_name}`} className="group cursor-pointer overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl transition-shadow hover:shadow-2xl dark:border-white/10 dark:bg-[#111]">
+          <button type="button" onClick={() => setI((i - 1 + ranked.length) % ranked.length)} disabled={ranked.length < 2} aria-label="Show previous coach" className="absolute left-0 top-1/2 z-20 flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/70 bg-white text-orange-600 shadow-lg transition hover:scale-105 hover:bg-orange-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-[#1b1b1b] dark:text-orange-400 dark:hover:bg-[#282828]"><ChevronLeft /></button>
+          <button type="button" onClick={() => setI((i + 1) % ranked.length)} disabled={ranked.length < 2} aria-label="Show next coach" className="absolute right-0 top-1/2 z-20 flex h-11 w-11 translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-white/70 bg-white text-orange-600 shadow-lg transition hover:scale-105 hover:bg-orange-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10 dark:bg-[#1b1b1b] dark:text-orange-400 dark:hover:bg-[#282828]"><ChevronRight /></button>
+          <ScrollReveal key={t.trainer_id}>
+          <div
+            onTouchStart={swipeStart}
+            onTouchEnd={swipeEnd}
+            onClick={() => setProfileTrainer(t)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                setProfileTrainer(t);
+              }
+            }}
+            role="button"
+            tabIndex={0}
+            aria-label={`View ${t.full_name}'s coach profile`}
+            className="coach-card-interactive group/card cursor-pointer overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl shadow-slate-900/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 dark:border-white/10 dark:bg-[#111] dark:shadow-black/30 md:grid md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]"
+          >
             <div className="relative">
-              <TrainerPhoto trainer={t} className="h-[360px] sm:h-[440px]" />
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-36 bg-gradient-to-t from-black/70 to-transparent" />
-              <div className="absolute left-4 top-4 flex flex-wrap gap-2 sm:left-6 sm:top-6">
-                {i === 0 && <span className="inline-flex items-center gap-1.5 rounded-full bg-orange-500 px-3 py-1.5 text-xs font-bold text-white shadow-lg"><Sparkles size={13} /> Top match for you</span>}
-                {assignedTrainerId === t.trainer_id && <span className="inline-flex items-center gap-1.5 rounded-full bg-green-500 px-3 py-1.5 text-xs font-bold text-white shadow-lg"><BadgeCheck size={14} /> Assigned Coach</span>}
+              <TrainerPhoto trainer={t} className="h-[320px] sm:h-[400px] md:h-full md:min-h-[500px]" />
+              <div className="absolute left-4 top-4 z-20 flex flex-wrap gap-2 sm:left-6 sm:top-6">
+                {i === 0 && <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-black/55 px-3 py-1.5 text-xs font-bold text-white shadow-lg backdrop-blur-md"><Sparkles size={13} className="text-orange-300" /> Best match</span>}
+                {assignedTrainerId === t.trainer_id && <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-green-600/90 px-3 py-1.5 text-xs font-bold text-white shadow-lg backdrop-blur-md"><BadgeCheck size={14} /> Assigned Coach</span>}
               </div>
-              <p className="absolute bottom-4 left-5 right-5 text-xs font-semibold text-white/90 sm:bottom-5 sm:left-7">Specialty · {t.goal_specialty || "General Fitness Coach"}</p>
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-24 bg-gradient-to-t from-black/45 to-transparent" />
+              <p className="absolute bottom-4 left-5 right-5 z-20 text-xs font-bold uppercase tracking-wider text-white drop-shadow-md sm:bottom-5 sm:left-7">{formatGoalSpecialty(t.goal_specialty) || "General Fitness Coach"}</p>
             </div>
-            <div className="p-5 sm:p-7">
+            <div className="flex flex-col justify-center bg-gradient-to-br from-white to-orange-50/40 p-5 dark:from-[#111] dark:to-orange-950/10 sm:p-8 lg:p-10">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <h2 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white sm:text-3xl">{t.full_name}</h2>
-                  <p className="mt-1 text-sm font-semibold text-orange-600 dark:text-orange-400">{t.goal_specialty || "General Fitness Coach"}</p>
+                  <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-orange-600 dark:text-orange-400">Coach profile</p>
+                  <h2 className="mt-1 text-3xl font-black tracking-tight text-slate-900 dark:text-white sm:text-4xl">{t.full_name}</h2>
+                  <p className="mt-1 text-sm font-semibold text-orange-600 dark:text-orange-400">{formatGoalSpecialty(t.goal_specialty) || "General Fitness Coach"}</p>
                 </div>
                 <span className="hidden shrink-0 rounded-xl bg-orange-50 p-3 text-orange-600 dark:bg-orange-500/10 dark:text-orange-400 sm:grid"><Briefcase size={20} /></span>
               </div>
@@ -214,18 +321,23 @@ export default function Coaches() {
                   {expertise(t).length > 0 ? expertise(t).map((x) => <span key={x} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-300">{x}</span>) : <span className="text-xs text-slate-500">General coaching</span>}
                 </div>
               </div>
-              <div className="mt-6 flex flex-col gap-3 border-t border-slate-100 pt-5 dark:border-white/10 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">Matched with your <b className="text-slate-700 dark:text-slate-200">{goal}</b> goal</p>
-                <button type="button" onClick={(e) => { e.stopPropagation(); setProfileTrainer(t); }} className="min-h-11 w-full rounded-xl bg-orange-500 px-5 text-sm font-bold text-white transition hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111] sm:w-auto">View coach profile</button>
+              <div className="mt-7 flex flex-col gap-3 border-t border-slate-200 pt-5 dark:border-white/10 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+                  Your selected goal: <b className="text-slate-700 dark:text-slate-200">{goal || "General Fitness"}</b>
+                </p>
+                <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-bold text-orange-600 dark:text-orange-400">
+                  Select card to view profile <ChevronRight size={15} />
+                </span>
               </div>
             </div>
           </div>
+          </ScrollReveal>
           </div>
           <div className="mt-5 flex items-center justify-center gap-2" role="group" aria-label="Choose a coach profile">{ranked.map((x, n) => <button key={x.trainer_id} type="button" onClick={() => setI(n)} aria-label={`Show ${x.full_name}`} aria-current={n === i ? "true" : undefined} className={`h-2.5 rounded-full transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#080808] ${n === i ? "w-8 bg-orange-500" : "w-2.5 bg-slate-300 hover:bg-orange-300 dark:bg-slate-700 dark:hover:bg-orange-500/60"}`} />)}</div>
           <p className="mt-3 text-center text-xs text-slate-400">Coach {i + 1} of {ranked.length} · Select a profile to learn more</p>
         </section>
       )}
-      {profileTrainer && <TrainerProfileModal trainer={profileTrainer} goal={goal} onClose={() => setProfileTrainer(null)} />}
+      {profileTrainer && <TrainerProfileModal trainer={profileTrainer} goal={goal} assigned={profileTrainer.trainer_id === assignedTrainerId} onClose={() => setProfileTrainer(null)} />}
     </div>
   );
 }

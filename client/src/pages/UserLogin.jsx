@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { MailCheck } from "lucide-react";
 import { GoogleLogin, GoogleOAuthProvider } from "@react-oauth/google";
 import AuthShell from "../components/layout/AuthShell";
@@ -13,11 +13,62 @@ const TABS = [
   { id: "signup", label: "Sign up" },
 ];
 
+const SIGNUP_NAME_PATTERN = /^[A-Za-zÀ-ÿ' -]+$/;
+const COMMON_PASSWORDS = new Set([
+  "password", "password1", "password123", "12345678", "123456789",
+  "1234567890", "qwerty123", "qwertyuiop", "admin123", "admin1234",
+  "avefit123", "letmein123", "welcome123", "iloveyou1", "abc123456",
+  "changeme1",
+]);
+
+function getSignupValidationError(form) {
+  const firstName = form.first_name.trim();
+  const lastName = form.last_name.trim();
+  const email = form.email.trim();
+  const phone = form.phone.trim();
+  const password = form.password;
+
+  if (!firstName) return "Enter your first name.";
+  if (!lastName) return "Enter your last name.";
+  if (
+    firstName.length < 2 ||
+    firstName.length > 50 ||
+    !SIGNUP_NAME_PATTERN.test(firstName) ||
+    lastName.length < 2 ||
+    lastName.length > 50 ||
+    !SIGNUP_NAME_PATTERN.test(lastName)
+  ) {
+    return "First and last names must be 2–50 characters and use letters, spaces, apostrophes, or hyphens.";
+  }
+  if (!email) return "Enter your email address.";
+  if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(email)) {
+    return "Enter a valid email address, such as name@example.com.";
+  }
+  if (!phone) return "Enter your phone number.";
+  if (phone && !/^09\d{9}$/.test(phone)) {
+    return "Phone number must start with 09 and contain exactly 11 digits.";
+  }
+  if (!password) return "Enter a password.";
+  if (password.length < 8 || password.length > 12) {
+    return "Password must be 8–12 characters long.";
+  }
+  if (!/[A-Za-z]/.test(password)) return "Password must include at least one letter.";
+  if (!/\d/.test(password)) return "Password must include at least one number.";
+  if (!/[^A-Za-z0-9]/.test(password)) return "Password must include at least one symbol.";
+  if (COMMON_PASSWORDS.has(password.toLowerCase())) {
+    return "Choose a less common password.";
+  }
+  if (!form.agreed) return "Please agree to the Terms and Conditions.";
+  return "";
+}
+
 export default function UserLogin() {
+  const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { loginUser } = useUserAuth();
   const [mode, setMode] = useState(searchParams.get("mode") === "signup" ? "signup" : "login");
+  const [useEmailSignup, setUseEmailSignup] = useState(false);
   const [rememberMe, setRememberMe] = useState(
     () => localStorage.getItem(USER_REMEMBER_ME_KEY) === "true"
   );
@@ -26,8 +77,9 @@ export default function UserLogin() {
   const [pendingNotice, setPendingNotice] = useState(false);
   const [unverifiedEmail, setUnverifiedEmail] = useState("");
   const [resendNotice, setResendNotice] = useState("");
-  const [resetNotice, setResetNotice] = useState("");
   const [resending, setResending] = useState(false);
+  const googleButtonContainerRef = useRef(null);
+  const [googleButtonWidth, setGoogleButtonWidth] = useState(null);
 
   const [loginForm, setLoginForm] = useState({
     email: localStorage.getItem(USER_REMEMBERED_EMAIL_KEY) || "",
@@ -37,14 +89,43 @@ export default function UserLogin() {
     first_name: "",
     last_name: "",
     email: "",
-    phone: "09",
+    phone: "",
     password: "",
     agreed: false,
   });
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
+  useEffect(() => {
+    const container = googleButtonContainerRef.current;
+    if (!container) return undefined;
+
+    const updateWidth = () => {
+      const availableWidth = Math.floor(container.getBoundingClientRect().width);
+      if (availableWidth > 0) {
+        setGoogleButtonWidth((currentWidth) => (
+          currentWidth === availableWidth ? currentWidth : availableWidth
+        ));
+      }
+    };
+
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
+
   const goToDestination = (user) => {
-    navigate(user?.setup_completed ? "/user/workout" : "/user/assessment", { replace: true });
+    const returnLocation = location.state?.from;
+    const returnPath = returnLocation?.pathname;
+    const isValidReturnPath = typeof returnPath === "string"
+      && returnPath.startsWith("/user/")
+      && !["/user/login", "/user/pending", "/user/reset-password"].includes(returnPath);
+    const destination = user?.setup_completed
+      ? isValidReturnPath
+        ? `${returnPath}${returnLocation.search || ""}${returnLocation.hash || ""}`
+        : "/user/workout"
+      : "/user/assessment";
+    navigate(destination, { replace: true });
   };
 
   const handleLogin = async () => {
@@ -86,24 +167,13 @@ export default function UserLogin() {
       setError("Google sign-in did not return an identity token. Please try again.");
       return;
     }
-    if (mode === "signup" && !signupForm.agreed) {
-      setError("Please agree to the Terms and Conditions before creating your account.");
-      return;
-    }
-    if (mode === "signup" && !/^09\d{9}$/.test(signupForm.phone)) {
-      setError("Enter a valid phone number starting with 09 before continuing with Google.");
-      return;
-    }
-
     setLoading(true);
     setError("");
     try {
       const res = await userApi.post("/google-login", {
         credential,
         intent: mode,
-        phone: signupForm.phone,
-        first_name: signupForm.first_name,
-        last_name: signupForm.last_name,
+        phone: signupForm.phone || null,
         termsAccepted: signupForm.agreed,
         rememberMe,
       });
@@ -120,7 +190,8 @@ export default function UserLogin() {
         setError(err.response?.data?.message || "Your account was not approved.");
       } else if (code === "SIGNUP_REQUIRED") {
         setMode("signup");
-        setError("No AveFit account was found. Enter your phone number, accept the Terms, and continue with Google to sign up.");
+        navigate("/user/login?mode=signup", { replace: true });
+        setError("No AveFit account was found. Accept the Terms, then continue with Google to create your account. A phone number is optional for Google sign-up.");
       } else {
         setError(err.response?.data?.message || "Google sign-in failed. Please try again.");
       }
@@ -146,42 +217,10 @@ export default function UserLogin() {
     }
   };
 
-  const handleForgotPassword = async () => {
-    const email = loginForm.email.trim();
-
-    if (!email) {
-      setError("Enter your email address to reset your password.");
-      return;
-    }
-
-    setLoading(true);
-    setError("");
-    setResetNotice("");
-
-    try {
-      const res = await userApi.post("/forgot-password", { email });
-      setResetNotice(res.data.message || "If that account exists, a password reset link has been sent.");
-    } catch (err) {
-      setError(err.response?.data?.message || "Unable to send the reset email right now.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleSignup = async () => {
-    if (
-      !signupForm.first_name ||
-      !signupForm.last_name ||
-      !signupForm.email ||
-      !signupForm.phone ||
-      !signupForm.password
-    ) {
-      setError("Please fill in all fields.");
-      return;
-    }
-
-    if (!signupForm.agreed) {
-      setError("Please agree to the Terms and Conditions.");
+    const validationError = getSignupValidationError(signupForm);
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
@@ -189,10 +228,14 @@ export default function UserLogin() {
     setError("");
 
     try {
-      await userApi.post("/register", signupForm);
+      const response = await userApi.post("/register", signupForm);
       // Remembered so the pending screen can prefill the verification form.
       sessionStorage.setItem("avefit_pending_email", signupForm.email.trim());
       sessionStorage.removeItem("avefit_pending_email_verified");
+      sessionStorage.setItem(
+        "avefit_verification_email_delivery_failed",
+        String(response.data?.email_sent !== true)
+      );
       navigate("/user/pending", { replace: true });
     } catch (err) {
       setError(err.response?.data?.message || "Registration failed.");
@@ -201,16 +244,22 @@ export default function UserLogin() {
     }
   };
 
-  const switchTab = (next) => {
-    setMode(next);
-    setError("");
-    setPendingNotice(false);
-    setResendNotice("");
-    setResetNotice("");
-  };
+const switchTab = (next) => {
+  setMode(next);
+  setUseEmailSignup(false);
+
+  navigate(
+    next === "signup" ? "/user/login?mode=signup" : "/user/login",
+    { replace: true }
+  );
+
+  setError("");
+  setPendingNotice(false);
+  setResendNotice("");
+};
 
   const googleButtonClasses =
-    "flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent";
+    "flex min-h-12 w-full min-w-0 items-center justify-center gap-2 rounded-xl border border-orange-500 bg-orange-500 px-3 py-3 text-center text-sm font-semibold leading-tight text-white shadow-sm transition hover:border-orange-600 hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent disabled:cursor-not-allowed disabled:opacity-60 sm:gap-3 sm:px-4";
 
   const GoogleBrandIcon = () => (
     <svg aria-hidden="true" viewBox="0 0 48 48" className="h-6 w-6 shrink-0">
@@ -228,24 +277,23 @@ export default function UserLogin() {
         <span>or</span>
         <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
       </div>
-      <div className="flex justify-center">
+      <div
+        ref={googleButtonContainerRef}
+        className="mx-auto w-full min-w-0 max-w-[400px]"
+      >
         {googleClientId ? (
           <GoogleOAuthProvider clientId={googleClientId}>
-            <GoogleLogin
-              onSuccess={handleGoogleSuccess}
-              onError={() => setError("Google sign-in failed or was cancelled. Please try again.")}
-              render={({ onClick, disabled }) => (
-                <button
-                  type="button"
-                  onClick={onClick}
-                  disabled={disabled || loading}
-                  className={`${googleButtonClasses} ${loading ? "cursor-not-allowed opacity-80" : ""}`}
-                >
-                  <GoogleBrandIcon />
-                  <span>Continue with Google</span>
-                </button>
+            <div className="flex w-full min-w-0 justify-center">
+              {googleButtonWidth && (
+                <GoogleLogin
+                  key={googleButtonWidth}
+                  onSuccess={handleGoogleSuccess}
+                  onError={() => setError("Google sign-in failed or was cancelled. Please try again.")}
+                  width={googleButtonWidth}
+                  containerProps={{ className: "w-full", style: { width: "100%" } }}
+                />
               )}
-            />
+            </div>
           </GoogleOAuthProvider>
         ) : (
           <button
@@ -254,7 +302,7 @@ export default function UserLogin() {
             className={googleButtonClasses}
           >
             <GoogleBrandIcon />
-            <span>Continue with Google</span>
+            <span className="min-w-0">Continue with Google</span>
           </button>
         )}
       </div>
@@ -310,6 +358,11 @@ export default function UserLogin() {
             handleLogin();
           }}
         >
+          {location.state?.passwordChanged && (
+            <Alert tone="info">
+              Your password was changed successfully. Log in with your new password.
+            </Alert>
+          )}
           <Field
             label="Email address"
             htmlFor="user-login-email"
@@ -392,25 +445,24 @@ export default function UserLogin() {
 
           {error && <Alert tone="error">{error}</Alert>}
 
-          <PrimaryButton type="submit" loading={loading} loadingText="Logging in…" className="mt-2">
+          <PrimaryButton type="submit" loading={loading} loadingText="Logging in…" className="mx-auto mt-2 !flex !h-12 !w-full !max-w-[400px] !px-4 !py-0">
             Log in
           </PrimaryButton>
 
           <div className="text-center">
             <button
               type="button"
-              onClick={handleForgotPassword}
+              onClick={() => navigate("/user/reset-password", { state: { email: loginForm.email } })}
               className="text-sm font-semibold text-orange-600 transition hover:text-orange-700 dark:text-orange-400 dark:hover:text-orange-300"
             >
               Forgot password?
             </button>
           </div>
-
-          {resetNotice && <Alert tone="info">{resetNotice}</Alert>}
         </form>
       ) : (
         <form
           className="space-y-4"
+          noValidate
           onSubmit={(e) => {
             e.preventDefault();
             handleSignup();
@@ -425,86 +477,131 @@ export default function UserLogin() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field
-              label="First name"
-              htmlFor="signup-first"
-              autoComplete="given-name"
-              placeholder="Juan"
-              value={signupForm.first_name}
-              onChange={(e) => setSignupForm({ ...signupForm, first_name: e.target.value })}
-            />
-            <Field
-              label="Last name"
-              htmlFor="signup-last"
-              autoComplete="family-name"
-              placeholder="dela Cruz"
-              value={signupForm.last_name}
-              onChange={(e) => setSignupForm({ ...signupForm, last_name: e.target.value })}
-            />
-          </div>
+          {useEmailSignup ? (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setUseEmailSignup(false);
+                  setError("");
+                }}
+                className="text-sm font-semibold text-orange-600 transition hover:text-orange-700 dark:text-orange-400 dark:hover:text-orange-300"
+              >
+                Use Google instead
+              </button>
 
-          <Field
-            label="Email address"
-            htmlFor="signup-email"
-            type="email"
-            autoComplete="email"
-            placeholder="your@email.com"
-            required
-            value={signupForm.email}
-            onChange={(e) => setSignupForm({ ...signupForm, email: e.target.value })}
-          />
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Field
+                  label="First name"
+                  htmlFor="signup-first"
+                  autoComplete="given-name"
+                  placeholder="Juan"
+                  maxLength={50}
+                  value={signupForm.first_name}
+                  onChange={(e) => setSignupForm({ ...signupForm, first_name: e.target.value })}
+                />
+                <Field
+                  label="Last name"
+                  htmlFor="signup-last"
+                  autoComplete="family-name"
+                  placeholder="dela Cruz"
+                  maxLength={50}
+                  value={signupForm.last_name}
+                  onChange={(e) => setSignupForm({ ...signupForm, last_name: e.target.value })}
+                />
+              </div>
 
-          <Field
-            label="Phone number"
-            htmlFor="signup-phone"
-            type="tel"
-            inputMode="numeric"
-            autoComplete="tel"
-            minLength={11}
-            maxLength={11}
-            pattern="09[0-9]{9}"
-            placeholder="XXXXXXXXX"
-            required
-            value={signupForm.phone}
-            onChange={(e) => {
-              const digits = e.target.value.replace(/\D/g, "").slice(0, 11);
-              const phone = digits.startsWith("0")
-                ? digits.length > 1 && digits[1] !== "9" ? "0" : digits
-                : "";
-              setSignupForm({ ...signupForm, phone });
-            }}
-          />
-          <PasswordField
-            label="Password"
-            htmlFor="signup-password"
-            autoComplete="new-password"
-            placeholder="••••••••"
-            minLength={8}
-            maxLength={12}
-            required
-            value={signupForm.password}
-            onChange={(e) => setSignupForm({ ...signupForm, password: e.target.value })}
-          />
-          <p className="-mt-3 text-xs text-slate-500">8–12 characters with a letter, number, and symbol.</p>
+              <Field
+                label="Email address"
+                htmlFor="signup-email"
+                type="email"
+                autoComplete="email"
+                placeholder="your@email.com"
+                required
+                value={signupForm.email}
+                onChange={(e) => setSignupForm({ ...signupForm, email: e.target.value })}
+              />
 
-          <label className="flex cursor-pointer items-start gap-2.5 pt-1 text-sm text-slate-600 dark:text-slate-300">
-            <input
-              type="checkbox"
-              checked={signupForm.agreed}
-              onChange={(e) => setSignupForm({ ...signupForm, agreed: e.target.checked })}
-              className="mt-0.5"
-            />
-            I agree to the Terms and Conditions of AveFit
-          </label>
+              <Field
+                label="Phone number"
+                htmlFor="signup-phone"
+                type="tel"
+                inputMode="numeric"
+                autoComplete="tel"
+                minLength={11}
+                maxLength={11}
+                pattern="09[0-9]{9}"
+                placeholder="XXXXXXXXX"
+                required
+                value={signupForm.phone}
+                onChange={(e) => {
+                  const digits = e.target.value.replace(/\D/g, "").slice(0, 11);
+                  const phone = digits.startsWith("0")
+                    ? digits.length > 1 && digits[1] !== "9" ? "0" : digits
+                    : "";
+                  setSignupForm({ ...signupForm, phone });
+                }}
+              />
+              <PasswordField
+                label="Password"
+                htmlFor="signup-password"
+                autoComplete="new-password"
+                placeholder="••••••••"
+                minLength={8}
+                maxLength={12}
+                required
+                value={signupForm.password}
+                onChange={(e) => setSignupForm({ ...signupForm, password: e.target.value })}
+              />
+              <p className="-mt-3 text-xs text-slate-500">8–12 characters with a letter, number, and symbol.</p>
 
-          {googleButton}
+              <label className="flex cursor-pointer items-start gap-2.5 pt-1 text-sm text-slate-600 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={signupForm.agreed}
+                  onChange={(e) => setSignupForm({ ...signupForm, agreed: e.target.checked })}
+                  className="mt-0.5"
+                />
+                I agree to the Terms and Conditions of AveFit
+              </label>
 
-          {error && <Alert tone="error">{error}</Alert>}
+              {error && <Alert tone="error">{error}</Alert>}
 
-          <PrimaryButton type="submit" loading={loading} loadingText="Creating account…" className="mt-2">
-            Create account
-          </PrimaryButton>
+              <PrimaryButton type="submit" loading={loading} loadingText="Creating account…" className="mx-auto mt-2 !flex !h-12 !w-full !max-w-[400px] !px-4 !py-0">
+                Create account
+              </PrimaryButton>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-slate-600 dark:text-slate-300">
+                Sign up with Google to use the name and verified email on your Google account.
+              </p>
+              <label className="flex cursor-pointer items-start gap-2.5 text-sm text-slate-600 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={signupForm.agreed}
+                  onChange={(e) => setSignupForm({ ...signupForm, agreed: e.target.checked })}
+                  className="mt-0.5"
+                />
+                I agree to the Terms and Conditions of AveFit
+              </label>
+              {googleButton}
+              {error && <Alert tone="error">{error}</Alert>}
+              <p className="text-center text-sm text-slate-500">
+                Prefer to sign up with email?{" "}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUseEmailSignup(true);
+                    setError("");
+                  }}
+                  className="font-semibold text-orange-600 transition hover:text-orange-700 dark:text-orange-400 dark:hover:text-orange-300"
+                >
+                  Use email and password
+                </button>
+              </p>
+            </>
+          )}
         </form>
       )}
     </AuthShell>

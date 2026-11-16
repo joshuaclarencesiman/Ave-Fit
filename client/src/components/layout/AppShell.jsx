@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { LogOut, Menu, Search, X } from "lucide-react";
+import ConfirmDialog from "../ui/ConfirmDialog";
 
 /* ------------------------------------------------------------------ */
 /* Brand block — shared by the sidebar, the drawer and the mobile bar */
@@ -50,7 +51,7 @@ function NavList({ items, pathname, onNavigate, className = "" }) {
               <span className="min-w-0 flex-1 truncate font-medium">{item.label}</span>
               {item.badge > 0 && (
                 <span className="min-w-[1.4rem] rounded-full bg-red-500 px-1.5 py-0.5 text-center text-[10px] font-bold leading-4 text-white">
-                  {item.badge > 9 ? "9+" : item.badge}
+                  {item.badge}
                 </span>
               )}
             </Link>
@@ -139,6 +140,8 @@ export default function AppShell({
 }) {
   const location = useLocation();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [confirmLogout, setConfirmLogout] = useState(false);
+  const requestLogout = () => setConfirmLogout(true);
 
   // Close the drawer whenever the route changes.
   useEffect(() => {
@@ -161,7 +164,7 @@ export default function AppShell({
   }, [drawerOpen]);
 
   return (
-    <div className={`ave-portal-shell flex min-h-screen w-full ${portalClassName}`}>
+    <div className={`ave-portal-shell flex min-h-dvh w-full ${portalClassName}`}>
       {/* Desktop rail */}
       <aside className="ave-sidebar sticky top-0 hidden h-dvh w-[var(--ave-sidebar-w)] shrink-0 border-r lg:block">
         <SidebarBody
@@ -169,7 +172,7 @@ export default function AppShell({
           pathname={location.pathname}
           subtitle={subtitle}
           user={user}
-          onLogout={onLogout}
+          onLogout={requestLogout}
         />
       </aside>
 
@@ -188,7 +191,7 @@ export default function AppShell({
               pathname={location.pathname}
               subtitle={subtitle}
               user={user}
-              onLogout={onLogout}
+              onLogout={requestLogout}
               onClose={() => setDrawerOpen(false)}
             />
           </aside>
@@ -197,7 +200,7 @@ export default function AppShell({
 
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Top bar */}
-        <header className="ave-topbar sticky top-0 z-40 flex h-16 shrink-0 items-center gap-3 border-b px-4 sm:px-6 lg:h-[var(--ave-topbar-h)] lg:px-8">
+        <header className="ave-topbar sticky top-0 z-40 flex h-16 shrink-0 items-center gap-2 border-b px-3 sm:gap-3 sm:px-6 lg:h-[var(--ave-topbar-h)] lg:px-8">
           <button
             type="button"
             onClick={() => setDrawerOpen(true)}
@@ -234,8 +237,8 @@ export default function AppShell({
         </header>
 
         {/* Page content */}
-        <main className={`portal-content flex-1 ${bottomNav ? "pb-16 lg:pb-0" : ""}`}>
-          <div className={`mx-auto w-full ${contentWidth} ${contentClassName}`}>{children}</div>
+        <main className={`portal-content min-w-0 flex-1 ${bottomNav ? "pb-16 lg:pb-0" : ""}`}>
+          <div className={`mx-auto w-full min-w-0 ${contentWidth} ${contentClassName}`}>{children}</div>
         </main>
       </div>
 
@@ -245,7 +248,7 @@ export default function AppShell({
           aria-label="Main"
           className="ave-mobile-nav fixed inset-x-0 bottom-0 z-50 flex items-stretch justify-around border-t px-1 pb-[env(safe-area-inset-bottom)] lg:hidden"
         >
-          {nav.map((item) => {
+          {nav.filter((item) => !item.hideFromBottomNav).map((item) => {
             const isActive = location.pathname === item.to;
             const Icon = item.icon;
             return (
@@ -253,13 +256,23 @@ export default function AppShell({
                 key={item.to}
                 to={item.to}
                 aria-current={isActive ? "page" : undefined}
+                aria-label={item.badge > 0 ? `${item.label}, ${item.badge} items requiring attention` : undefined}
                 className={`flex flex-1 flex-col items-center gap-1 rounded-lg px-1 py-2.5 text-[10px] font-semibold transition-colors ${
                   isActive
                     ? "text-orange-500"
                     : "text-slate-500 hover:text-orange-500 dark:text-slate-400"
                 }`}
               >
-                {Icon ? <Icon size={20} strokeWidth={isActive ? 2.4 : 2} /> : null}
+                {Icon ? (
+                  <span className="relative">
+                    <Icon size={20} strokeWidth={isActive ? 2.4 : 2} />
+                    {item.badge > 0 && (
+                      <span className="absolute -right-2 -top-1 min-w-4 rounded-full bg-red-500 px-1 text-center text-[9px] font-bold leading-4 text-white">
+                        {item.badge}
+                      </span>
+                    )}
+                  </span>
+                ) : null}
                 <span className="truncate">{item.label}</span>
                 <span
                   className={`h-0.5 w-4 rounded-full transition-colors ${
@@ -270,6 +283,18 @@ export default function AppShell({
             );
           })}
         </nav>
+      )}
+      {confirmLogout && (
+        <ConfirmDialog
+          title="Log out of AveFit?"
+          description="You will need to sign in again to access your account."
+          confirmLabel="Log out"
+          onCancel={() => setConfirmLogout(false)}
+          onConfirm={() => {
+            setConfirmLogout(false);
+            onLogout?.();
+          }}
+        />
       )}
     </div>
   );

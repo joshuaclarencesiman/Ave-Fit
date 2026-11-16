@@ -19,6 +19,9 @@ export default function PendingApproval() {
   );
   const [verifying, setVerifying] = useState(false);
   const [resending, setResending] = useState(false);
+  const [deliveryFailed, setDeliveryFailed] = useState(
+    () => sessionStorage.getItem("avefit_verification_email_delivery_failed") === "true"
+  );
   const [notice, setNotice] = useState(() =>
     sessionStorage.getItem("avefit_pending_email_verified") === "true"
       ? "Your email is already verified. Your registration is with the gym administrator."
@@ -69,6 +72,8 @@ export default function PendingApproval() {
     try {
       const res = await userApi.post("/verify-email", { email, code });
       setVerified(true);
+      setDeliveryFailed(false);
+      sessionStorage.removeItem("avefit_verification_email_delivery_failed");
       sessionStorage.setItem("avefit_pending_email_verified", "true");
       setNotice(res.data.message);
     } catch (err) {
@@ -90,7 +95,15 @@ export default function PendingApproval() {
 
     try {
       const res = await userApi.post("/resend-verification", { email });
-      setNotice(res.data.message);
+      if (res.data.email_sent === false) {
+        setDeliveryFailed(true);
+        sessionStorage.setItem("avefit_verification_email_delivery_failed", "true");
+        setError(res.data.message || "We could not send a new code right now. Please try again later.");
+      } else {
+        setDeliveryFailed(false);
+        sessionStorage.removeItem("avefit_verification_email_delivery_failed");
+        setNotice(res.data.message);
+      }
     } catch (err) {
       setError(err.response?.data?.message || "Unable to send a new code right now.");
     } finally {
@@ -136,6 +149,13 @@ export default function PendingApproval() {
         </div>
 
         {notice && <div className="mt-5"><Alert tone="info">{notice}</Alert></div>}
+        {deliveryFailed && !error && (
+          <div className="mt-5">
+            <Alert tone="warning">
+              We could not send your verification code. Use “Send a new code” below to try again, and check your spam folder.
+            </Alert>
+          </div>
+        )}
         {error && <div className="mt-3"><Alert tone="error">{error}</Alert></div>}
 
         {!verified && <form
@@ -150,8 +170,13 @@ export default function PendingApproval() {
             autoComplete="email"
             placeholder="your@email.com"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            readOnly
+            aria-describedby="pending-email-note"
+            className="cursor-not-allowed bg-slate-100 text-slate-600 dark:bg-white/[0.03] dark:text-slate-400"
           />
+          <p id="pending-email-note" className="-mt-2 text-xs text-slate-500">
+            This is the email address used to register your account.
+          </p>
 
           <Field
             label="Six-digit verification code"

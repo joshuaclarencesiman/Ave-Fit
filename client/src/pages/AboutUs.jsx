@@ -1,8 +1,10 @@
 import { Activity, ArrowRight, Clock3, Dumbbell, ExternalLink, MapPin, Phone, Star, Target, UsersRound } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useState } from "react";
+import userApi from "../userApi";
 
 const GYM_ADDRESS = "34 A Mabini Tanauan Batangas, Mabini Ave, Tanauan City, Batangas";
+const GYM_MAP_QUERY = encodeURIComponent(`Avenue Power and Fitness Gym, ${GYM_ADDRESS}`);
 
 const APP_FEATURES = [
   {
@@ -34,18 +36,29 @@ const GYM_INFO = [
 ];
 
 export default function AboutUs() {
-  const mapQuery = encodeURIComponent(GYM_ADDRESS);
   const [rating, setRating] = useState(0);
   const [hovered, setHovered] = useState(0);
-  const [feedback, setFeedback] = useState({ name: "", email: "", message: "" });
+  const [feedback, setFeedback] = useState({ message: "" });
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [feedbackError, setFeedbackError] = useState("");
 
-  const handleSubmit = () => {
-    if (!feedback.name || !feedback.message || rating === 0) return;
-    setSubmitted(true);
-    setTimeout(() => setSubmitted(false), 4000);
-    setFeedback({ name: "", email: "", message: "" });
-    setRating(0);
+  const handleSubmit = async () => {
+    if (!feedback.message.trim() || rating === 0 || submitting) return;
+    setSubmitting(true);
+    setFeedbackError("");
+    setSubmitted(false);
+    try {
+      await userApi.post("/feedback", { rating, message: feedback.message.trim() });
+      setSubmitted(true);
+      setFeedback({ message: "" });
+      setRating(0);
+      setHovered(0);
+    } catch (error) {
+      setFeedbackError(error.response?.data?.message || "Unable to email your feedback right now. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -147,7 +160,7 @@ export default function AboutUs() {
                 <h2 className="mt-1 text-lg font-bold text-slate-900 dark:text-white">Gym location</h2>
               </div>
               <a
-                href={`https://www.google.com/maps/search/?api=1&query=${mapQuery}`}
+                href={`https://www.google.com/maps/search/?api=1&query=${GYM_MAP_QUERY}`}
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex min-h-10 shrink-0 items-center gap-2 rounded-lg border border-orange-200 px-3 text-xs font-semibold text-orange-700 transition hover:bg-orange-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 dark:border-orange-500/30 dark:text-orange-300 dark:hover:bg-orange-500/10"
@@ -157,7 +170,7 @@ export default function AboutUs() {
             </div>
             <iframe
               title="Map showing Avenue Power and Fitness Gym in Tanauan City, Batangas"
-              src={`https://maps.google.com/maps?q=${mapQuery}&output=embed`}
+              src={`https://maps.google.com/maps?q=${GYM_MAP_QUERY}&z=18&output=embed`}
               loading="lazy"
               referrerPolicy="no-referrer-when-downgrade"
               className="h-64 w-full border-0 sm:h-72"
@@ -179,7 +192,7 @@ export default function AboutUs() {
           <div className="mb-5">
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Your voice matters</p>
             <h2 className="mt-1 text-xl font-bold text-slate-900 dark:text-white">Share your feedback</h2>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Tell us about your experience with AveFit.</p>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Tell us about your experience. Your feedback will be emailed to the gym admin using your account email.</p>
           </div>
 
           <div className="mb-4">
@@ -205,33 +218,14 @@ export default function AboutUs() {
             </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
-              Name *
-              <input
-                type="text"
-                value={feedback.name}
-                onChange={(event) => setFeedback({ ...feedback, name: event.target.value })}
-                placeholder="Your name"
-                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-500 dark:border-white/10 dark:bg-white/5 dark:text-white"
-              />
-            </label>
-            <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
-              Email <span className="font-normal text-slate-400">(optional)</span>
-              <input
-                type="email"
-                value={feedback.email}
-                onChange={(event) => setFeedback({ ...feedback, email: event.target.value })}
-                placeholder="your@email.com"
-                className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-500 dark:border-white/10 dark:bg-white/5 dark:text-white"
-              />
-            </label>
+          <div className="grid gap-3">
             <label className="text-xs font-medium text-slate-600 dark:text-slate-300 sm:col-span-2">
-              Message *
+              Message
               <textarea
                 rows={4}
                 value={feedback.message}
-                onChange={(event) => setFeedback({ ...feedback, message: event.target.value })}
+                maxLength={5000}
+                onChange={(event) => setFeedback({ message: event.target.value })}
                 placeholder="Share your experience..."
                 className="mt-1.5 w-full resize-y rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-500 dark:border-white/10 dark:bg-white/5 dark:text-white"
               />
@@ -240,16 +234,21 @@ export default function AboutUs() {
 
           {submitted && (
             <p role="status" className="mt-4 rounded-xl border border-green-500/20 bg-green-500/10 px-4 py-3 text-sm text-green-700 dark:text-green-300">
-              Thank you for your feedback!
+              Thank you. Your feedback has been emailed to the gym admin.
+            </p>
+          )}
+          {feedbackError && (
+            <p role="alert" className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-300">
+              {feedbackError}
             </p>
           )}
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={!feedback.name || !feedback.message || rating === 0}
+            disabled={!feedback.message.trim() || rating === 0 || submitting}
             className="mt-4 w-full rounded-xl bg-orange-500 px-5 py-3 text-sm font-bold text-white transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
           >
-            Submit feedback
+            {submitting ? "Sending feedback…" : "Submit feedback"}
           </button>
         </section>
 

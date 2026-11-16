@@ -1,14 +1,28 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import OnboardingShell from "../components/layout/OnboardingShell";
 import { useNavigate } from "react-router-dom";
 import { useUserAuth } from "../context/UserAuthContext";
 import userApi from "../userApi";
 
+const sanitizeNumberInput = (value, maxDigits, integerOnly = false) => {
+  const cleaned = value.replace(/[^\d.]/g, "");
+  if (integerOnly) {
+    const digits = cleaned.replace(/\D/g, "").replace(/^0+/, "");
+    return digits.length <= maxDigits ? digits : null;
+  }
+
+  const [whole, ...fraction] = cleaned.split(".");
+  const normalizedWhole = whole.replace(/^0+/, "");
+  if (fraction.length && !normalizedWhole) return null;
+  if (normalizedWhole.length > maxDigits) return null;
+  return fraction.length ? `${normalizedWhole}.${fraction[0].slice(0, 1)}` : normalizedWhole;
+};
+
 export default function Assessment() {
   const navigate = useNavigate();
   const { user } = useUserAuth();
-  const [gender, setGender] = useState("Male");
-  const [age, setAge] = useState("");
+  const [gender, setGender] = useState(user?.gender || "Male");
+  const [age, setAge] = useState(() => sanitizeNumberInput(user?.age?.toString() || "", 2, true) || "");
   const [weight, setWeight] = useState("");
   const [height, setHeight] = useState("");
   const [bmi, setBmi] = useState(null);
@@ -17,22 +31,33 @@ export default function Assessment() {
   const [fieldErrors, setFieldErrors] = useState({});
   const [formError, setFormError] = useState("");
 
+  useEffect(() => {
+    if (!user) return;
+    setGender(user.gender || "Male");
+    setAge(sanitizeNumberInput(user.age != null ? String(user.age) : "", 2, true) || "");
+    setCalculated(false);
+    setBmi(null);
+    setFormError("");
+  }, [user]);
+
   const validateFields = () => {
     const fields = [
-      { key: "age", label: "Age", value: age, min: 10, max: 100 },
-      { key: "weight", label: "Weight", value: weight, min: 30, max: 300 },
+      { key: "age", label: "Age", value: age, min: 12, max: 90, integer: true },
+      { key: "weight", label: "Weight", value: weight, min: 30, max: 200 },
       { key: "height", label: "Height", value: height, min: 100, max: 250 },
     ];
     const errors = {};
 
-    fields.forEach(({ key, label, value, min, max }) => {
+    fields.forEach(({ key, label, value, min, max, integer = false }) => {
       if (!value.trim()) {
         errors[key] = `${label} is required.`;
         return;
       }
       const number = Number(value);
-      if (!Number.isFinite(number) || number < min || number > max) {
-        errors[key] = `Enter a ${label.toLowerCase()} between ${min} and ${max}.`;
+      if (!Number.isFinite(number) || number < min || number > max || (integer && !Number.isInteger(number))) {
+        errors[key] = key === "age"
+          ? "Age must be a whole number between 12 and 90."
+          : `Enter a ${label.toLowerCase()} between ${min} and ${max}.`;
       }
     });
 
@@ -55,9 +80,9 @@ export default function Assessment() {
       return;
     }
     const h = parseFloat(height) / 100;
-    const result = (parseFloat(weight) / (h * h)).toFixed(1);
-    const cat = getBMICategory(parseFloat(result));
-    setBmi(result);
+    const result = parseFloat(weight) / (h * h);
+    const cat = getBMICategory(result);
+    setBmi(result.toFixed(2));
     setBmiCategory(cat);
     setCalculated(true);
   };
@@ -72,16 +97,19 @@ export default function Assessment() {
 
     try {
       await userApi.put("/profile", {
-        ...user,
         gender,
-        age: parseInt(age),
+        age: parseInt(age, 10),
         weight: parseFloat(weight),
         height: parseFloat(height),
       });
       navigate("/user/goal");
     } catch (err) {
-      console.error(err);
-      setFormError("We couldn't save your assessment. Please try again.");
+      console.error("Assessment save failed:", err.response?.data || err.message);
+      const message =
+        err.response?.data?.message ||
+        err.response?.data?.error ||
+        "We couldn't save your assessment. Please try again.";
+      setFormError(message);
     }
   };
 
@@ -115,19 +143,23 @@ export default function Assessment() {
     {/* Inputs */}
     <div className="space-y-4 mb-6">
       {[
-        { label: "Age", key: "age", value: age, setter: setAge, unit: "years", min: 10, max: 100 },
-        { label: "Weight", key: "weight", value: weight, setter: setWeight, unit: "kg", min: 30, max: 300 },
-        { label: "Height", key: "height", value: height, setter: setHeight, unit: "cm", min: 100, max: 250 },
+        { label: "Age (12–90)", key: "age", value: age, setter: setAge, unit: "years", min: 12, max: 90, maxDigits: 2 },
+        { label: "Weight", key: "weight", value: weight, setter: setWeight, unit: "kg", min: 30, max: 200, maxDigits: 3 },
+        { label: "Height", key: "height", value: height, setter: setHeight, unit: "cm", min: 100, max: 250, maxDigits: 3 },
       ].map((f) => (
         <div key={f.key}>
           <label htmlFor={f.key} className="block text-sm font-medium text-slate-600 mb-1">{f.label}</label>
           <div className="relative">
             <input
               id={f.key}
-              type="number"
+              type="text"
+              inputMode={f.key === "age" ? "numeric" : "decimal"}
+              pattern={f.key === "age" ? "[0-9]*" : "[0-9]*[.]?[0-9]*"}
               value={f.value}
               onChange={(e) => {
-                f.setter(e.target.value);
+                const sanitized = sanitizeNumberInput(e.target.value, f.maxDigits, f.key === "age");
+                if (sanitized === null) return;
+                f.setter(sanitized);
                 setFieldErrors((errors) => ({ ...errors, [f.key]: "" }));
                 setFormError("");
                 setCalculated(false);

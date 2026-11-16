@@ -1,42 +1,66 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Bell, CheckCheck, Trash2, Circle } from "lucide-react";
-import api from "../services/api";
+import { Link } from "react-router-dom";
+import { createNotificationsApi } from "../services/notificationsApi";
+import ConfirmDialog from "../components/ui/ConfirmDialog";
 
 const typeColors = {
   workout: "border-green-200 bg-green-50 text-green-800 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-300",
   membership: "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300",
   payment: "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300",
   alert: "border-red-200 bg-red-50 text-red-800 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300",
+  bmi_reminder: "border-orange-200 bg-orange-50 text-orange-800 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-300",
   general: "border-slate-200 bg-slate-100 text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-300",
 };
 
-export default function Notifications() {
+const isMissingWorkoutNotification = (notification, audience) => (
+  audience === "trainer" &&
+  notification.notification_type === "workout" &&
+  notification.message?.toLowerCase().includes("workout is still missing")
+);
+
+const notificationTypeLabel = (notification, audience) => {
+  if (isMissingWorkoutNotification(notification, audience)) return "Missing Workout";
+  if (notification.notification_type === "bmi_reminder") return "BMI reminder";
+  return notification.notification_type.replaceAll("_", " ");
+};
+
+const getNotificationColor = (notification, audience) => (
+  isMissingWorkoutNotification(notification, audience)
+    ? "border-red-200 bg-red-50 text-red-800 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300"
+    : typeColors[notification.notification_type] || typeColors.general
+);
+
+export default function Notifications({ audience = "admin" }) {
+  const notificationsApi = useMemo(() => createNotificationsApi(audience), [audience]);
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("All");
   const [fetchError, setFetchError] = useState("");
   const [actionError, setActionError] = useState("");
   const [busyAction, setBusyAction] = useState("");
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [deleteError, setDeleteError] = useState("");
 
-  const fetchNotifications = () => {
+  const fetchNotifications = useCallback(() => {
     setLoading(true);
     setFetchError("");
-    api.get("/notifications")
+    notificationsApi.get("/")
       .then((res) => setNotifications(res.data.data))
       .catch((err) => {
         console.error(err);
         setFetchError(err.response?.data?.message || err.message || "Couldn't load notifications.");
       })
       .finally(() => setLoading(false));
-  };
+  }, [notificationsApi]);
 
-  useEffect(() => { fetchNotifications(); }, []);
+  useEffect(() => { fetchNotifications(); }, [fetchNotifications]);
 
   const handleMarkRead = async (id) => {
     setActionError("");
     setBusyAction(String(id));
     try {
-      await api.put(`/notifications/${id}/read`);
+      await notificationsApi.put(`/${id}/read`);
       setNotifications((prev) => prev.map((n) => n.notification_id === id ? { ...n, is_read: true } : n));
     } catch (err) {
       setActionError(err.response?.data?.message || "Unable to mark this notification as read.");
@@ -49,7 +73,7 @@ export default function Notifications() {
     setActionError("");
     setBusyAction("all");
     try {
-      await api.put("/notifications/mark-all-read");
+      await notificationsApi.put("/mark-all-read");
       setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
     } catch (err) {
       setActionError(err.response?.data?.message || "Unable to mark notifications as read.");
@@ -58,17 +82,53 @@ export default function Notifications() {
     }
   };
 
-  const handleDelete = async (id) => {
-    setActionError("");
-    setBusyAction(String(id));
+  const handleDelete = async () => {
+    if (!pendingDelete) return;
+    const { kind, notification } = pendingDelete;
+    const busyKey = kind === "read" ? "delete-read" : String(notification.notification_id);
+    setDeleteError("");
+    setBusyAction(busyKey);
     try {
-      await api.delete(`/notifications/${id}`);
-      setNotifications((prev) => prev.filter((n) => n.notification_id !== id));
+      if (kind === "read") {
+        await notificationsApi.delete("/read");
+        setNotifications((prev) => prev.filter((item) => !item.is_read));
+      } else {
+        await notificationsApi.delete(`/${notification.notification_id}`);
+        setNotifications((prev) => prev.filter((item) => item.notification_id !== notification.notification_id));
+      }
+      setPendingDelete(null);
     } catch (err) {
-      setActionError(err.response?.data?.message || "Unable to delete this notification.");
+      setDeleteError(err.response?.data?.message || (kind === "read" ? "Unable to delete read notifications." : "Unable to delete this notification."));
     } finally {
       setBusyAction("");
     }
+  };
+
+  const getNotificationTarget = (targetUrl, notification) => {
+    if (!targetUrl || targetUrl === "/") {
+      return audience === "admin"
+        ? "/admin/notifications"
+        : audience === "trainer"
+          ? "/trainer/notifications"
+          : "/user/notifications";
+    }
+
+    if (!targetUrl.startsWith("/")) return null;
+
+    if (audience === "trainer" && targetUrl === "/trainer/workouts") {
+      return "/trainer/workout-plans";
+    }
+
+    if (
+      audience === "trainer" &&
+      notification?.notification_type === "workout" &&
+      targetUrl === "/trainer/workout-plans" &&
+      notification.user_name
+    ) {
+      return `/trainer/workout-plans?createForName=${encodeURIComponent(notification.user_name)}`;
+    }
+
+    return targetUrl;
   };
 
   const filtered = notifications.filter((n) => {
@@ -78,9 +138,28 @@ export default function Notifications() {
   });
 
   const unreadCount = notifications.filter((n) => !n.is_read).length;
+  const readCount = notifications.length - unreadCount;
 
   return (
     <div className="space-y-6">
+      {pendingDelete && (
+        <ConfirmDialog
+          title={pendingDelete.kind === "read" ? "Delete all read notifications?" : "Delete this notification?"}
+          description={pendingDelete.kind === "read"
+            ? `This will permanently delete ${readCount} read notifications. This action cannot be undone.`
+            : `“${pendingDelete.notification.message}” will be permanently deleted.`}
+          confirmLabel={pendingDelete.kind === "read" ? "Delete all read" : "Delete notification"}
+          isLoading={busyAction !== ""}
+          error={deleteError}
+          onCancel={() => {
+            if (!busyAction) {
+              setPendingDelete(null);
+              setDeleteError("");
+            }
+          }}
+          onConfirm={handleDelete}
+        />
+      )}
       {fetchError && (
         <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
           ⚠️ {fetchError}
@@ -89,7 +168,7 @@ export default function Notifications() {
       {actionError && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">{actionError}</div>}
       <header className="ave-page-hero flex flex-wrap items-end justify-between gap-4 rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">Admin inbox</p>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">{audience === "admin" ? "Admin inbox" : audience === "trainer" ? "Coach inbox" : "Member inbox"}</p>
           <h1 className="mt-2 text-3xl font-black text-slate-900 dark:text-white">Notifications</h1>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
             {unreadCount > 0 ? `${unreadCount} unread notification${unreadCount > 1 ? "s" : ""}` : "All caught up!"}
@@ -108,25 +187,40 @@ export default function Notifications() {
       </header>
 
       {/* Filter tabs */}
-      <div className="flex gap-2" role="group" aria-label="Filter notifications">
-        {["All", "Unread", "Read"].map((f) => (
-          <button
-            key={f}
-            type="button"
-            aria-pressed={filter === f}
-            onClick={() => setFilter(f)}
-            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition ${
-              filter === f ? "bg-orange-500 text-white" : "border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50 dark:border-white/10 dark:bg-[#111] dark:text-slate-300 dark:hover:bg-white/5"
-            }`}
-          >
-            {f}
-            {f === "Unread" && unreadCount > 0 && (
-              <span className="ml-2 bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5">
-                {unreadCount}
-              </span>
-            )}
-          </button>
-        ))}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex gap-2" role="group" aria-label="Filter notifications">
+          {["All", "Unread", "Read"].map((f) => (
+            <button
+              key={f}
+              type="button"
+              aria-pressed={filter === f}
+              onClick={() => setFilter(f)}
+              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition ${
+                filter === f ? "bg-orange-500 text-white" : "border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50 dark:border-white/10 dark:bg-[#111] dark:text-slate-300 dark:hover:bg-white/5"
+              }`}
+            >
+              {f}
+              {f === "Unread" && unreadCount > 0 && (
+                <span className="ml-2 bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5">
+                  {unreadCount}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setDeleteError("");
+            setPendingDelete({ kind: "read" });
+          }}
+          disabled={busyAction !== "" || readCount === 0}
+          title="Delete all read notifications"
+          className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-500/30 dark:text-red-300 dark:hover:bg-red-500/10"
+        >
+          <Trash2 size={16} aria-hidden="true" />
+          Delete All
+        </button>
       </div>
 
       {/* Notifications list */}
@@ -141,7 +235,7 @@ export default function Notifications() {
           <div className="py-20 text-center">
             <Bell size={40} className="mx-auto text-slate-200 mb-3" />
             <p className="font-semibold text-slate-700 dark:text-slate-200">{notifications.length ? `No ${filter.toLowerCase()} notifications.` : "You’re all caught up."}</p>
-            <p className="mt-1 text-sm text-slate-500">{notifications.length ? "Choose another filter to view your notifications." : "New admin updates will appear here."}</p>
+            <p className="mt-1 text-sm text-slate-500">{notifications.length ? "Choose another filter to view your notifications." : "New updates will appear here."}</p>
           </div>
         ) : (
           <div className="divide-y divide-slate-100">
@@ -153,7 +247,7 @@ export default function Notifications() {
                 }`}
               >
                 {/* Type badge */}
-                <div className={`mt-1 rounded-lg border p-2 flex-shrink-0 ${typeColors[notif.notification_type] || typeColors.general}`}>
+                <div className={`mt-1 rounded-lg border p-2 flex-shrink-0 ${getNotificationColor(notif, audience)}`}>
                   <Bell size={16} />
                 </div>
 
@@ -172,14 +266,28 @@ export default function Notifications() {
                       <span className="text-xs text-slate-400">{notif.user_name}</span>
                     )}
                     {notif.notification_type && (
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${typeColors[notif.notification_type] || typeColors.general}`}>
-                        {notif.notification_type}
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${getNotificationColor(notif, audience)}`}>
+                        {notificationTypeLabel(notif, audience)}
                       </span>
                     )}
                     <span className="text-xs text-slate-400">
                       {new Date(notif.created_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Manila" })}
                     </span>
                   </div>
+                  {(() => {
+                    const target = getNotificationTarget(notif.target_url, notif);
+                    return target && (
+                      <Link
+                        to={target}
+                        onClick={() => {
+                          if (!notif.is_read) handleMarkRead(notif.notification_id);
+                        }}
+                        className="mt-2 inline-flex text-xs font-semibold text-orange-600 hover:text-orange-700 dark:text-orange-400 dark:hover:text-orange-300"
+                      >
+                        {notif.notification_type === "bmi_reminder" ? "Update BMI and progress" : "View"}
+                      </Link>
+                    );
+                  })()}
                 </div>
 
                 {/* Actions */}
@@ -196,7 +304,10 @@ export default function Notifications() {
                     </button>
                   )}
                   <button
-                    onClick={() => handleDelete(notif.notification_id)}
+                    onClick={() => {
+                      setDeleteError("");
+                      setPendingDelete({ kind: "single", notification: notif });
+                    }}
                     disabled={busyAction !== ""}
                     aria-label={`Delete notification: ${notif.message}`}
                     className="p-1.5 rounded-lg hover:bg-red-50 text-red-400 transition"

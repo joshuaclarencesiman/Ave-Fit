@@ -1,8 +1,12 @@
-require("dotenv").config();
+require("dotenv").config({ path: require("path").join(__dirname, ".env") });
 const express = require("express");
 const cors = require("cors");
 
 const { initializeDatabase, expireMemberships } = require("./db");
+const {
+  sendWeeklyBmiReminders,
+  sendUnassignedWorkoutReminders,
+} = require("./utils/notifications");
 
 // Admin routes
 const adminRoutes = require("./routes/adminRoutes");
@@ -24,7 +28,7 @@ app.disable("x-powered-by");
 // Keep CORS explicit instead of allowing every website to call the API.
 const allowedOrigins = (
   process.env.CLIENT_ORIGINS ||
-  "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5178,http://localhost:5177,https://ave-fit.pages.dev"
+  "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5178,http://localhost:5177,https://avenuepowerfitness.com,https://www.avenuepowerfitness.com"
 )
   .split(",")
   .map((value) => value.trim())
@@ -83,14 +87,63 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 
-initializeDatabase()
+const waitForDatabase = async (maxAttempts = 10, delayMs = 5000) => {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      await initializeDatabase();
+      return true;
+    } catch (err) {
+      if (attempt === maxAttempts) {
+        throw err;
+      }
+      console.warn(`Database unavailable while starting background jobs (${attempt}/${maxAttempts}). Retrying in ${delayMs / 1000}s...`);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  return false;
+};
+
+// Network-level failures (DNS lookup, dropped Wi-Fi, laptop waking from sleep).
+// These are temporary: the job simply runs again on its next interval.
+const NETWORK_ERRORS = [
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "ECONNRESET",
+  "ENETUNREACH",
+  "EHOSTUNREACH",
+];
+const lastNetworkWarning = {};
+
+const runJob = (label, fn) => async () => {
+  try {
+    await fn();
+    delete lastNetworkWarning[label];
+  } catch (err) {
+    if (NETWORK_ERRORS.includes(err.code)) {
+      // Warn once per outage instead of every minute.
+      if (!lastNetworkWarning[label]) {
+        console.warn(`\u26a0\ufe0f ${label} skipped: database unreachable (${err.code || "network"}). Will retry automatically.`);
+        lastNetworkWarning[label] = true;
+      }
+    } else {
+      console.error(`\u274c ${label} failed:`, err.message);
+    }
+  }
+};
+
+const membershipJob = runJob("Membership expiry check", expireMemberships);
+const bmiJob = runJob("Weekly BMI reminder check", sendWeeklyBmiReminders);
+const workoutJob = runJob("No-workout reminder check", sendUnassignedWorkoutReminders);
+
+waitForDatabase()
   .then(() => {
-    const membershipExpiryTimer = setInterval(() => {
-      expireMemberships().catch((err) => {
-        console.error("❌ Membership expiry check failed:", err.message);
-      });
-    }, 60 * 1000);
-    membershipExpiryTimer.unref();
+    setInterval(membershipJob, 60 * 1000).unref();
+    setInterval(bmiJob, 60 * 60 * 1000).unref();
+    setInterval(workoutJob, 60 * 60 * 1000).unref();
+    bmiJob();
+    workoutJob();
     app.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));
   })
   .catch((err) => {

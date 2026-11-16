@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
 import OnboardingShell from "../components/layout/OnboardingShell";
 import { useNavigate } from "react-router-dom";
-import { CheckCircle2, TrendingUp, User } from "lucide-react";
+import { CheckCircle2, Dumbbell, TrendingUp, User } from "lucide-react";
 import { useUserAuth } from "../context/UserAuthContext";
 import userApi from "../userApi";
+import { PROGRAM_SCHEDULES } from "../utils/trainingPrograms";
+
+const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 function Row({ label, value }) {
   return (
@@ -21,11 +24,17 @@ export default function SetupConfirmation() {
   const [goalData, setGoalData] = useState({});
   const [healthData, setHealthData] = useState({});
   const [availability, setAvailability] = useState({});
-  const [trainer, setTrainer] = useState(null);
+  const [preferredCoach, setPreferredCoach] = useState(null);
   const [prediction, setPrediction] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const selectedWorkoutDays = WEEKDAYS.filter((day) => (
+    (availability.availability || []).some((slot) => slot.day_of_week === day)
+    || (availability.days || []).includes(day)
+  ));
+  const frequency = Number(availability.daysPerWeek) || selectedWorkoutDays.length;
+  const scheduledPrograms = PROGRAM_SCHEDULES[frequency] || ["Full Body"];
 
   useEffect(() => {
     const goal = JSON.parse(sessionStorage.getItem("avefit_goal") || "{}");
@@ -35,27 +44,33 @@ export default function SetupConfirmation() {
     setGoalData(goal);
     setHealthData(health);
     setAvailability(avail);
-    setTrainer(coach);
+    setPreferredCoach(coach);
 
     userApi.get("/profile")
-      .then((res) => {
+      .then(async (res) => {
         const p = res.data.data;
         setProfile(p);
 
-        return userApi.post("/progress/auto-predict", {
-          goal: goal.goal,
-          current_weight: p.weight,
-          target_weight: goal.targetWeight,
-          height: p.height,
-          days_per_week: avail.daysPerWeek,
-          intensity: health.intensity,
-          experience: health.experience,
-        });
+        try {
+          const predictionResponse = await userApi.post("/progress/auto-predict", {
+            goal: goal.goal,
+            current_weight: p.weight,
+            target_weight: goal.targetWeight,
+            height: p.height,
+          });
+          setPrediction(predictionResponse?.data?.data || null);
+        } catch (err) {
+          console.error("Setup timeline prediction failed:", err);
+          setError("Your setup loaded, but the predicted timeline is unavailable.");
+        }
       })
-      .then((res) => setPrediction(res?.data?.data || null))
       .catch((err) => {
-        console.error(err);
-        setError("Some of your info couldn't load — you can still continue.");
+        console.error("Setup profile load failed:", err);
+        setProfile(null);
+        setError(
+          err.response?.data?.message ||
+          "Your profile could not be loaded. Please refresh before saving your setup."
+        );
       })
       .finally(() => setLoading(false));
   }, []);
@@ -63,18 +78,22 @@ export default function SetupConfirmation() {
   const handleConfirm = async () => {
     setSaving(true);
     try {
+      const setupProfile = { ...profile };
+      delete setupProfile.trainer_id;
+      delete setupProfile.workout_duration;
       await userApi.put("/profile", {
-        ...profile,
+        ...setupProfile,
+        ...(preferredCoach?.trainer_id ? { trainer_id: preferredCoach.trainer_id } : {}),
         fitness_goal: goalData.goal || "General Fitness",
         activity_level: healthData.experience || "Beginner",
         target_weight: goalData.targetWeight || null,
         workout_days_per_week: availability.daysPerWeek ? parseInt(availability.daysPerWeek) : null,
-        workout_duration: availability.duration ? parseInt(String(availability.duration), 10) : null,
         preferred_days: availability.days || [],
-        intensity: healthData.intensity || null,
-        injuries: healthData.injuries || [],
-        health_conditions: healthData.healthConditions || [],
-        trainer_id: trainer?.trainer_id || null,
+        preferred_workout_time: availability.preferredWorkoutTime || null,
+        intensity: 3,
+        injuries: healthData.injuries?.length ? healthData.injuries : ["None"],
+        health_conditions: healthData.healthConditions?.length ? healthData.healthConditions : ["None"],
+        injury_pain_levels: healthData.injuryPainLevels || {},
         setup_completed: true,
       });
 
@@ -86,8 +105,11 @@ export default function SetupConfirmation() {
       updateUser({ setup_completed: true });
       navigate("/user/workout");
     } catch (err) {
-      console.error(err);
-      setError("Something went wrong saving your setup. Please try again.");
+      console.error("Setup save failed:", err);
+      setError(
+        err.response?.data?.message ||
+        "Something went wrong saving your setup. Please try again."
+      );
     } finally {
       setSaving(false);
     }
@@ -130,7 +152,13 @@ export default function SetupConfirmation() {
         <div className="bg-slate-50 rounded-2xl p-4 mb-4">
           <h3 className="text-sm font-semibold text-slate-600 mb-2">Health &amp; Experience</h3>
           <Row label="Experience Level" value={healthData.experience || "—"} />
-          <Row label="Injuries" value={(healthData.injuries || []).join(", ") || "None"} />
+          <Row
+            label="Injuries"
+            value={(healthData.injuries || [])
+              .filter((area) => area !== "None")
+              .map((area) => `${area} (Pain ${healthData.injuryPainLevels?.[area] || "—"}/10)`)
+              .join(", ") || "None"}
+          />
           <Row label="Health Conditions" value={(healthData.healthConditions || []).join(", ") || "None"} />
         </div>
 
@@ -138,34 +166,54 @@ export default function SetupConfirmation() {
         <div className="bg-slate-50 rounded-2xl p-4 mb-4">
           <h3 className="text-sm font-semibold text-slate-600 mb-2">Availability</h3>
           <Row label="Days Per Week" value={availability.daysPerWeek || "—"} />
-          <Row label="Session Duration" value={availability.duration || "—"} />
-          <Row label="Workout Days" value={(availability.days || []).join(", ") || "—"} />
+          <Row label="Workout Days" value={(availability.availability || []).map((slot) => `${slot.day_of_week} (${slot.time_preference})`).join(", ") || "—"} />
+          <Row label="Preferred Coach" value={preferredCoach?.full_name || "No coach selected"} />
         </div>
 
-        {/* Coach */}
         <div className="bg-slate-50 rounded-2xl p-4 mb-4">
-          <h3 className="text-sm font-semibold text-slate-600 mb-2">Coach</h3>
-          <Row label="Selected Coach" value={trainer?.full_name || "Not selected"} />
+          <h3 className="text-sm font-semibold text-slate-600 mb-1 flex items-center gap-2">
+            <Dumbbell size={14} /> Your Suggested Weekly Program
+          </h3>
+          <p className="text-xs text-slate-500 mb-2">
+            A workout split based on your {frequency || "selected"} available {frequency === 1 ? "day" : "days"} per week.
+          </p>
+          {selectedWorkoutDays.length ? (
+            selectedWorkoutDays.map((day, index) => (
+              <Row
+                key={day}
+                label={day}
+                value={scheduledPrograms[index % scheduledPrograms.length] === "Full Body"
+                  ? "Full Body"
+                  : `${scheduledPrograms[index % scheduledPrograms.length]} Day`}
+              />
+            ))
+          ) : (
+            <p className="text-sm text-slate-500">Select your available workout days to see your program.</p>
+          )}
         </div>
 
         {/* Predictive Analytics */}
         {prediction && (
           <div className="bg-orange-500/10 border border-orange-500/30 rounded-2xl p-4 mb-4">
             <h3 className="text-sm font-semibold text-orange-500 mb-3 flex items-center gap-2">
-              <TrendingUp size={14} /> Predicted Timeline
+              <TrendingUp size={14} /> Estimated Timeline
             </h3>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-slate-50 rounded-xl p-3 text-center">
-                <p className="text-2xl font-bold text-green-400">{prediction.weeks_needed_consistent}w</p>
-                <p className="text-xs text-slate-500 mt-1">If consistent</p>
-                <p className="text-[11px] text-slate-500">(~{prediction.months_needed_consistent} mo)</p>
+            {prediction.mode === "target-weight" && (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-slate-50 rounded-xl p-3 text-center">
+                  <p className="text-2xl font-bold text-green-400">{prediction.weeks_needed_consistent}w</p>
+                  <p className="text-sm text-green-600 mt-1">Consistent</p>
+                  <p className="text-[11px] text-slate-500">(~{prediction.months_needed_consistent} mo)</p>
+                  <p className="text-[11px] text-slate-500">{prediction.weekly_rate_kg} kg/week</p>
+                </div>
+                <div className="bg-slate-50 rounded-xl p-3 text-center">
+                  <p className="text-2xl font-bold text-yellow-400">{prediction.weeks_needed_inconsistent}w</p>
+                  <p className="text-sm text-yellow-600 mt-1">Inconsistent</p>
+                  <p className="text-[11px] text-slate-500">(~{prediction.months_needed_inconsistent} mo)</p>
+                  <p className="text-[11px] text-slate-500">{prediction.slower_weekly_rate_kg} kg/week</p>
+                </div>
               </div>
-              <div className="bg-slate-50 rounded-xl p-3 text-center">
-                <p className="text-2xl font-bold text-yellow-400">{prediction.weeks_needed_inconsistent}w</p>
-                <p className="text-xs text-slate-500 mt-1">If inconsistent</p>
-                <p className="text-[11px] text-slate-500">(~{prediction.months_needed_inconsistent} mo)</p>
-              </div>
-            </div>
+            )}
             {prediction.note && <p className="text-xs text-slate-500 mt-3">{prediction.note}</p>}
           </div>
         )}
@@ -176,7 +224,7 @@ export default function SetupConfirmation() {
 
     <button
       onClick={handleConfirm}
-      disabled={saving || loading}
+      disabled={saving || loading || !profile}
       className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2"
     >
       <CheckCircle2 size={18} />

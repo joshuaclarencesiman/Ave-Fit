@@ -1,15 +1,507 @@
 const pool = require("../db");
+const equipmentOptions = require("../utils/equipmentOptions");
+const { isMailConfigured, sendMail } = require("../utils/mailer");
+const { buildPrescriptiveRosterSummary } = require("../utils/prescriptiveRosterSummary");
+
+const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const PROGRAM_SCHEDULES = {
+  2: ["Upper", "Lower"],
+  3: ["Push", "Pull", "Legs"],
+  4: ["Upper", "Lower", "Upper", "Lower"],
+  5: ["Push", "Pull", "Legs", "Upper", "Lower"],
+  6: ["Push", "Pull", "Legs", "Chest & Back", "Shoulders & Arms", "Legs"],
+};
+
+const getTodayProgramTotals = (members, today, includeMemberNames) => {
+  const totals = new Map();
+  for (const member of members) {
+    const preferredDays = Array.isArray(member.preferred_days) ? member.preferred_days : [];
+    const orderedDays = WEEKDAYS.filter((day) => preferredDays.some(
+      (preferredDay) => String(preferredDay).toLowerCase() === day.toLowerCase()
+    ));
+    const dayIndex = orderedDays.findIndex((day) => day.toLowerCase() === today.toLowerCase());
+    if (dayIndex < 0) continue;
+
+    const schedule = PROGRAM_SCHEDULES[orderedDays.length] || ["Full Body"];
+    const program = schedule[dayIndex % schedule.length];
+    if (!totals.has(program)) {
+      totals.set(program, { program, count: 0, members: [] });
+    }
+    const total = totals.get(program);
+    total.count += 1;
+    if (includeMemberNames && member.member_name) {
+      total.members.push(member.member_name);
+    }
+  }
+  return [...totals.values()]
+    .sort((left, right) => right.count - left.count || left.program.localeCompare(right.program));
+};
+
+const getTrainingPulse = async (req, res) => {
+  try {
+    const audience = req.trainingAudience;
+    const trainerId = audience === "trainer" ? Number(req.trainer.trainer_id) : null;
+    const todayParts = new Intl.DateTimeFormat("en", {
+      timeZone: "Asia/Manila",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(new Date());
+    const todayValues = Object.fromEntries(todayParts.map(({ type, value }) => [type, value]));
+    const todayDate = `${todayValues.year}-${todayValues.month}-${todayValues.day}`;
+    const requestedDate = audience === "user" && typeof req.query.date === "string"
+      ? req.query.date
+      : todayDate;
+    const parsedDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedDate)
+      ? new Date(`${requestedDate}T00:00:00.000Z`)
+      : null;
+    if (!parsedDate || !Number.isFinite(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== requestedDate) {
+      return res.status(400).json({ success: false, message: "Choose a valid overview date." });
+    }
+    const dateForQueries = new Date(`${requestedDate}T12:00:00.000Z`);
+    const selectedWeekday = new Intl.DateTimeFormat("en", {
+      timeZone: "UTC",
+      weekday: "long",
+    }).format(dateForQueries);
+    const selectedDateLabel = new Intl.DateTimeFormat("en-PH", {
+      timeZone: "UTC",
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    }).format(dateForQueries);
+    const isToday = requestedDate === todayDate;
+    const memberResult = await pool.query(`
+      SELECT preferred_days, CONCAT_WS(' ', first_name, last_name) AS member_name
+      FROM users
+      WHERE LOWER(COALESCE(account_status, 'pending')) = 'active'
+        AND ($1::int IS NULL OR trainer_id = $1)
+    `, [trainerId]);
+
+    const includeMemberNames = audience === "admin" || audience === "trainer";
+    const todayPrograms = getTodayProgramTotals(memberResult.rows, selectedWeekday, includeMemberNames);
+    const currentDay = WEEKDAYS.find((day) => day.toLowerCase() === selectedWeekday.toLowerCase());
+    const availabilityResult = await pool.query(`
+      SELECT period.label, COUNT(DISTINCT member.user_id)::int AS count
+      FROM (VALUES
+        ('Morning', TIME '06:00', TIME '12:00'),
+        ('Afternoon', TIME '12:00', TIME '17:00'),
+        ('Evening', TIME '17:00', TIME '22:00')
+      ) AS period(label, start_time, end_time)
+      LEFT JOIN user_workout_availability availability
+        ON LOWER(availability.day_of_week) = LOWER($1)
+        AND availability.start_time < period.end_time
+        AND availability.end_time > period.start_time
+      LEFT JOIN users member
+        ON member.user_id = availability.user_id
+        AND LOWER(COALESCE(member.account_status, 'pending')) = 'active'
+        AND ($2::int IS NULL OR member.trainer_id = $2)
+      GROUP BY period.label, period.start_time
+      ORDER BY period.start_time
+    `, [currentDay, trainerId]);
+    const equipmentResult = await pool.query(`
+      SELECT BTRIM(e.equipment) AS equipment, COUNT(*)::int AS count
+      FROM workout_sessions ws
+      JOIN workout_plans wp ON wp.workout_plan_id = ws.workout_plan_id
+      JOIN exercises e ON e.exercise_id = ws.exercise_id
+      WHERE wp.approval_status = 'Approved'
+        AND NULLIF(BTRIM(e.equipment), '') IS NOT NULL
+        AND LOWER(BTRIM(e.equipment)) <> 'gym equipment'
+        AND (
+          (
+            ws.session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+            AND ws.session_date = $1
+          )
+          OR (
+            ws.session_date::text !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+            AND LOWER(BTRIM(ws.session_date::text)) = LOWER($2)
+          )
+        )
+      GROUP BY BTRIM(e.equipment)
+      ORDER BY count DESC, equipment ASC
+      LIMIT 5
+    `, [requestedDate, selectedWeekday]);
+
+    return res.json({
+      success: true,
+      data: {
+        today: selectedWeekday,
+        dateLabel: isToday ? `Today · ${selectedWeekday}` : selectedDateLabel,
+        dayLabel: isToday ? "today" : `on ${selectedDateLabel}`,
+        todayPrograms,
+        busiestProgram: todayPrograms[0] || null,
+        todayAvailability: availabilityResult.rows,
+        mostUsedEquipment: equipmentResult.rows,
+      },
+    });
+  } catch (err) {
+    console.error("getTrainingPulse error:", err.message);
+    return res.status(500).json({ success: false, message: "Unable to load the training overview." });
+  }
+};
+
+const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
+})[character]);
+
+const getWeeklyProgressRows = async (userId = null, trainerId = null) => {
+  const result = await pool.query(`
+      SELECT
+        u.user_id,
+        CONCAT_WS(' ', u.first_name, u.last_name) AS member_name,
+        u.email,
+        current_progress.weight AS current_weight,
+        current_progress.bmi AS current_bmi,
+        current_progress.body_fat AS current_body_fat,
+        current_progress.waist AS current_waist,
+        current_progress.chest AS current_chest,
+        current_progress.hips AS current_hips,
+        current_progress.left_arm AS current_left_arm,
+        current_progress.log_date AS progress_date,
+        previous_progress.weight AS previous_weight,
+        COALESCE(workout_progress.completed_count, 0)::int AS completed_workouts,
+        COALESCE(workout_progress.plan_names, '') AS completed_plan_names
+      FROM users u
+      LEFT JOIN LATERAL (
+        SELECT weight, bmi, body_fat, waist, chest, hips, left_arm, log_date
+        FROM progress_logs
+        WHERE user_id = u.user_id
+          AND log_date >= (NOW() AT TIME ZONE 'Asia/Manila')::date - 6
+        ORDER BY log_date DESC
+        LIMIT 1
+      ) current_progress ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT weight
+        FROM progress_logs
+        WHERE user_id = u.user_id
+          AND log_date < (NOW() AT TIME ZONE 'Asia/Manila')::date - 6
+        ORDER BY log_date DESC
+        LIMIT 1
+      ) previous_progress ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT
+          COUNT(*) FILTER (WHERE ws.completed = TRUE AND ws.completed_at >= NOW() - INTERVAL '7 days')::int AS completed_count,
+          STRING_AGG(DISTINCT wp.plan_name, ', ') FILTER (
+            WHERE ws.completed = TRUE AND ws.completed_at >= NOW() - INTERVAL '7 days'
+          ) AS plan_names
+        FROM workout_plans wp
+        JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
+        WHERE wp.user_id = u.user_id
+          AND wp.approval_status = 'Approved'
+      ) workout_progress ON TRUE
+      WHERE LOWER(COALESCE(u.account_status, 'pending')) = 'active'
+        AND NULLIF(BTRIM(u.email), '') IS NOT NULL
+        AND ($1::int IS NULL OR u.user_id = $1)
+        AND ($2::int IS NULL OR u.trainer_id = $2)
+      ORDER BY u.first_name, u.last_name, u.user_id
+    `, [userId, trainerId]);
+
+  return result.rows;
+};
+
+const buildWeeklyProgressReport = (member) => {
+      const achievements = [];
+      if (member.completed_workouts > 0) {
+        achievements.push(`Completed ${member.completed_workouts} workout ${member.completed_workouts === 1 ? "session" : "sessions"}${member.completed_plan_names ? ` (${member.completed_plan_names})` : ""}`);
+      }
+      if (member.progress_date) {
+        const measurements = [
+          ["Weight", member.current_weight, "kg"],
+          ["BMI", member.current_bmi, ""],
+          ["Body fat", member.current_body_fat, "%"],
+          ["Waist", member.current_waist, ""],
+          ["Chest", member.current_chest, ""],
+          ["Hips", member.current_hips, ""],
+          ["Left arm", member.current_left_arm, ""],
+        ].filter(([, value]) => value !== null && value !== undefined)
+          .map(([label, value, unit]) => `${label}: ${value}${unit}`);
+        achievements.push(`Logged progress on ${new Date(member.progress_date).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" })}${measurements.length ? ` — ${measurements.join(", ")}` : ""}`);
+        if (member.current_weight != null && member.previous_weight != null) {
+          const change = Number(member.current_weight) - Number(member.previous_weight);
+          achievements.push(`Weight ${change < 0 ? "decreased" : change > 0 ? "increased" : "remained stable"} by ${Math.abs(change).toFixed(1)} kg since the previous report period`);
+        }
+      }
+      return {
+        name: member.member_name || member.email,
+        email: member.email,
+        achievements: achievements.length ? achievements : ["No progress entries or completed workouts recorded this week."],
+      };
+};
+
+const sendMemberWeeklyProgressReport = async (member) => {
+  const report = buildWeeklyProgressReport(member);
+  const reportDate = new Date().toLocaleDateString("en-PH", {
+    timeZone: "Asia/Manila",
+    dateStyle: "long",
+  });
+  const text = [
+    `Weekly Progress Report for ${report.name}`,
+    `Reporting window: the last 7 days · ${reportDate}`,
+    "",
+    "Your progress summary:",
+    ...report.achievements.map((achievement) => `• ${achievement}`),
+    "",
+    "Keep up your consistency, and log your progress regularly to track your journey.",
+    "",
+    "Avenue Power & Fitness Gym",
+  ].join("\n");
+  const achievementsHtml = report.achievements
+    .map((achievement) => (
+      `<tr><td style="padding:0 0 12px;color:#334155;font-size:15px;line-height:24px;">&#8226;&nbsp; ${escapeHtml(achievement)}</td></tr>`
+    ))
+    .join("");
+  const safeName = escapeHtml(report.name);
+  const html = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Weekly Progress Report</title>
+  </head>
+  <body style="margin:0;padding:0;background-color:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
+    <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" bgcolor="#f1f5f9" style="width:100%;border-collapse:collapse;background-color:#f1f5f9;">
+      <tr>
+        <td align="center" style="padding:24px 12px;">
+          <table role="presentation" width="600" border="0" cellpadding="0" cellspacing="0" bgcolor="#ffffff" style="width:100%;max-width:600px;border-collapse:collapse;background-color:#ffffff;border:1px solid #e2e8f0;">
+            <tr>
+              <td bgcolor="#f97316" style="padding:24px;background-color:#f97316;color:#ffffff;">
+                <h1 style="margin:0;font-size:22px;line-height:28px;font-weight:700;color:#ffffff;">Weekly Progress Report</h1>
+                <p style="margin:8px 0 0;font-size:14px;line-height:20px;color:#ffffff;">Your update for the last 7 days · ${escapeHtml(reportDate)}</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:24px;">
+                <p style="margin:0 0 20px;font-size:16px;line-height:24px;color:#0f172a;">Hi ${safeName}, here is your progress summary:</p>
+                <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;">
+                  ${achievementsHtml}
+                </table>
+                <p style="margin:12px 0 0;font-size:14px;line-height:22px;color:#475569;">Keep up your consistency, and log your progress regularly to track your journey.</p>
+                <p style="margin:24px 0 0;padding-top:16px;border-top:1px solid #e2e8f0;font-size:12px;line-height:18px;color:#64748b;">Avenue Power &amp; Fitness Gym</p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+  return sendMail({
+    to: report.email,
+    subject: "Your Weekly Progress Report",
+    text,
+    html,
+  });
+};
+
+const sendWeeklyProgressReport = async (req, res) => {
+  if (!req.trainer) {
+    return res.status(403).json({ success: false, message: "Weekly progress reports are available to trainers only." });
+  }
+
+  if (!isMailConfigured()) {
+    return res.status(503).json({ success: false, message: "Weekly report email is unavailable: SMTP is not configured." });
+  }
+
+  const userId = req.params.userId ? Number(req.params.userId) : null;
+  const trainerId = Number(req.trainer.trainer_id);
+  if (userId !== null && (!Number.isInteger(userId) || userId < 1)) {
+    return res.status(400).json({ success: false, message: "Choose a valid active member." });
+  }
+  if (!Number.isInteger(trainerId) || trainerId < 1) {
+    return res.status(401).json({ success: false, message: "Trainer session is invalid. Please sign in again." });
+  }
+
+  try {
+    const members = await getWeeklyProgressRows(userId, trainerId);
+    if (userId !== null && !members.length) {
+      return res.status(404).json({ success: false, message: "Active member not found." });
+    }
+
+    let sentCount = 0;
+    const sentUserIds = [];
+    const failed = [];
+    for (const member of members) {
+      try {
+        const delivery = await sendMemberWeeklyProgressReport(member);
+        if (delivery.delivered) {
+          sentCount += 1;
+          sentUserIds.push(member.user_id);
+        }
+        else failed.push(member.email);
+      } catch (emailError) {
+        console.error(`Weekly progress report delivery failed for user ${member.user_id}:`, emailError.message);
+        failed.push(member.email);
+      }
+    }
+
+    if (userId !== null && sentCount === 0) {
+      return res.status(502).json({ success: false, message: "The weekly progress report was not delivered. Check the email service configuration." });
+    }
+    if (userId === null && members.length > 0 && sentCount === 0) {
+      return res.status(502).json({ success: false, message: "No weekly progress reports could be delivered. Check the email service configuration.", sent_count: 0, failed_count: failed.length });
+    }
+
+    return res.json({
+      success: true,
+      message: userId === null
+        ? `Sent weekly progress reports to ${sentCount} of ${members.length} assigned active members${failed.length ? `; ${failed.length} failed` : ""}.`
+        : "Weekly progress report sent.",
+      member_count: members.length,
+      sent_count: sentCount,
+      failed_count: failed.length,
+      sent_user_ids: sentUserIds,
+    });
+  } catch (err) {
+    console.error("sendWeeklyProgressReport error:", err.message);
+    return res.status(500).json({ success: false, message: "Unable to generate or send the weekly progress report." });
+  }
+};
+
+const getTrainerPrescriptiveAnalytics = async (req, res) => {
+  const trainerId = Number(req.trainer?.trainer_id);
+  if (!Number.isInteger(trainerId) || trainerId < 1) {
+    return res.status(401).json({ success: false, message: "Trainer session is invalid. Please sign in again." });
+  }
+
+  try {
+    const result = await pool.query(`
+      SELECT
+        u.user_id,
+        u.fitness_goal,
+        COALESCE(latest_progress.weight, u.weight) AS latest_weight,
+        previous_progress.weight AS previous_weight,
+        latest_progress.log_date AS latest_log_date,
+        previous_progress.log_date AS previous_log_date,
+        COALESCE(workout_activity.completed_last_week, 0)::int AS completed_last_week,
+        COALESCE(workout_activity.completed_previous_week, 0)::int AS completed_previous_week,
+        COALESCE(workout_activity.completed_last_two_weeks, 0)::int AS completed_last_two_weeks
+      FROM users u
+      LEFT JOIN LATERAL (
+        SELECT weight, log_date
+        FROM progress_logs
+        WHERE user_id = u.user_id AND weight IS NOT NULL
+        ORDER BY log_date DESC, progress_id DESC
+        LIMIT 1
+      ) latest_progress ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT weight, log_date
+        FROM progress_logs
+        WHERE user_id = u.user_id
+          AND weight IS NOT NULL
+        ORDER BY log_date DESC, progress_id DESC
+        OFFSET 1
+        LIMIT 1
+      ) previous_progress ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT
+          COUNT(*) FILTER (
+            WHERE ws.completed IS TRUE
+              AND ws.completed_at >= NOW() - INTERVAL '7 days'
+          )::int AS completed_last_week,
+          COUNT(*) FILTER (
+            WHERE ws.completed IS TRUE
+              AND ws.completed_at >= NOW() - INTERVAL '14 days'
+              AND ws.completed_at < NOW() - INTERVAL '7 days'
+          )::int AS completed_previous_week,
+          COUNT(*) FILTER (
+            WHERE ws.completed IS TRUE
+              AND ws.completed_at >= NOW() - INTERVAL '14 days'
+          )::int AS completed_last_two_weeks
+        FROM workout_plans wp
+        JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
+        WHERE wp.user_id = u.user_id
+          AND wp.approval_status = 'Approved'
+      ) workout_activity ON TRUE
+      WHERE u.trainer_id = $1
+        AND LOWER(COALESCE(u.account_status, 'pending')) = 'active'
+      ORDER BY u.user_id
+    `, [trainerId]);
+
+    const members = result.rows;
+    const summary = buildPrescriptiveRosterSummary(members);
+    const {
+      stalled_member_count: stalledMembers,
+      inactive_member_count: inactiveMembers,
+      previous_week_workout_count: previousWeekCompletions,
+      last_week_workout_count: lastWeekCompletions,
+      weight_loss_member_count: weightLossMembers,
+    } = summary;
+    const insights = [];
+
+    if (stalledMembers > 0) {
+      insights.push({
+        type: "alert",
+        title: "Possible progress stagnation",
+        detail: `${stalledMembers} roster ${stalledMembers === 1 ? "member has" : "members have"} less than 0.5 kg change between their two latest weight logs. Review each member’s measurements, training load, and recovery before adjusting intensity.`,
+      });
+    }
+
+    if (members.length > 0 && inactiveMembers > 0) {
+      insights.push({
+        type: "alert",
+        title: "Consistency check-in needed",
+        detail: `${inactiveMembers} roster ${inactiveMembers === 1 ? "member has" : "members have"} no completed approved workout in the past 14 days. Reach out to identify barriers and agree on a manageable return schedule.`,
+      });
+    }
+
+    if (previousWeekCompletions > 0 && lastWeekCompletions < previousWeekCompletions * 0.8) {
+      insights.push({
+        type: "recommendation",
+        title: "Roster workout completion declined",
+        detail: `Your roster completed ${lastWeekCompletions} approved workouts this week, down from ${previousWeekCompletions} the week before. Consider shorter sessions, a schedule check-in, or a recovery-focused plan.`,
+      });
+    }
+
+    if (weightLossMembers > 0 && insights.length < 3) {
+      insights.push({
+        type: "focus",
+        title: "Goal-focused coaching",
+        detail: `${weightLossMembers} roster ${weightLossMembers === 1 ? "member is" : "members are"} pursuing weight loss. Review progress alongside adherence and recovery; avoid making intensity changes based on weight alone.`,
+      });
+    }
+
+    if (insights.length === 0) {
+      insights.push({
+        type: "positive",
+        title: "No immediate roster alerts",
+        detail: members.length
+          ? "No current stagnation or attendance decline signal was detected for your active roster. Continue reviewing individual progress and recovery."
+          : "You have no active members assigned to your roster yet.",
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        ...summary,
+        insights: insights.slice(0, 3),
+      },
+    });
+  } catch (err) {
+    console.error("getTrainerPrescriptiveAnalytics error:", err.message);
+    return res.status(500).json({ success: false, message: "Unable to load roster prescriptive analytics." });
+  }
+};
 
 // GET dashboard summary stats
 const getDashboardStats = async (req, res) => {
   try {
-    const totalMembers = await pool.query("SELECT COUNT(*) AS count FROM users WHERE LOWER(COALESCE(account_status, 'pending')) = 'active'");
-    const pendingMembers = await pool.query(`
-      SELECT COUNT(*) AS count FROM users
-      WHERE LOWER(COALESCE(account_status, 'pending')) = 'pending' 
+    const counts = await pool.query(`
+      SELECT
+        (SELECT COUNT(*)::int FROM users
+         WHERE LOWER(COALESCE(account_status, 'pending')) = 'active') AS total_members,
+        (SELECT COUNT(*)::int FROM users
+         WHERE LOWER(COALESCE(account_status, 'pending')) = 'pending') AS pending_members,
+        (SELECT COUNT(*)::int FROM exercises) AS total_exercises,
+        (SELECT COUNT(*)::int FROM meal_plans) AS total_meal_plans,
+        (SELECT COUNT(*)::int FROM equipment_inventory
+         WHERE LOWER(BTRIM(status)) = 'needs replacement') AS need_replacement_count,
+        (SELECT COUNT(*)::int FROM equipment_inventory
+         WHERE LOWER(BTRIM(status)) IN ('under maintenance', 'under repair')) AS under_maintenance_count
     `);
-    const totalExercises = await pool.query("SELECT COUNT(*) AS count FROM exercises");
-    const totalMealPlans = await pool.query("SELECT COUNT(*) AS count FROM meal_plans");
 
     const recentMembers = await pool.query(`
       SELECT
@@ -26,10 +518,12 @@ const getDashboardStats = async (req, res) => {
     res.json({
       success: true,
       data: {
-        totalMembers: parseInt(totalMembers.rows[0].count),
-        pendingMembers: parseInt(pendingMembers.rows[0].count),
-        totalExercises: parseInt(totalExercises.rows[0].count),
-        totalMealPlans: parseInt(totalMealPlans.rows[0].count),
+        totalMembers: counts.rows[0].total_members,
+        pendingMembers: counts.rows[0].pending_members,
+        totalExercises: counts.rows[0].total_exercises,
+        totalMealPlans: counts.rows[0].total_meal_plans,
+        needReplacementCount: counts.rows[0].need_replacement_count,
+        underMaintenanceCount: counts.rows[0].under_maintenance_count,
         recentMembers: recentMembers.rows,
       },
     });
@@ -42,6 +536,47 @@ const getDashboardStats = async (req, res) => {
 // GET full analytics
 const getAnalytics = async (req, res) => {
   try {
+    const equipmentDay = req.query.equipment_day || "";
+    const equipmentPeriod = req.query.equipment_period || "today";
+    const equipmentHour = req.query.equipment_hour || "";
+    const equipmentTimePeriod = req.query.equipment_time_period || "";
+    const manilaDateParts = new Intl.DateTimeFormat("en", {
+      timeZone: "Asia/Manila",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(new Date());
+    const manilaDateValues = Object.fromEntries(manilaDateParts.map(({ type, value }) => [type, value]));
+    const todayInManila = `${manilaDateValues.year}-${manilaDateValues.month}-${manilaDateValues.day}`;
+    const parsedEquipmentDay = typeof equipmentDay === "string" && /^\d{4}-\d{2}-\d{2}$/.test(equipmentDay)
+      ? new Date(`${equipmentDay}T00:00:00.000Z`)
+      : null;
+    if (equipmentDay && (
+      !parsedEquipmentDay ||
+      !Number.isFinite(parsedEquipmentDay.getTime()) ||
+      parsedEquipmentDay.toISOString().slice(0, 10) !== equipmentDay
+    )) {
+      return res.status(400).json({ success: false, message: "Equipment day must be a valid date." });
+    }
+    if (equipmentDay && equipmentDay > todayInManila) {
+      return res.status(400).json({ success: false, message: "Equipment day can't be in the future." });
+    }
+    if (!["today", "week", "month"].includes(equipmentPeriod)) {
+      return res.status(400).json({ success: false, message: "Choose today, week, or month for the equipment period." });
+    }
+    if (equipmentHour && (
+      typeof equipmentHour !== "string" ||
+      !/^(?:[0-9]|1[0-9]|2[0-3])$/.test(equipmentHour)
+    )) {
+      return res.status(400).json({ success: false, message: "Equipment hour must be between 0 and 23." });
+    }
+    if (equipmentTimePeriod && !["Morning", "Afternoon", "Evening", "Flexible"].includes(equipmentTimePeriod)) {
+      return res.status(400).json({
+        success: false,
+        message: "Choose Morning, Afternoon, Evening, or Flexible for the equipment time period.",
+      });
+    }
+
     const growthPeriods = {
       week: { granularity: "day", offset: "6 days", step: "1 day", labelFormat: "Dy" },
       month: { granularity: "day", offset: "29 days", step: "1 day", labelFormat: "Mon FMDD" },
@@ -50,7 +585,9 @@ const getAnalytics = async (req, res) => {
       year: { granularity: "month", offset: "11 months", step: "1 month", labelFormat: "Mon YYYY" },
     };
     const requestedGrowthPeriod = req.query.period || "sixMonths";
-    const growthPeriod = growthPeriods[requestedGrowthPeriod];
+    const growthPeriod = Object.prototype.hasOwnProperty.call(growthPeriods, requestedGrowthPeriod)
+      ? growthPeriods[requestedGrowthPeriod]
+      : null;
 
     if (!growthPeriod) {
       return res.status(400).json({
@@ -82,6 +619,107 @@ const getAnalytics = async (req, res) => {
       ORDER BY months.month_start ASC
     `);
 
+    const memberProgress = await pool.query(`
+      WITH bounds AS (
+        SELECT
+          DATE_TRUNC('year', NOW() AT TIME ZONE 'Asia/Manila')::date AS start_date,
+          DATE_TRUNC('month', NOW() AT TIME ZONE 'Asia/Manila')::date AS current_month,
+          (DATE_TRUNC('month', NOW() AT TIME ZONE 'Asia/Manila') + INTERVAL '1 month')::date AS end_date
+      ),
+      months AS (
+        SELECT generated.month_start::date AS month_start
+        FROM bounds
+        CROSS JOIN LATERAL GENERATE_SERIES(
+          bounds.start_date,
+          bounds.current_month,
+          INTERVAL '1 month'
+        ) AS generated(month_start)
+      ),
+      latest_monthly_progress AS (
+        SELECT DISTINCT ON (progress.user_id, DATE_TRUNC('month', progress.log_date)::date)
+          DATE_TRUNC('month', progress.log_date)::date AS month_start,
+          progress.user_id,
+          progress.weight,
+          progress.bmi,
+          users.target_weight
+        FROM progress_logs progress
+        JOIN users ON users.user_id = progress.user_id
+          AND LOWER(COALESCE(users.account_status, 'pending')) = 'active'
+        CROSS JOIN bounds
+        WHERE progress.log_date >= bounds.start_date
+          AND progress.log_date < bounds.end_date
+        ORDER BY
+          progress.user_id,
+          DATE_TRUNC('month', progress.log_date)::date,
+          progress.log_date DESC,
+          progress.progress_id DESC
+      ),
+      monthly_averages AS (
+        SELECT
+          month_start,
+          COUNT(*)::int AS member_count,
+          ROUND(AVG(weight)::numeric, 1) AS average_weight,
+          ROUND(AVG(target_weight)::numeric, 1) AS average_goal_weight,
+          ROUND(AVG(bmi)::numeric, 1) AS average_bmi
+        FROM latest_monthly_progress
+        GROUP BY month_start
+      )
+      SELECT
+        TO_CHAR(months.month_start, 'Mon YYYY') AS label,
+        COALESCE(monthly_averages.member_count, 0)::int AS member_count,
+        monthly_averages.average_weight,
+        monthly_averages.average_goal_weight,
+        monthly_averages.average_bmi
+      FROM months
+      LEFT JOIN monthly_averages USING (month_start)
+      ORDER BY months.month_start
+    `);
+
+    const monthlyWorkoutProgress = await pool.query(`
+      WITH bounds AS (
+        SELECT
+          DATE_TRUNC('year', NOW() AT TIME ZONE 'Asia/Manila')::date AS start_date,
+          (DATE_TRUNC('year', NOW() AT TIME ZONE 'Asia/Manila') + INTERVAL '1 year')::date AS end_date
+      ),
+      months AS (
+        SELECT generated.month_start::date AS month_start
+        FROM bounds
+        CROSS JOIN LATERAL GENERATE_SERIES(
+          bounds.start_date,
+          bounds.end_date - INTERVAL '1 month',
+          INTERVAL '1 month'
+        ) AS generated(month_start)
+      ),
+      monthly_workouts AS (
+        SELECT
+          SUBSTRING(sessions.session_date FROM 1 FOR 7) AS month_key,
+          COUNT(*)::int AS planned_exercises,
+          COUNT(*) FILTER (WHERE sessions.completed IS TRUE)::int AS completed_exercises,
+          COUNT(*) FILTER (WHERE sessions.completed IS NOT TRUE)::int AS remaining_exercises,
+          COUNT(DISTINCT users.user_id)::int AS active_members
+        FROM workout_sessions sessions
+        JOIN workout_plans plans ON plans.workout_plan_id = sessions.workout_plan_id
+        JOIN users ON users.user_id = plans.user_id
+          AND LOWER(COALESCE(users.account_status, 'pending')) = 'active'
+        CROSS JOIN bounds
+        WHERE plans.approval_status = 'Approved'
+          AND sessions.session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+          AND sessions.session_date >= TO_CHAR(bounds.start_date, 'YYYY-MM-DD')
+          AND sessions.session_date < TO_CHAR(bounds.end_date, 'YYYY-MM-DD')
+        GROUP BY SUBSTRING(sessions.session_date FROM 1 FOR 7)
+      )
+      SELECT
+        TO_CHAR(months.month_start, 'Mon YYYY') AS label,
+        COALESCE(monthly_workouts.planned_exercises, 0)::int AS planned_exercises,
+        COALESCE(monthly_workouts.completed_exercises, 0)::int AS completed_exercises,
+        COALESCE(monthly_workouts.remaining_exercises, 0)::int AS remaining_exercises,
+        COALESCE(monthly_workouts.active_members, 0)::int AS active_members
+      FROM months
+      LEFT JOIN monthly_workouts
+        ON monthly_workouts.month_key = TO_CHAR(months.month_start, 'YYYY-MM')
+      ORDER BY months.month_start
+    `);
+
     const createdAtManila = `CASE
       WHEN pg_typeof(created_at) = 'timestamp with time zone'::regtype
         THEN created_at AT TIME ZONE 'Asia/Manila'
@@ -91,8 +729,8 @@ const getAnalytics = async (req, res) => {
     const growthOverview = await pool.query(`
       WITH bounds AS (
         SELECT
-          DATE_TRUNC('${growthPeriod.granularity}', NOW() AT TIME ZONE 'Asia/Manila') - INTERVAL '${growthPeriod.offset}' AS start_at,
-          DATE_TRUNC('${growthPeriod.granularity}', NOW() AT TIME ZONE 'Asia/Manila') AS end_at
+          DATE_TRUNC($1, NOW() AT TIME ZONE 'Asia/Manila') - $2::interval AS start_at,
+          DATE_TRUNC($1, NOW() AT TIME ZONE 'Asia/Manila') AS end_at
       ),
       buckets AS (
         SELECT generated.bucket_start
@@ -100,45 +738,68 @@ const getAnalytics = async (req, res) => {
         CROSS JOIN LATERAL GENERATE_SERIES(
           bounds.start_at,
           bounds.end_at,
-          INTERVAL '${growthPeriod.step}'
+          $3::interval
         ) AS generated(bucket_start)
       ),
       new_members AS (
-        SELECT DATE_TRUNC('${growthPeriod.granularity}', ${createdAtManila}) AS bucket_start,
+        SELECT DATE_TRUNC($1, ${createdAtManila}) AS bucket_start,
           COUNT(*)::int AS count
         FROM users
         WHERE LOWER(COALESCE(account_status, 'pending')) = 'active'
           AND ${createdAtManila} >= (SELECT start_at FROM bounds)
-          AND ${createdAtManila} < (SELECT end_at FROM bounds) + INTERVAL '${growthPeriod.step}'
-        GROUP BY DATE_TRUNC('${growthPeriod.granularity}', ${createdAtManila})
+          AND ${createdAtManila} < (SELECT end_at FROM bounds) + $3::interval
+        GROUP BY DATE_TRUNC($1, ${createdAtManila})
       ),
       completed_workouts AS (
-        SELECT DATE_TRUNC('${growthPeriod.granularity}', ${completedAtManila}) AS bucket_start,
+        SELECT DATE_TRUNC($1, ${completedAtManila}) AS bucket_start,
           COUNT(*)::int AS count
         FROM workout_sessions
         WHERE completed = true
           AND completed_at IS NOT NULL
           AND ${completedAtManila} >= (SELECT start_at FROM bounds)
-          AND ${completedAtManila} < (SELECT end_at FROM bounds) + INTERVAL '${growthPeriod.step}'
-        GROUP BY DATE_TRUNC('${growthPeriod.granularity}', ${completedAtManila})
+          AND ${completedAtManila} < (SELECT end_at FROM bounds) + $3::interval
+        GROUP BY DATE_TRUNC($1, ${completedAtManila})
       )
       SELECT
-        TO_CHAR(buckets.bucket_start, '${growthPeriod.labelFormat}') AS label,
+        TO_CHAR(buckets.bucket_start, $4) AS label,
         COALESCE(new_members.count, 0)::int AS new_members,
         COALESCE(completed_workouts.count, 0)::int AS workout_sessions
       FROM buckets
       LEFT JOIN new_members USING (bucket_start)
       LEFT JOIN completed_workouts USING (bucket_start)
       ORDER BY buckets.bucket_start
-    `);
+    `, [
+      growthPeriod.granularity,
+      growthPeriod.offset,
+      growthPeriod.step,
+      growthPeriod.labelFormat,
+    ]);
 
     // Fitness goal distribution
     const goalDistribution = await pool.query(`
-      SELECT fitness_goal AS goal, COUNT(*) AS count
-      FROM users
-      WHERE LOWER(COALESCE(account_status, 'pending')) = 'active'
-        AND fitness_goal IS NOT NULL
-      GROUP BY fitness_goal ORDER BY count DESC
+      WITH categorized_goals AS (
+        SELECT
+          CASE
+            WHEN LOWER(fitness_goal) LIKE '%lose%' THEN 'Lose Weight'
+            WHEN LOWER(fitness_goal) LIKE '%gain%'
+              OR LOWER(fitness_goal) LIKE '%muscle%'
+              OR LOWER(fitness_goal) LIKE '%strength%' THEN 'Gain Weight'
+            ELSE 'Maintain Weight'
+          END AS goal
+        FROM users
+        WHERE LOWER(COALESCE(account_status, 'pending')) = 'active'
+          AND fitness_goal IS NOT NULL
+      )
+      SELECT
+        goal,
+        COUNT(*)::int AS count
+      FROM categorized_goals
+      GROUP BY goal
+      ORDER BY CASE goal
+        WHEN 'Maintain Weight' THEN 1
+        WHEN 'Lose Weight' THEN 2
+        ELSE 3
+      END
     `);
 
     // BMI distribution
@@ -210,6 +871,100 @@ const getAnalytics = async (req, res) => {
       ORDER BY weekdays.day_order
     `);
 
+    const mostUsedEquipment = await pool.query(`
+      WITH equipment_catalog AS (
+        SELECT BTRIM(equipment) AS equipment
+        FROM UNNEST($4::text[]) AS equipment_option(equipment)
+        UNION
+        SELECT DISTINCT BTRIM(equipment) AS equipment
+        FROM exercises
+        WHERE NULLIF(BTRIM(equipment), '') IS NOT NULL
+      ),
+      period_bounds AS (
+        SELECT
+          COALESCE($1::date, CASE $5
+            WHEN 'week' THEN DATE_TRUNC('week', NOW() AT TIME ZONE 'Asia/Manila')::date
+            WHEN 'month' THEN DATE_TRUNC('month', NOW() AT TIME ZONE 'Asia/Manila')::date
+            ELSE (NOW() AT TIME ZONE 'Asia/Manila')::date
+          END) AS starts_on,
+          COALESCE($1::date, CASE $5
+            WHEN 'week' THEN (DATE_TRUNC('week', NOW() AT TIME ZONE 'Asia/Manila') + INTERVAL '6 days')::date
+            WHEN 'month' THEN (DATE_TRUNC('month', NOW() AT TIME ZONE 'Asia/Manila') + INTERVAL '1 month - 1 day')::date
+            ELSE (NOW() AT TIME ZONE 'Asia/Manila')::date
+          END) AS ends_on
+      ),
+      weekday_occurrences AS (
+        SELECT LOWER(BTRIM(TO_CHAR(occurrence.scheduled_on, 'FMDay'))) AS weekday,
+               COUNT(*)::int AS count
+        FROM period_bounds bounds
+        CROSS JOIN LATERAL GENERATE_SERIES(
+          bounds.starts_on::timestamp,
+          bounds.ends_on::timestamp,
+          INTERVAL '1 day'
+        ) AS occurrence(scheduled_on)
+        GROUP BY LOWER(BTRIM(TO_CHAR(occurrence.scheduled_on, 'FMDay')))
+      ),
+      equipment_sessions AS (
+        SELECT BTRIM(e.equipment) AS equipment,
+          ws.session_date::text AS session_date,
+          wp.scheduled_start_time,
+          u.preferred_workout_time
+        FROM workout_sessions ws
+        JOIN workout_plans wp ON wp.workout_plan_id = ws.workout_plan_id
+        JOIN users u ON u.user_id = wp.user_id
+        JOIN exercises e ON e.exercise_id = ws.exercise_id
+        CROSS JOIN period_bounds bounds
+        WHERE wp.approval_status = 'Approved'
+          AND NULLIF(BTRIM(e.equipment), '') IS NOT NULL
+          AND (
+            (
+              ws.session_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+              AND ws.session_date::text BETWEEN TO_CHAR(bounds.starts_on, 'YYYY-MM-DD')
+                AND TO_CHAR(bounds.ends_on, 'YYYY-MM-DD')
+            )
+            OR LOWER(BTRIM(ws.session_date::text)) IN (
+              'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'
+            )
+          )
+      ),
+      filtered_usage AS (
+        SELECT session.equipment,
+          SUM(
+            CASE
+              WHEN session.session_date ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN 1
+              ELSE COALESCE(weekday_occurrences.count, 0)
+            END
+          )::int AS count
+        FROM equipment_sessions session
+        LEFT JOIN weekday_occurrences
+          ON weekday_occurrences.weekday = LOWER(BTRIM(session.session_date))
+        WHERE ($2::integer IS NULL OR EXTRACT(HOUR FROM session.scheduled_start_time)::integer = $2::integer)
+          AND ($3::text IS NULL OR CASE $3
+              WHEN 'Morning' THEN COALESCE(EXTRACT(HOUR FROM session.scheduled_start_time), CASE session.preferred_workout_time WHEN 'Morning' THEN 6 ELSE NULL END) >= 6
+                AND COALESCE(EXTRACT(HOUR FROM session.scheduled_start_time), CASE session.preferred_workout_time WHEN 'Morning' THEN 6 ELSE NULL END) < 12
+              WHEN 'Afternoon' THEN COALESCE(EXTRACT(HOUR FROM session.scheduled_start_time), CASE session.preferred_workout_time WHEN 'Afternoon' THEN 12 ELSE NULL END) >= 12
+                AND COALESCE(EXTRACT(HOUR FROM session.scheduled_start_time), CASE session.preferred_workout_time WHEN 'Afternoon' THEN 12 ELSE NULL END) < 17
+              WHEN 'Evening' THEN COALESCE(EXTRACT(HOUR FROM session.scheduled_start_time), CASE session.preferred_workout_time WHEN 'Evening' THEN 17 ELSE NULL END) >= 17
+                AND COALESCE(EXTRACT(HOUR FROM session.scheduled_start_time), CASE session.preferred_workout_time WHEN 'Evening' THEN 17 ELSE NULL END) < 22
+              WHEN 'Flexible' THEN COALESCE(EXTRACT(HOUR FROM session.scheduled_start_time), 6) >= 6
+                AND COALESCE(EXTRACT(HOUR FROM session.scheduled_start_time), 6) < 22
+              ELSE FALSE
+            END)
+        GROUP BY session.equipment
+      )
+      SELECT catalog.equipment, COALESCE(usage_stats.count, 0)::int AS count
+      FROM equipment_catalog catalog
+      LEFT JOIN filtered_usage usage_stats ON usage_stats.equipment = catalog.equipment
+      WHERE LOWER(BTRIM(catalog.equipment)) NOT IN ('gym equipment', 'machine', 'bodyweight')
+      ORDER BY count DESC, catalog.equipment ASC
+    `, [
+      equipmentDay || null,
+      equipmentHour === "" ? null : Number(equipmentHour),
+      equipmentTimePeriod || null,
+      equipmentOptions,
+      equipmentPeriod,
+    ]);
+
     // Summary
     const totalMembers = await pool.query("SELECT COUNT(*) AS count FROM users WHERE LOWER(COALESCE(account_status, 'pending')) = 'active'");
     const avgBmi = await pool.query(`
@@ -231,12 +986,15 @@ const getAnalytics = async (req, res) => {
           totalNutritionPlans: parseInt(totalMealPlans.rows[0].count),
         },
         memberGrowth: memberGrowth.rows,
+        memberProgress: memberProgress.rows,
+        monthlyWorkoutProgress: monthlyWorkoutProgress.rows,
         growthOverview: growthOverview.rows,
         goalDistribution: goalDistribution.rows,
         bmiDistribution: bmiDistribution.rows,
         attendance: attendance.rows,
         peakHours: peakHours.rows,
         dayAvailability: dayAvailability.rows,
+        mostUsedEquipment: mostUsedEquipment.rows,
         peakMonths: memberGrowth.rows,
       },
     });
@@ -246,4 +1004,10 @@ const getAnalytics = async (req, res) => {
   }
 };
 
-module.exports = { getDashboardStats, getAnalytics };
+module.exports = {
+  getDashboardStats,
+  getAnalytics,
+  getTrainingPulse,
+  getTrainerPrescriptiveAnalytics,
+  sendWeeklyProgressReport,
+};

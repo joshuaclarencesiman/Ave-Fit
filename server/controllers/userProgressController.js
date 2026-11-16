@@ -1,10 +1,11 @@
 const pool = require("../db");
+const { calculateWeightTimeline } = require("../utils/weightTimeline");
 
 // GET user progress logs
 const getProgress = async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT * FROM progress_logs WHERE user_id = $1 ORDER BY log_date ASC",
+      "SELECT * FROM progress_logs WHERE user_id = $1 ORDER BY log_date ASC, progress_id ASC",
       [req.user.user_id]
     );
     res.json({ success: true, data: result.rows });
@@ -17,7 +18,7 @@ const getProgress = async (req, res) => {
 // POST log progress
 const logProgress = async (req, res) => {
   try {
-    const { weight, bmi, body_fat, waist, chest, hips, left_arm } = req.body;
+    const { weight, bmi, body_fat, waist, chest, hips, left_arm, entry_context } = req.body;
 
     if (
       weight != null &&
@@ -29,14 +30,108 @@ const logProgress = async (req, res) => {
       });
     }
 
+    const normalizedEntryContext = ["workout", "rest_day"].includes(entry_context) ? entry_context : null;
+
     const result = await pool.query(`
       INSERT INTO progress_logs (user_id, weight, bmi, body_fat, waist, chest, hips, left_arm, log_date)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,(NOW() AT TIME ZONE 'Asia/Manila')::date) RETURNING *
     `, [req.user.user_id, weight || null, bmi || null, body_fat || null, waist || null, chest || null, hips || null, left_arm || null]);
+
+    if (normalizedEntryContext) {
+      res.setHeader("X-Progress-Entry-Context", normalizedEntryContext);
+    }
+
     res.status(201).json({ success: true, data: result.rows[0] });
   } catch (err) {
     console.error("logProgress error:", err.message);
     res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+const updateUserGoal = async (req, res) => {
+  try {
+    const { fitness_goal, target_weight } = req.body;
+    const profileResult = await pool.query(
+      `SELECT u.height, u.weight,
+        (SELECT p.weight FROM progress_logs p
+         WHERE p.user_id = u.user_id AND p.weight IS NOT NULL
+         ORDER BY p.log_date DESC, p.progress_id DESC
+         LIMIT 1) AS latest_weight
+       FROM users u
+       WHERE u.user_id = $1`,
+      [req.user.user_id]
+    );
+    if (!profileResult.rowCount) {
+      return res.status(404).json({ success: false, message: "User not found." });
+    }
+
+    const profile = profileResult.rows[0];
+    const height = Number(profile.height);
+    const currentWeight = Number(profile.latest_weight ?? profile.weight);
+    const targetWeight = Number(target_weight);
+    if (
+      !Number.isFinite(height) || height <= 0 ||
+      !Number.isFinite(currentWeight) || currentWeight <= 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "A valid height and current weight are required before setting a goal.",
+      });
+    }
+
+    const bmi = currentWeight / ((height / 100) ** 2);
+    const allowedGoals = bmi < 18.5
+      ? ["Gain Weight"]
+      : bmi >= 25
+        ? ["Weight Loss"]
+        : ["Weight Loss", "Maintain Weight", "Gain Weight"];
+    if (!allowedGoals.includes(fitness_goal)) {
+      return res.status(400).json({
+        success: false,
+        message: "That goal is not available for your current BMI.",
+      });
+    }
+
+    const heightMeters = height / 100;
+    const normalMin = Math.ceil(18.5 * heightMeters ** 2);
+    const normalMax = Math.floor(24.9 * heightMeters ** 2);
+    if (normalMin > normalMax) {
+      return res.status(400).json({
+        success: false,
+        message: "Your height does not allow us to calculate a healthy target-weight range.",
+      });
+    }
+
+    let targetMin = normalMin;
+    let targetMax = normalMax;
+    if (fitness_goal === "Weight Loss") {
+      targetMax = Math.max(normalMin, Math.min(normalMax, Math.ceil(currentWeight) - 1));
+    } else if (fitness_goal === "Gain Weight") {
+      targetMin = Math.min(normalMax, Math.max(normalMin, Math.floor(currentWeight) + 1));
+    } else {
+      const maintenanceWeight = Math.min(Math.max(Math.round(currentWeight), normalMin), normalMax);
+      targetMin = maintenanceWeight;
+      targetMax = maintenanceWeight;
+    }
+
+    if (!Number.isInteger(targetWeight) || targetWeight < targetMin || targetWeight > targetMax) {
+      return res.status(400).json({
+        success: false,
+        message: `Choose a target weight between ${targetMin} kg and ${targetMax} kg for this goal.`,
+      });
+    }
+
+    const result = await pool.query(
+      `UPDATE users
+       SET fitness_goal = $1, target_weight = $2, updated_at = NOW()
+       WHERE user_id = $3
+       RETURNING fitness_goal, target_weight`,
+      [fitness_goal, targetWeight, req.user.user_id]
+    );
+    return res.json({ success: true, data: result.rows[0] });
+  } catch (err) {
+    console.error("updateUserGoal error:", err.message);
+    return res.status(500).json({ success: false, message: "Unable to update your goal." });
   }
 };
 
@@ -101,88 +196,70 @@ const calculatePrediction = async (req, res) => {
 };
 
 // POST predictive analytics for onboarding confirmation screen
-// Derives an estimated timeline from the assessment/goal/availability answers
-// instead of requiring the user to type in a weekly rate themselves.
+// Estimates a target-weight timeline from current weight and goal.
 const autoPredict = async (req, res) => {
   try {
     const {
-      goal,                 // "Weight Loss" | "Muscle Gain" | "Maintain Weight"
+      goal,
       current_weight,
       target_weight,
       height,
-      days_per_week,        // 1-7
-      intensity,            // 1-5
-      experience,           // "Beginner" | "Intermediate" | "Advanced"
     } = req.body;
 
-    const cw = parseFloat(current_weight);
-    const tw = parseFloat(target_weight);
-    const days = Math.min(Math.max(parseInt(days_per_week) || 3, 1), 7);
-    const level = Math.min(Math.max(parseInt(intensity) || 3, 1), 5);
-
-    if (!cw || cw <= 0) {
-      return res.status(400).json({ success: false, message: "current_weight is required." });
+    const cw = Number(current_weight);
+    if (!Number.isFinite(cw) || cw < 20 || cw > 200) {
+      return res.status(400).json({
+        success: false,
+        message: "Current weight must be between 20 kg and 200 kg.",
+      });
     }
 
-    const experienceFactor = { Beginner: 1.1, Intermediate: 1.0, Advanced: 0.9 }[experience] || 1.0;
-    const dayFactor = days / 3;       // 3 days/week = baseline
-    const intensityFactor = level / 3; // moderate (3) = baseline
-
-    // Safe, realistic weekly body-weight change ranges (kg/week)
-    const RATE_BOUNDS = {
-      "Weight Loss": { base: 0.4, min: 0.25, max: 1.0 },
-      "Muscle Gain": { base: 0.2, min: 0.1, max: 0.45 },
-    };
-
-    let weightDiff = tw ? Math.abs(cw - tw) : 0;
-    const isMaintenance = goal === "Maintain Weight" || !tw || weightDiff < 0.5;
-
-    let result;
-    if (isMaintenance) {
-      // No meaningful weight target — estimate time to build a consistent habit / see recomposition results instead.
-      const baseWeeks = 8;
-      const consistentWeeks = Math.max(4, Math.round(baseWeeks / (dayFactor * intensityFactor * experienceFactor)));
-      const inconsistentWeeks = Math.round(consistentWeeks * 2.2);
-      result = {
-        mode: "maintenance",
-        goal: goal || "Maintain Weight",
-        weekly_rate_kg: 0,
-        weeks_needed_consistent: consistentWeeks,
-        months_needed_consistent: +(consistentWeeks / 4.345).toFixed(1),
-        weeks_needed_inconsistent: inconsistentWeeks,
-        months_needed_inconsistent: +(inconsistentWeeks / 4.345).toFixed(1),
-        note: "No target weight change — timeline reflects when a consistent routine typically shows visible fitness/body-composition results.",
-      };
-    } else {
-      const bounds = RATE_BOUNDS[goal] || RATE_BOUNDS["Weight Loss"];
-      let weeklyRate = bounds.base * dayFactor * intensityFactor * experienceFactor;
-      weeklyRate = Math.min(Math.max(weeklyRate, bounds.min), bounds.max);
-
-      const consistentWeeks = Math.max(1, Math.ceil(weightDiff / weeklyRate));
-      // Inconsistent adherence roughly halves effective weekly progress
-      const inconsistentRate = weeklyRate * 0.45;
-      const inconsistentWeeks = Math.max(consistentWeeks + 1, Math.ceil(weightDiff / inconsistentRate));
-
-      let predicted_bmi = null;
-      if (height) {
-        const h = parseFloat(height) / 100;
-        if (h > 0) predicted_bmi = (tw / (h * h)).toFixed(2);
-      }
-
-      result = {
-        mode: "target-weight",
-        goal,
-        current_weight: cw,
-        target_weight: tw,
-        weight_diff_kg: +weightDiff.toFixed(1),
-        weekly_rate_kg: +weeklyRate.toFixed(2),
-        weeks_needed_consistent: consistentWeeks,
-        months_needed_consistent: +(consistentWeeks / 4.345).toFixed(1),
-        weeks_needed_inconsistent: inconsistentWeeks,
-        months_needed_inconsistent: +(inconsistentWeeks / 4.345).toFixed(1),
-        predicted_bmi,
-      };
+    if (!["Weight Loss", "Gain Weight", "Muscle Gain", "Maintain Weight"].includes(goal)) {
+      return res.status(400).json({
+        success: false,
+        message: "Choose a valid weight goal before requesting a timeline.",
+      });
     }
+
+    if (goal === "Maintain Weight") {
+      return res.json({
+        success: true,
+        data: {
+          mode: "maintenance",
+          goal,
+          weekly_rate_kg: 0,
+          weeks_needed_consistent: null,
+          months_needed_consistent: null,
+          weeks_needed_inconsistent: null,
+          months_needed_inconsistent: null,
+          note: "A weight-maintenance goal has no target-weight timeline. This estimate cannot predict body recomposition.",
+        },
+      });
+    }
+
+    const tw = Number(target_weight);
+    if (!Number.isFinite(tw) || tw < 20 || tw > 200) {
+      return res.status(400).json({
+        success: false,
+        message: "Target weight must be between 20 kg and 200 kg.",
+      });
+    }
+
+    if ((goal === "Weight Loss" && tw > cw) || (goal !== "Weight Loss" && tw < cw)) {
+      return res.status(400).json({
+        success: false,
+        message: goal === "Weight Loss"
+          ? "Target weight must be lower than current weight for a weight-loss goal."
+          : "Target weight must be higher than current weight for a weight-gain goal.",
+      });
+    }
+
+    const result = calculateWeightTimeline({
+      goal,
+      currentWeight: cw,
+      targetWeight: tw,
+      height,
+    });
 
     res.json({ success: true, data: result });
   } catch (err) {
@@ -205,4 +282,4 @@ const getUserNotifications = async (req, res) => {
   }
 };
 
-module.exports = { getProgress, logProgress, calculatePrediction, autoPredict, getUserNotifications };
+module.exports = { getProgress, logProgress, updateUserGoal, calculatePrediction, autoPredict, getUserNotifications };

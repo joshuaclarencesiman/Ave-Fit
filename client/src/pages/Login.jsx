@@ -35,7 +35,14 @@ export default function Login() {
       title="Admin sign in"
       subtitle="Manage members, trainers, workouts and analytics."
       footer={
-        <p className="mt-6 text-center text-sm text-slate-500">
+        <div className="mt-6 flex flex-col items-center gap-3 text-sm text-slate-500">
+          <button
+            type="button"
+            onClick={() => navigate("/admin/reset-password")}
+            className="rounded font-medium transition hover:text-orange-600"
+          >
+            Forgot your password?
+          </button>
           <button
             type="button"
             onClick={() => navigate("/")}
@@ -43,7 +50,7 @@ export default function Login() {
           >
             &larr; Back to homepage
           </button>
-        </p>
+        </div>
       }
     >
       <form
@@ -59,7 +66,7 @@ export default function Login() {
           type="email"
           name="email"
           autoComplete="username"
-          placeholder="admin@avefit.com"
+          placeholder="admin@example.com"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
         />
@@ -80,7 +87,7 @@ export default function Login() {
           type="submit"
           loading={loading}
           loadingText="Signing in…"
-          className="mt-2"
+          className="mx-auto mt-2 !flex !h-12 !w-full !max-w-[400px] !px-4 !py-0"
         >
           Sign in
         </PrimaryButton>

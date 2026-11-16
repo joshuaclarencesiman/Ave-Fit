@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Dumbbell, Search, Plus, Edit2, Trash2, X, ListOrdered } from "lucide-react";
+import { ChevronDown, Dumbbell, Search, Edit2, X, ListOrdered, SlidersHorizontal } from "lucide-react";
 import { getWorkoutGuideExercise } from "../utils/workoutGuide";
 import api from "../services/api";
+import CustomSelect from "../components/ui/CustomSelect";
 
 const difficultyColors = {
   Beginner: "bg-green-500/20 text-green-400",
@@ -10,7 +11,7 @@ const difficultyColors = {
 };
 
 const MUSCLE_GROUPS = ["Chest", "Back", "Shoulders", "Biceps", "Triceps", "Legs", "Glutes", "Core", "Cardio", "Full Body"];
-const EQUIPMENT_OPTIONS = ["Barbell", "Dumbbell", "Cable Machine", "Machine", "Smith Machine", "Kettlebell", "EZ Bar", "Bodyweight", "Pull-Up Bar", "Dip Station", "Roman Chair", "Landmine Attachment", "T-Bar Row Machine", "Assisted Pull-Up Machine", "Preacher Bench", "Leg Press Machine", "Hack Squat Machine", "Weight Plate", "Decline Bench", "Treadmill", "Stationary Bike", "Rowing Machine", "Stair Climber Machine", "Elliptical Machine", "Assault Bike", "Battle Ropes", "Jump Rope", "Sled", "TRX Suspension Trainer", "Medicine Ball", "Plyo Box"];
+const EQUIPMENT_OPTIONS = ["Barbell", "Dumbbell", "Cable Machine", "Smith Machine", "Kettlebell", "EZ Bar", "Bodyweight", "Pull-Up Bar", "Dip Station", "Roman Chair", "Landmine Attachment", "T-Bar Row Machine", "Assisted Pull-Up Machine", "Preacher Bench", "Leg Press Machine", "Hack Squat Machine", "Weight Plate", "Decline Bench", "Treadmill", "Stationary Bike", "Rowing Machine", "Stair Climber Machine", "Elliptical Machine", "Assault Bike", "Battle Ropes", "Jump Rope", "Sled", "TRX Suspension Trainer", "Medicine Ball", "Plyo Box", "Gym Mat"];
 const STEP_TITLES = ["Starting Position", "Movement", "Finish"];
 
 // Letters + spaces only for the name, plus punctuation real names already use
@@ -40,27 +41,17 @@ const validateText = (value, label) => {
   return "";
 };
 
-const validateCalories = (value) => {
-  const raw = String(value ?? "").trim();
-  if (!raw) return "Calories per minute is required.";
-  if (!/^\d+(\.\d{1,2})?$/.test(raw)) return "Calories per minute must be a number only (no symbols).";
-  const n = Number(raw);
-  if (n < 2) return "Calories per minute must be at least 2.00.";
-  if (n > 12) return "Calories per minute cannot be more than 12.00.";
-  return "";
-};
-
 const emptySteps = () => [
   { title: "Starting Position", description: "" },
   { title: "Movement", description: "" },
   { title: "Finish", description: "" },
 ];
 
-function ExerciseModal({ exercise, categories, onClose, onSave }) {
+function ExerciseModal({ exercise, onClose, onSave }) {
   const [form, setForm] = useState(
     exercise
       ? { ...exercise }
-      : { exercise_name: "", category_id: "", muscle_group: "", difficulty: "Beginner", calories_per_minute: "", description: "", equipment: "" }
+      : { exercise_name: "", muscle_group: "", difficulty: "Beginner", description: "", equipment: "" }
   );
   const [steps, setSteps] = useState(
     exercise?.movement_steps && Array.isArray(exercise.movement_steps) && exercise.movement_steps.length === 3
@@ -73,7 +64,7 @@ function ExerciseModal({ exercise, categories, onClose, onSave }) {
 
   // Keep any legacy/custom value selectable when editing an existing exercise.
   const muscleGroupOptions = [...new Set([...(form.muscle_group ? [form.muscle_group] : []), ...MUSCLE_GROUPS])];
-  const equipmentOptions = [...new Set([...(form.equipment ? [form.equipment] : []), ...EQUIPMENT_OPTIONS])];
+  const equipmentOptions = EQUIPMENT_OPTIONS;
 
   const updateStep = (i, field, value) => {
     setSteps((prev) => prev.map((s, idx) => (idx === i ? { ...s, [field]: value } : s)));
@@ -83,11 +74,8 @@ function ExerciseModal({ exercise, categories, onClose, onSave }) {
     const next = {};
     const nameError = validateName(form.exercise_name);
     if (nameError) next.exercise_name = nameError;
-    if (!form.category_id) next.category_id = "Category is required.";
     if (!form.muscle_group) next.muscle_group = "Muscle group is required.";
-    if (!form.equipment) next.equipment = "Equipment is required.";
-    const calorieError = validateCalories(form.calories_per_minute);
-    if (calorieError) next.calories_per_minute = calorieError;
+    if (!equipmentOptions.includes(form.equipment)) next.equipment = "Select a valid equipment option.";
     const descriptionError = validateText(form.description, "Description");
     if (descriptionError) next.description = descriptionError;
     steps.forEach((step, i) => {
@@ -107,15 +95,12 @@ function ExerciseModal({ exercise, categories, onClose, onSave }) {
       // The exercise visuals now come from the bundled Workout Guide repository.
       // Keep only AveFit's exercise metadata and coaching notes in the database.
       const {
-        exercise_name, category_id, muscle_group, difficulty,
-        calories_per_minute, description, equipment
+        exercise_name, muscle_group, difficulty, description, equipment
       } = form;
       const payload = {
         exercise_name: exercise_name.trim(),
-        category_id,
         muscle_group,
         difficulty,
-        calories_per_minute,
         description: description.trim(),
         equipment,
         movement_steps: steps.map((step, i) => ({
@@ -123,11 +108,7 @@ function ExerciseModal({ exercise, categories, onClose, onSave }) {
           description: step.description.trim(),
         })),
       };
-      if (exercise) {
-        await api.put(`/workouts/${exercise.exercise_id}`, payload);
-      } else {
-        await api.post("/workouts", payload);
-      }
+      await api.put(`/workouts/${exercise.exercise_id}`, payload);
       onSave();
       onClose();
     } catch (err) {
@@ -158,53 +139,44 @@ function ExerciseModal({ exercise, categories, onClose, onSave }) {
               {errors.exercise_name && <p className="mt-1 text-xs text-red-500">{errors.exercise_name}</p>}
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-600 mb-1">Category *</label>
-              <select value={form.category_id || ""} onChange={(e) => setForm({ ...form, category_id: e.target.value })}
-                aria-invalid={Boolean(errors.category_id)}
-                className={inputClass(errors.category_id)}>
-                <option value="">Select category...</option>
-                {categories.map((c) => <option key={c.category_id} value={c.category_id}>{c.category_name}</option>)}
-              </select>
-              {errors.category_id && <p className="mt-1 text-xs text-red-500">{errors.category_id}</p>}
-            </div>
-            <div>
               <label className="block text-sm font-medium text-slate-600 mb-1">Muscle Group *</label>
-              <select value={form.muscle_group || ""}
-                onChange={(e) => setForm({ ...form, muscle_group: e.target.value })}
-                aria-invalid={Boolean(errors.muscle_group)}
-                className={inputClass(errors.muscle_group)}>
-                <option value="">Select muscle group...</option>
-                {muscleGroupOptions.map((m) => <option key={m} value={m}>{m}</option>)}
-              </select>
+              <CustomSelect
+                value={form.muscle_group || ""}
+                onChange={(muscle_group) => setForm({ ...form, muscle_group })}
+                ariaLabel="Muscle group"
+                ariaInvalid={Boolean(errors.muscle_group)}
+                className={`${inputClass(errors.muscle_group)} dark:bg-[#111]`}
+                options={[
+                  { value: "", label: "Select muscle group..." },
+                  ...muscleGroupOptions.map((muscleGroup) => ({ value: muscleGroup, label: muscleGroup })),
+                ]}
+              />
               {errors.muscle_group && <p className="mt-1 text-xs text-red-500">{errors.muscle_group}</p>}
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-600 mb-1">Equipment *</label>
-              <select value={form.equipment || ""}
-                onChange={(e) => setForm({ ...form, equipment: e.target.value })}
-                aria-invalid={Boolean(errors.equipment)}
-                className={inputClass(errors.equipment)}>
-                <option value="">Select equipment...</option>
-                {equipmentOptions.map((eq) => <option key={eq} value={eq}>{eq}</option>)}
-              </select>
+              <CustomSelect
+                value={form.equipment || ""}
+                onChange={(equipment) => setForm({ ...form, equipment })}
+                ariaLabel="Equipment"
+                ariaInvalid={Boolean(errors.equipment)}
+                className={`${inputClass(errors.equipment)} dark:bg-[#111]`}
+                options={[
+                  { value: "", label: "Select equipment..." },
+                  ...equipmentOptions.map((equipment) => ({ value: equipment, label: equipment })),
+                ]}
+              />
               {errors.equipment && <p className="mt-1 text-xs text-red-500">{errors.equipment}</p>}
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-600 mb-1">Difficulty</label>
-              <select value={form.difficulty || "Beginner"} onChange={(e) => setForm({ ...form, difficulty: e.target.value })}
-                className="w-full border border-slate-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500">
-                <option>Beginner</option>
-                <option>Intermediate</option>
-                <option>Advanced</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-600 mb-1">Calories / min *</label>
-              <input type="number" min="2" max="12" step="0.01" inputMode="decimal" value={form.calories_per_minute ?? ""}
-                onChange={(e) => setForm({ ...form, calories_per_minute: e.target.value })}
-                aria-invalid={Boolean(errors.calories_per_minute)}
-                className={inputClass(errors.calories_per_minute)} />
-              {errors.calories_per_minute && <p className="mt-1 text-xs text-red-500">{errors.calories_per_minute}</p>}
+              <CustomSelect
+                value={form.difficulty || "Beginner"}
+                onChange={(difficulty) => setForm({ ...form, difficulty })}
+                ariaLabel="Difficulty"
+                className="rounded-lg border-slate-300 px-4 py-2.5 dark:bg-[#111]"
+                options={["Beginner", "Intermediate", "Advanced"].map((difficulty) => ({ value: difficulty, label: difficulty }))}
+              />
             </div>
           </div>
 
@@ -258,7 +230,7 @@ function ExerciseModal({ exercise, categories, onClose, onSave }) {
           </button>
           <button onClick={handleSubmit} disabled={saving}
             className="px-5 py-2.5 rounded-xl text-sm font-medium bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white transition">
-            {saving ? "Saving..." : exercise ? "Save Changes" : "Add Exercise"}
+            {saving ? "Saving..." : "Save Changes"}
           </button>
         </div>
       </div>
@@ -268,25 +240,20 @@ function ExerciseModal({ exercise, categories, onClose, onSave }) {
 
 export default function Workouts() {
   const [exercises, setExercises] = useState([]);
-  const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState("");
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState("All");
   const [filterDifficulty, setFilterDifficulty] = useState("All");
+  const [showFilters, setShowFilters] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editExercise, setEditExercise] = useState(null);
 
   const fetchData = () => {
     setLoading(true);
     setFetchError("");
-    Promise.all([
-      api.get("/workouts"),
-      api.get("/workouts/categories"),
-    ])
-      .then(([exRes, catRes]) => {
+    api.get("/workouts")
+      .then((exRes) => {
         setExercises(exRes.data.data);
-        setCategories(catRes.data.data || []);
       })
       .catch((err) => {
         console.error(err);
@@ -297,27 +264,14 @@ export default function Workouts() {
 
   useEffect(() => { fetchData(); }, []);
 
-  const handleAdd = () => { setEditExercise(null); setShowModal(true); };
   const handleEdit = (ex) => { setEditExercise(ex); setShowModal(true); };
-  const handleDelete = async (ex) => {
-    if (!confirm(`Delete "${ex.exercise_name}"? This can't be undone.`)) return;
-    try {
-      await api.delete(`/workouts/${ex.exercise_id}`);
-      fetchData();
-    } catch (err) {
-      alert(err.response?.data?.message || "Failed to delete exercise.");
-    }
-  };
-
-  const categoryNames = ["All", ...new Set(exercises.map((e) => e.category_name).filter(Boolean))];
 
   const filtered = exercises.filter((e) => {
     const matchSearch =
       e.exercise_name?.toLowerCase().includes(search.toLowerCase()) ||
       e.muscle_group?.toLowerCase().includes(search.toLowerCase());
-    const matchFilter = filter === "All" || e.category_name === filter;
     const matchDifficulty = filterDifficulty === "All" || e.difficulty === filterDifficulty;
-    return matchSearch && matchFilter && matchDifficulty;
+    return matchSearch && matchDifficulty;
   });
 
   return (
@@ -325,7 +279,6 @@ export default function Workouts() {
       {showModal && (
         <ExerciseModal
           exercise={editExercise}
-          categories={categories}
           onClose={() => setShowModal(false)}
           onSave={fetchData}
         />
@@ -337,12 +290,6 @@ export default function Workouts() {
           <h1 className="mt-2 text-3xl font-black text-slate-900 dark:text-white">Exercise Library</h1>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Maintain exercises, member-facing instructions, and coaching notes.</p>
         </div>
-        <button
-          onClick={handleAdd}
-          className="flex min-h-11 items-center gap-2 rounded-xl bg-orange-500 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
-        >
-          <Plus size={18} /> Add Exercise
-        </button>
       </header>
 
       {fetchError && (
@@ -351,67 +298,74 @@ export default function Workouts() {
         </div>
       )}
 
-      {/* Filters */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-[#111]">
-        <div className="ave-search flex w-full max-w-md items-center gap-3 rounded-xl border px-3 py-2.5">
-          <Search size={17} className="shrink-0 text-slate-500" />
+      <label className="ave-search flex min-h-12 w-full items-center gap-3 rounded-xl border px-4">
+          <Search size={18} className="shrink-0 text-slate-500" aria-hidden="true" />
           <input
             type="search"
             placeholder="Search exercises, muscles, equipment..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             aria-label="Search exercises"
-            className="min-w-0 flex-1 border-0 bg-transparent p-0 text-sm outline-none shadow-none focus:border-0 focus:ring-0"
+            className="min-w-0 flex-1 appearance-none border-0 bg-transparent p-0 text-sm outline-none shadow-none placeholder:text-slate-500 focus:border-0 focus:ring-0 focus-visible:outline-none dark:placeholder:text-slate-400"
           />
-        </div>
-        <div className="mt-4">
-          <div className="space-y-3">
-            <div>
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Category</p>
-              <div className="flex flex-wrap justify-start gap-2">
-                {categoryNames.map((c) => (
-                  <button
-                    key={c}
-                    onClick={() => setFilter(c)}
-                    aria-pressed={filter === c}
-                    className={`whitespace-nowrap rounded-lg border px-3.5 py-2 text-sm font-medium transition ${
-                      filter === c
-                        ? "border-orange-600 bg-orange-600 text-white shadow-sm"
-                        : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300 hover:bg-slate-100 dark:border-slate-700 dark:bg-[#1b1b1b] dark:text-slate-200 dark:hover:bg-[#252525]"
-                    }`}
-                  >
-                    {c}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Difficulty</p>
-              <div className="flex flex-wrap gap-2">
-                {["All", "Beginner", "Intermediate", "Advanced"].map((difficulty) => (
-                  <button
-                    key={difficulty}
-                    onClick={() => setFilterDifficulty(difficulty)}
-                    aria-pressed={filterDifficulty === difficulty}
-                    className={`whitespace-nowrap rounded-lg border px-3.5 py-2 text-sm font-medium transition ${
-                      filterDifficulty === difficulty
-                        ? "border-orange-600 bg-orange-600 text-white shadow-sm"
-                        : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300 hover:bg-slate-100 dark:border-slate-700 dark:bg-[#1b1b1b] dark:text-slate-200 dark:hover:bg-[#252525]"
-                    }`}
-                  >
-                    {difficulty}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
+      </label>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <button
+          type="button"
+          aria-expanded={showFilters}
+          onClick={() => setShowFilters(!showFilters)}
+          className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 text-sm font-semibold text-slate-700 transition hover:border-orange-300 dark:border-white/10 dark:bg-[#111] dark:text-slate-200"
+        >
+          <SlidersHorizontal size={16} className="text-orange-500" />
+          Filters
+          {filterDifficulty !== "All" && (
+            <span className="grid h-5 min-w-5 place-items-center rounded-full bg-orange-500 px-1 text-[11px] font-bold text-white">1</span>
+          )}
+          <ChevronDown size={15} className={`transition-transform ${showFilters ? "rotate-180" : ""}`} />
+        </button>
+        <p aria-live="polite" className="text-xs font-medium text-slate-500">{loading ? "Loading exercises..." : `${filtered.length} ${filtered.length === 1 ? "exercise" : "exercises"} found`}</p>
       </div>
 
-      <div className="flex items-center justify-between gap-3">
-        <p aria-live="polite" className="text-xs font-medium text-slate-500">{loading ? "Loading exercises..." : `${filtered.length} of ${exercises.length} exercises`}</p>
-        {(search || filter !== "All" || filterDifficulty !== "All") && <button type="button" onClick={() => { setSearch(""); setFilter("All"); setFilterDifficulty("All"); }} className="text-xs font-semibold text-orange-700 hover:underline dark:text-orange-300">Clear filters</button>}
-      </div>
+      {showFilters && (
+        <div className="space-y-4 rounded-2xl border border-orange-100 bg-white p-4 dark:border-white/10 dark:bg-[#111]">
+          <div>
+            <p className="mb-2 text-xs font-semibold text-slate-600 dark:text-slate-300">Difficulty</p>
+            <div className="flex flex-wrap gap-2">
+              {["All", "Beginner", "Intermediate", "Advanced"].map((difficulty) => (
+                <button
+                  key={difficulty}
+                  type="button"
+                  onClick={() => setFilterDifficulty(difficulty)}
+                  aria-pressed={filterDifficulty === difficulty}
+                  className={`min-h-9 rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+                    filterDifficulty === difficulty
+                      ? "border-orange-500 bg-orange-500 text-white"
+                      : "border-slate-200 bg-slate-50 text-slate-600 hover:border-orange-300 dark:border-white/10 dark:bg-white/[0.03] dark:text-slate-300"
+                  }`}
+                >
+                  {difficulty}
+                </button>
+              ))}
+            </div>
+          </div>
+          {filterDifficulty !== "All" && (
+            <button
+              type="button"
+              onClick={() => setFilterDifficulty("All")}
+              className="text-xs font-semibold text-orange-700 hover:text-orange-800 dark:text-orange-300"
+            >
+              Clear filters
+            </button>
+          )}
+        </div>
+      )}
+
+      {(search || filterDifficulty !== "All") && (
+        <div className="flex justify-end">
+          <button type="button" onClick={() => { setSearch(""); setFilterDifficulty("All"); }} className="text-xs font-semibold text-orange-700 hover:underline dark:text-orange-300">Clear filters</button>
+        </div>
+      )}
 
       {loading ? (
         <div className="space-y-3">
@@ -445,7 +399,7 @@ export default function Workouts() {
               <div className="min-w-0 flex-1">
                 <p className="font-semibold text-slate-900">{exercise.exercise_name}</p>
                 <p className="mt-0.5 text-xs text-slate-500">
-                  {exercise.muscle_group} • {exercise.category_name || "General"}
+                  {exercise.muscle_group}
                 </p>
                 {exercise.equipment && (
                   <p className="mt-1 text-xs text-slate-500">🏋️ {exercise.equipment}</p>
@@ -453,7 +407,7 @@ export default function Workouts() {
                 {(() => {
                   return guide ? (
                     <p className="mt-1 flex items-center gap-1 text-xs text-orange-500">
-                      <Dumbbell size={11} /> Workout Guide
+                      <Dumbbell size={11} /> Illustrated guide available
                     </p>
                   ) : (
                     <p className="mt-1 text-xs text-slate-400">Guide unavailable</p>
@@ -471,12 +425,6 @@ export default function Workouts() {
                   className="flex items-center justify-center gap-1 rounded-lg bg-[#c2410c] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#9a3412]"
                 >
                   <Edit2 size={13} /> Edit
-                </button>
-                <button
-                  onClick={() => handleDelete(exercise)}
-                  className="flex items-center justify-center gap-1 rounded-lg bg-[#b42318] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#912018]"
-                >
-                  <Trash2 size={13} /> Delete
                 </button>
               </div>
             </div>

@@ -1,4 +1,5 @@
 import axios from "axios";
+import { notifySidebarCountsChanged } from "../utils/sidebarCountsEvents";
 
 const API_URL = `${import.meta.env.VITE_API_URL}/api`;
 
@@ -34,10 +35,22 @@ export default api;
 // Expired/revoked sessions are removed immediately so the next protected
 // navigation cannot keep using a stale credential.
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    const method = response.config?.method?.toLowerCase();
+    if (["post", "put", "patch", "delete"].includes(method)) {
+      notifySidebarCountsChanged();
+    }
+    return response;
+  },
   (error) => {
     const status = error.response?.status;
-    if (status === 401 || status === 403) sessionStorage.removeItem("avefit_token");
+    if (status === 401 || status === 403) {
+      sessionStorage.removeItem("avefit_token");
+      localStorage.removeItem("avefit_admin");
+      if (window.location.pathname !== "/login") {
+        window.location.replace("/login");
+      }
+    }
     return Promise.reject(error);
   }
 );

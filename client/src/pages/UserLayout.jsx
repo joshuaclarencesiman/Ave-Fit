@@ -1,20 +1,40 @@
-import { useNavigate } from "react-router-dom";
-import { Dumbbell, Home, Info, TrendingUp, User, UsersRound } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { BarChart3, Bell, Dumbbell, Home, Info, Target, TrendingUp, User, UsersRound } from "lucide-react";
 import AppShell from "../components/layout/AppShell";
+import useUnreadCount from "../components/layout/useUnreadCount";
+import useSidebarPendingCount from "../components/layout/useSidebarPendingCount";
 import { useUserAuth } from "../context/UserAuthContext";
+import userApi from "../userApi";
 
 const NAV = [
-  { to: "/user/workout", icon: Home, label: "Home" },
+  { to: "/user/workout", icon: Home, label: "Home", badgeKey: "workouts" },
   { to: "/user/exercises", icon: Dumbbell, label: "Exercises" },
   { to: "/user/progress", icon: TrendingUp, label: "Progress" },
+  { to: "/user/analytics", icon: BarChart3, label: "Analytics" },
+  { to: "/user/prediction", icon: Target, label: "Prediction" },
   { to: "/user/coaches", icon: UsersRound, label: "Coaches" },
+  { to: "/user/notifications", icon: Bell, label: "Notifications", badgeKey: "notifications", hideFromBottomNav: true },
   { to: "/user/about", icon: Info, label: "About" },
   { to: "/user/profile", icon: User, label: "Profile" },
 ];
 
 export default function UserLayout({ children }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, logoutUser } = useUserAuth();
+  const unread = useUnreadCount(location.pathname, "user");
+  const pendingWorkouts = useSidebarPendingCount(
+    userApi,
+    "/sidebar-counts",
+    "workouts",
+    location.pathname,
+    "User workout"
+  );
+  const nav = NAV.map(({ badgeKey, ...item }) => (
+    badgeKey
+      ? { ...item, badge: badgeKey === "notifications" ? unread : pendingWorkouts }
+      : item
+  ));
 
   const handleLogout = () => {
     logoutUser();
@@ -26,7 +46,7 @@ export default function UserLayout({ children }) {
   return (
     <AppShell
       portalClassName="user-portal"
-      nav={NAV}
+      nav={nav}
       subtitle="Avenue Power &amp; Fitness"
       bottomNav
       user={
@@ -34,12 +54,23 @@ export default function UserLayout({ children }) {
           ? {
               name: fullName || "Member",
               meta: user.email || "Member",
-              avatarUrl: user.photo_url || null,
+              avatarUrl: user.profile_image || null,
               initials: (user.first_name || "M").charAt(0).toUpperCase(),
             }
           : null
       }
       onLogout={handleLogout}
+      actions={
+        <button
+          type="button"
+          onClick={() => navigate("/user/notifications")}
+          aria-label={unread > 0 ? `Notifications, ${unread} unread` : "Notifications"}
+          className="relative grid h-10 w-10 place-items-center rounded-xl text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-white/5 dark:hover:text-white"
+        >
+          <Bell size={20} />
+          {unread > 0 && <span className="absolute -right-0.5 -top-0.5 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white">{unread > 9 ? "9+" : unread}</span>}
+        </button>
+      }
       topbarLeft={
         <span className="block min-w-0">
           <span className="block truncate text-sm font-semibold text-slate-900 dark:text-white">

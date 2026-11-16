@@ -9,15 +9,82 @@ const {
   validateEmail,
   validatePassword,
   validateName,
-  validatePhone,
-  validateImageDataUrl,
+  validatePhilippinePhone,
+  validateAge,
+  validateProfileImage,
+  validateGoogleProfileImageUrl,
   normalizeEmail,
   publicUser,
 } = require("../utils/security");
-const { sendMail, sendVerificationEmail } = require("../utils/mailer");
+const {
+  sendMail,
+  sendVerificationEmail,
+  sendPasswordChangeVerificationEmail,
+  sendCoachAssignmentEmail,
+  sendCoachCapacityStatusEmail,
+  sendUserCoachAssignedEmail,
+} = require("../utils/mailer");
+const { notifyNewUser, createNotification } = require("../utils/notifications");
+const { getCapacityStatus, getMemberAvailability, getScheduleMatch } = require("../utils/coachAssignment");
+const { deliverCoachEmail } = require("../utils/coachEmailNotifications");
+const {
+  buildProfileChangePayload,
+  createProfileChangeRequest,
+  submitPasswordChangeRequest,
+  getUserChangeRequests,
+} = require("./profileChangeController");
 const googleClient = new OAuth2Client();
+const allowedInjuries = new Set(["Neck", "Shoulder", "Back", "Wrist", "Elbow", "Hip", "Knee", "Ankle", "None"]);
+const allowedHealthConditions = new Set(["Hypertension", "Asthma", "Diabetes", "Heart Disease", "Arthritis", "None"]);
+
+const normalizeHealthSelection = (value, allowed, label, defaultToNone = false) => {
+  if (value === undefined || value === null) return defaultToNone ? ["None"] : null;
+  if (!Array.isArray(value)) {
+    throw Object.assign(new Error(`Choose valid ${label}.`), { status: 400 });
+  }
+  const selection = [...new Set(value)];
+  if (!selection.length) return ["None"];
+  if (selection.some((item) => typeof item !== "string" || !allowed.has(item))) {
+    throw Object.assign(new Error(`Choose valid ${label}.`), { status: 400 });
+  }
+  if (selection.includes("None") && selection.length > 1) {
+    throw Object.assign(new Error(`Choose None or specific ${label}, not both.`), { status: 400 });
+  }
+  return selection;
+};
+
+const normalizeInjuryPainLevels = (value, injuries) => {
+  if (injuries === null) {
+    if (value === undefined || value === null) return null;
+    throw Object.assign(new Error("Choose injury or pain areas before setting pain levels."), { status: 400 });
+  }
+  const areas = (injuries || []).filter((area) => area !== "None");
+  if (!areas.length) {
+    if (value === undefined || value === null || (typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 0)) {
+      return {};
+    }
+    throw Object.assign(new Error("Pain levels must be empty when None is selected."), { status: 400 });
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw Object.assign(new Error("Choose a pain level from 1 to 10 for each injury or pain area."), { status: 400 });
+  }
+  const painAreas = Object.keys(value);
+  if (painAreas.length !== areas.length || painAreas.some((area) => !areas.includes(area))) {
+    throw Object.assign(new Error("Choose a pain level for every selected injury or pain area."), { status: 400 });
+  }
+  return Object.fromEntries(areas.map((area) => {
+    const level = Number(value[area]);
+    if (!Number.isInteger(level) || level < 1 || level > 10) {
+      throw Object.assign(new Error("Pain levels must be whole numbers from 1 to 10."), { status: 400 });
+    }
+    return [area, level];
+  }));
+};
+
 const {
   generateVerificationCode,
+  VERIFICATION_CODE_TTL_MINUTES,
+  RESEND_COOLDOWN_MINUTES,
   hashVerificationToken,
   hashVerificationCode,
   verificationCodeExpiryDate,
@@ -51,11 +118,33 @@ const issueVerificationCode = async (user) => {
       code,
     });
 
+    if (!result.delivered) {
+      await pool.query(
+        `UPDATE users
+         SET verification_token_hash = NULL,
+             verification_token_expires_at = NULL,
+             verification_sent_at = NULL
+         WHERE user_id = $1`,
+        [user.user_id]
+      );
+    }
+
     return { delivered: result.delivered };
   } catch (err) {
-    // The account is created either way; the member can use "resend" once the
-    // SMTP credentials are fixed, so this must not fail the registration.
+    // An undelivered code must not remain active or block an immediate retry.
     console.error("sendVerificationEmail error:", err.message);
+    try {
+      await pool.query(
+        `UPDATE users
+         SET verification_token_hash = NULL,
+             verification_token_expires_at = NULL,
+             verification_sent_at = NULL
+         WHERE user_id = $1`,
+        [user.user_id]
+      );
+    } catch (cleanupError) {
+      console.error("Unable to clear undelivered verification code:", cleanupError.message);
+    }
     return { delivered: false };
   }
 };
@@ -74,6 +163,13 @@ const issuePasswordResetToken = async (user) => {
   const token = crypto.randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
   const resetUrl = `${(process.env.CLIENT_URL || "http://localhost:5173").replace(/\/+$/, "")}/user/reset-password?token=${encodeURIComponent(token)}`;
+  const safeFirstName = String(user.first_name || "there").replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[char]);
 
   await pool.query(
     `UPDATE users
@@ -102,7 +198,7 @@ const issuePasswordResetToken = async (user) => {
         <strong style="font-size:22px;letter-spacing:-0.04em;">AveFit</strong>
       </div>
       <div style="padding:24px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 14px 14px;background:#fff;">
-        <p style="margin:0 0 12px;font-size:16px;">Hi ${user.first_name || "there"},</p>
+        <p style="margin:0 0 12px;font-size:16px;">Hi ${safeFirstName},</p>
         <p style="margin:0 0 16px;line-height:1.6;">We received a request to reset your AveFit password.</p>
         <p style="margin:0 0 20px;">
           <a href="${resetUrl}" style="display:inline-block;background:#f97316;color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">Reset your password</a>
@@ -120,10 +216,33 @@ const issuePasswordResetToken = async (user) => {
       html,
     });
 
-    return { delivered: result.delivered, token };
+    if (!result.delivered && !result.preview) {
+      await pool.query(
+        `UPDATE users
+         SET password_reset_token_hash = NULL,
+             password_reset_expires_at = NULL,
+             password_reset_sent_at = NULL
+         WHERE user_id = $1`,
+        [user.user_id]
+      );
+    }
+
+    return { delivered: result.delivered, preview: result.preview };
   } catch (err) {
     console.error("send reset password email error:", err.message);
-    return { delivered: false, token };
+    try {
+      await pool.query(
+        `UPDATE users
+         SET password_reset_token_hash = NULL,
+             password_reset_expires_at = NULL,
+             password_reset_sent_at = NULL
+         WHERE user_id = $1`,
+        [user.user_id]
+      );
+    } catch (cleanupError) {
+      console.error("Unable to clear undelivered password reset token:", cleanupError.message);
+    }
+    return { delivered: false, preview: false };
   }
 };
 
@@ -205,37 +324,22 @@ const register = async (req, res) => {
     );
 
     const user = result.rows[0];
+    await notifyNewUser(user).catch((err) => {
+      console.error("New-user admin notification failed:", err.message);
+    });
 
-    // Email verification and gym approval are both required before login;
-    // admins may review the account before email verification completes.
-    //
-    // IMPORTANT:
-    // Do not wait for the SMTP server here.
-    // The account has already been created, so the registration request
-    // can respond immediately while the verification email is sent
-    // in the background.
-    issueVerificationCode(user)
-      .then(({ delivered }) => {
-        console.log(
-          `📧 Verification email process completed. Delivered: ${delivered}`
-        );
-      })
-      .catch((err) => {
-        console.error(
-          "Background verification email error:",
-          err.message
-        );
-      });
-
-    // Respond immediately instead of waiting for SMTP.
+    // The account is created before sending, so an SMTP outage never loses
+    // the registration. Report delivery accurately so the user can resend.
+    const { delivered } = await issueVerificationCode(user);
     res.status(201).json({
       success: true,
-      message:
-        "Account created. Check your inbox for the verification code.",
+      message: delivered
+        ? "Account created. Check your inbox and spam folder for the six-digit verification code."
+        : "Account created, but we could not send the verification code. Request a new code from the verification screen.",
       user,
       pending_approval: true,
       email_verification_required: true,
-      email_sent: true,
+      email_sent: delivered,
     });
   } catch (err) {
     console.error("register error:", err.message);
@@ -277,7 +381,7 @@ const forgotPassword = async (req, res) => {
 
     const neutral = {
       success: true,
-      message: "If that email is registered, a password reset link has been sent.",
+      message: "If an AveFit account exists for that email, a reset link will be sent. Check your inbox and spam folder; if it does not arrive, try again or contact the gym.",
     };
 
     if (result.rows.length === 0) {
@@ -288,7 +392,6 @@ const forgotPassword = async (req, res) => {
 
     return res.json({
       ...neutral,
-      email_sent: true,
     });
   } catch (err) {
     console.error("forgotPassword error:", err.message);
@@ -374,6 +477,146 @@ const resetPassword = async (req, res) => {
   }
 };
 
+const requestPasswordChangeCode = async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT user_id, first_name, email,
+              password_change_code_sent_at AS verification_sent_at
+       FROM users
+       WHERE user_id = $1`,
+      [req.user.user_id]
+    );
+    if (!result.rowCount) {
+      return res.status(404).json({ success: false, message: "User account not found." });
+    }
+
+    const user = result.rows[0];
+    if (isInResendCooldown(user)) {
+      return res.status(429).json({
+        success: false,
+        retry_after: resendCooldownSeconds(),
+        message: "A verification code was sent recently. Please wait before requesting another.",
+      });
+    }
+
+    const code = generateVerificationCode();
+    const issued = await pool.query(
+      `UPDATE users
+       SET password_change_code_hash = $1,
+           password_change_code_expires_at = $2,
+           password_change_code_sent_at = NOW()
+       WHERE user_id = $3
+         AND (
+           password_change_code_sent_at IS NULL
+           OR password_change_code_sent_at <= NOW() - ($4::int * INTERVAL '1 minute')
+         )
+       RETURNING user_id`,
+      [
+        hashVerificationCode(code),
+        verificationCodeExpiryDate(),
+        user.user_id,
+        RESEND_COOLDOWN_MINUTES,
+      ]
+    );
+    if (!issued.rowCount) {
+      return res.status(429).json({
+        success: false,
+        retry_after: resendCooldownSeconds(),
+        message: "A verification code was sent recently. Please wait before requesting another.",
+      });
+    }
+
+    try {
+      const delivery = await sendPasswordChangeVerificationEmail({
+        to: user.email,
+        firstName: user.first_name,
+        code,
+      });
+      if (!delivery.delivered) {
+        await pool.query(
+          `UPDATE users
+           SET password_change_code_hash = NULL,
+               password_change_code_expires_at = NULL,
+               password_change_code_sent_at = NULL
+           WHERE user_id = $1`,
+          [user.user_id]
+        );
+        return res.status(503).json({
+          success: false,
+          message: "We couldn't send the verification email. Please try again later.",
+        });
+      }
+    } catch (err) {
+      console.error("send password-change verification email error:", err.message);
+      try {
+        await pool.query(
+          `UPDATE users
+           SET password_change_code_hash = NULL,
+               password_change_code_expires_at = NULL,
+               password_change_code_sent_at = NULL
+           WHERE user_id = $1`,
+          [user.user_id]
+        );
+      } catch (cleanupError) {
+        console.error("Unable to clear undelivered password-change code:", cleanupError.message);
+      }
+      return res.status(503).json({
+        success: false,
+        message: "We couldn't send the verification email. Please try again later.",
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: `A verification code was sent to ${user.email}. It expires in ${VERIFICATION_CODE_TTL_MINUTES} minutes.`,
+    });
+  } catch (err) {
+    console.error("requestPasswordChangeCode error:", err.message);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to request a password-change code right now.",
+    });
+  }
+};
+
+const changePasswordWithCode = async (req, res) => {
+  try {
+    const { code, password } = req.body || {};
+    if (typeof code !== "string" || !/^\d{6}$/.test(code)) {
+      return res.status(400).json({ success: false, message: "Enter the six-digit verification code." });
+    }
+    if (!validatePassword(password)) {
+      return res.status(400).json({
+        success: false,
+        message: "Use 8–12 characters with a letter, a number, and a symbol. Avoid common passwords.",
+      });
+    }
+
+    const request = await submitPasswordChangeRequest({
+      userId: req.user.user_id,
+      code,
+      password,
+    });
+    return res.status(202).json({
+      success: true,
+      message: request.emailSent
+        ? "Your password change request was sent to the administrator. Your current password stays active until approval."
+        : "Your password change request is saved and awaiting review, but the administrator email could not be delivered.",
+      request: request.request,
+      admin_email_sent: request.emailSent,
+    });
+  } catch (err) {
+    if (err.status) {
+      return res.status(err.status).json({ success: false, message: err.message });
+    }
+    console.error("changePasswordWithCode error:", err.message);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to change your password right now.",
+    });
+  }
+};
+
 const login = async (req, res) => {
   try {
     const { email, password, rememberMe } = req.body;
@@ -412,6 +655,9 @@ const login = async (req, res) => {
         activity_level,
         setup_completed,
         profile_image,
+        membership_months,
+        membership_start_date,
+        membership_end_date,
         token_version
       FROM users
       WHERE LOWER(email) = $1
@@ -538,8 +784,6 @@ const googleLogin = async (req, res) => {
     credential,
     intent,
     phone,
-    first_name,
-    last_name,
     termsAccepted,
     rememberMe,
   } = req.body || {};
@@ -572,6 +816,11 @@ const googleLogin = async (req, res) => {
     });
   }
 
+  let googlePicture = null;
+  if (validateGoogleProfileImageUrl(googleProfile.picture)) {
+    googlePicture = new URL(googleProfile.picture).href;
+  }
+
   const email = normalizeEmail(googleProfile.email);
 
   try {
@@ -581,6 +830,7 @@ const googleLogin = async (req, res) => {
       `SELECT user_id, first_name, last_name, email, password, phone, google_sub,
               account_status, email_verified, trainer_id, fitness_goal, height,
               weight, gender, activity_level, setup_completed, profile_image,
+              membership_months, membership_start_date, membership_end_date,
               token_version
        FROM users
        WHERE google_sub = $1`,
@@ -600,6 +850,7 @@ const googleLogin = async (req, res) => {
         `SELECT user_id, first_name, last_name, email, password, phone, google_sub,
                 account_status, email_verified, trainer_id, fitness_goal, height,
                 weight, gender, activity_level, setup_completed, profile_image,
+                membership_months, membership_start_date, membership_end_date,
                 token_version
          FROM users
          WHERE LOWER(email) = $1
@@ -625,49 +876,60 @@ const googleLogin = async (req, res) => {
           message: "Please agree to the Terms and Conditions before creating your account.",
         });
       }
-      if (typeof phone !== "string" || !/^09\d{9}$/.test(phone)) {
+      const normalizedPhone = typeof phone === "string" && phone.trim()
+        ? phone.trim()
+        : null;
+      if (normalizedPhone && !/^09\d{9}$/.test(normalizedPhone)) {
         return res.status(400).json({
           success: false,
-          code: "PHONE_REQUIRED",
-          message: "Enter a valid phone number starting with 09 before continuing with Google.",
+          code: "INVALID_PHONE",
+          message: "Phone number must start with 09 and contain exactly 11 digits.",
         });
       }
 
+      const googleNameParts = typeof googleProfile.name === "string"
+        ? googleProfile.name.trim().split(/\s+/).filter(Boolean)
+        : [];
       const firstName = validateName(googleProfile.given_name)
         ? googleProfile.given_name
-        : first_name;
+        : googleNameParts[0];
       const lastName = validateName(googleProfile.family_name)
         ? googleProfile.family_name
-        : last_name;
+        : googleNameParts.slice(1).join(" ");
       if (!validateName(firstName) || !validateName(lastName)) {
         return res.status(400).json({
           success: false,
           code: "NAME_REQUIRED",
-          message: "Enter a valid first and last name to create your AveFit account.",
+          message: "Google did not provide a complete first and last name. Update your name in Google and try again.",
         });
       }
 
       const passwordHash = await bcrypt.hash(crypto.randomBytes(32).toString("hex"), 12);
       const result = await pool.query(
         `INSERT INTO users (
-           first_name, last_name, email, password, phone, google_sub,
+           first_name, last_name, email, password, phone, google_sub, profile_image,
            account_status, email_verified, email_verified_at
          )
-         VALUES ($1, $2, $3, $4, $5, $6, 'Pending', TRUE, NOW())
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'Pending', TRUE, NOW())
          RETURNING user_id, first_name, last_name, email, phone, google_sub,
                    account_status, email_verified, trainer_id, fitness_goal,
                    height, weight, gender, activity_level, setup_completed,
-                   profile_image, token_version`,
+                   profile_image, membership_months, membership_start_date,
+                   membership_end_date, token_version`,
         [
           String(firstName).trim(),
           String(lastName).trim(),
           email,
           passwordHash,
-          phone,
+          normalizedPhone,
           googleProfile.sub,
+          googlePicture,
         ]
       );
       user = result.rows[0];
+      await notifyNewUser(user).catch((err) => {
+        console.error("Google signup admin notification failed:", err.message);
+      });
     } else if (user.google_sub && user.google_sub !== googleProfile.sub) {
       return res.status(409).json({
         success: false,
@@ -678,13 +940,21 @@ const googleLogin = async (req, res) => {
         `UPDATE users
          SET google_sub = $1,
              email_verified = TRUE,
-             email_verified_at = COALESCE(email_verified_at, NOW())
-         WHERE user_id = $2
+             email_verified_at = COALESCE(email_verified_at, NOW()),
+             profile_image = CASE
+               WHEN profile_image IS NULL
+                 OR BTRIM(profile_image) = ''
+                 OR profile_image ~* '^https://([^.]+\\.)*(googleusercontent\\.com|google\\.com)/'
+               THEN COALESCE($2, profile_image)
+               ELSE profile_image
+             END
+         WHERE user_id = $3
          RETURNING user_id, first_name, last_name, email, phone, google_sub,
                    account_status, email_verified, trainer_id, fitness_goal,
                    height, weight, gender, activity_level, setup_completed,
-                   profile_image, token_version`,
-        [googleProfile.sub, user.user_id]
+                   profile_image, membership_months, membership_start_date,
+                   membership_end_date, token_version`,
+        [googleProfile.sub, googlePicture, user.user_id]
       );
       user = result.rows[0];
     }
@@ -920,6 +1190,9 @@ const resendVerification = async (req, res) => {
 
     res.json({
       ...neutral,
+      message: delivered
+        ? "A new verification code has been sent. Check your inbox and spam folder."
+        : "We could not send a verification code right now. Please try again later.",
       email_sent: delivered,
     });
   } catch (err) {
@@ -1001,12 +1274,38 @@ const updatePhoto = async (req, res) => {
       });
     }
 
-    const imageCheck = validateImageDataUrl(profile_image);
+    const imageCheck = validateProfileImage(profile_image);
 
     if (!imageCheck.ok) {
       return res.status(400).json({
         success: false,
         message: imageCheck.message,
+      });
+    }
+
+    const account = await pool.query(
+      "SELECT user_id, first_name, last_name, email, account_status, setup_completed FROM users WHERE user_id = $1",
+      [req.user.user_id]
+    );
+    if (!account.rowCount) {
+      return res.status(404).json({ success: false, message: "User account not found." });
+    }
+
+    if (
+      String(account.rows[0].account_status || "").toLowerCase() === "active" &&
+      account.rows[0].setup_completed
+    ) {
+      const request = await createProfileChangeRequest({
+        userId: req.user.user_id,
+        payload: { profile_image },
+      });
+      return res.status(202).json({
+        success: true,
+        message: request.emailSent
+          ? "Your profile photo change is awaiting admin approval."
+          : "Your profile photo request is saved and awaiting review, but the administrator email could not be delivered.",
+        request: request.request,
+        admin_email_sent: request.emailSent,
       });
     }
 
@@ -1020,6 +1319,9 @@ const updatePhoto = async (req, res) => {
       message: "Photo updated.",
     });
   } catch (err) {
+    if (err.status) {
+      return res.status(err.status).json({ success: false, message: err.message });
+    }
     console.error("updatePhoto error:", err.message);
 
     res.status(500).json({
@@ -1052,12 +1354,17 @@ const getProfile = async (req, res) => {
         workout_days_per_week,
         workout_duration,
         preferred_days,
+        preferred_workout_time,
         intensity,
         injuries,
         health_conditions,
+        injury_pain_levels,
         trainer_id,
         setup_completed,
         account_status,
+        membership_months,
+        membership_start_date,
+        membership_end_date,
         email_verified,
         email_verified_at
       FROM users
@@ -1107,12 +1414,17 @@ const updateProfile = async (req, res) => {
       workout_days_per_week,
       workout_duration,
       preferred_days,
+      preferred_workout_time,
       intensity,
       injuries,
       health_conditions,
+      injury_pain_levels,
       trainer_id,
       setup_completed,
     } = req.body;
+    const normalizedInjuries = normalizeHealthSelection(injuries, allowedInjuries, "injury or pain areas", setup_completed === true);
+    const normalizedHealthConditions = normalizeHealthSelection(health_conditions, allowedHealthConditions, "health conditions", setup_completed === true);
+    const normalizedInjuryPainLevels = normalizeInjuryPainLevels(injury_pain_levels, normalizedInjuries);
 
     if (
       first_name !== undefined &&
@@ -1146,11 +1458,35 @@ const updateProfile = async (req, res) => {
 
     if (
       phone !== undefined &&
-      !validatePhone(phone)
+      !validatePhilippinePhone(phone)
     ) {
       return res.status(400).json({
         success: false,
-        message: "Please provide a valid phone number.",
+        message: "Phone number must start with 09 and contain exactly 11 digits.",
+      });
+    }
+
+    if (
+      age !== undefined &&
+      age !== null &&
+      age !== "" &&
+      !validateAge(age)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Age must be a whole number between 12 and 90.",
+      });
+    }
+
+    if (
+      preferred_workout_time !== undefined &&
+      preferred_workout_time !== null &&
+      preferred_workout_time !== "" &&
+      !["Morning", "Afternoon", "Evening", "Flexible"].includes(preferred_workout_time)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Choose Morning, Afternoon, Evening, or Flexible as your preferred workout time.",
       });
     }
 
@@ -1160,36 +1496,12 @@ const updateProfile = async (req, res) => {
       profile_image !== ""
     ) {
       const imageCheck =
-        validateImageDataUrl(profile_image);
+        validateProfileImage(profile_image);
 
       if (!imageCheck.ok) {
         return res.status(400).json({
           success: false,
           message: imageCheck.message,
-        });
-      }
-    }
-
-    // When onboarding selects a coach, make sure the coach is still active.
-    if (
-      trainer_id !== undefined &&
-      trainer_id !== null &&
-      trainer_id !== ""
-    ) {
-      const trainerCheck = await pool.query(
-        `
-        SELECT trainer_id
-        FROM trainers
-        WHERE trainer_id = $1
-          AND (status = 'Active' OR status IS NULL)
-        `,
-        [trainer_id]
-      );
-
-      if (trainerCheck.rows.length === 0) {
-        return res.status(400).json({
-          success: false,
-          message: "The selected coach is not available.",
         });
       }
     }
@@ -1235,9 +1547,120 @@ const updateProfile = async (req, res) => {
 
     // member could confirm one address and then swap in an unverified one.
     const current = await pool.query(
-      "SELECT user_id, first_name, email FROM users WHERE user_id = $1",
+    "SELECT * FROM users WHERE user_id = $1",
       [req.user.user_id]
     );
+    if (!current.rowCount) {
+      return res.status(404).json({ success: false, message: "User not found." });
+    }
+    let selectedTrainerId = null;
+    let selectedCoach = null;
+    const trainerChanged = trainer_id !== undefined &&
+      String(trainer_id ?? "") !== String(current.rows[0].trainer_id ?? "");
+    if (trainerChanged) {
+      if (current.rows[0].setup_completed === true || setup_completed !== true || trainer_id === null || trainer_id === "") {
+        return res.status(403).json({
+          success: false,
+          message: "Coach assignments can only be selected during initial setup.",
+        });
+      }
+      selectedTrainerId = Number(trainer_id);
+      if (!Number.isInteger(selectedTrainerId) || selectedTrainerId < 1) {
+        return res.status(400).json({ success: false, message: "Choose a valid coach." });
+      }
+      const coachResult = await pool.query(
+        `SELECT trainer_id, full_name, email, status, max_members
+         FROM trainers
+         WHERE trainer_id = $1 AND status = 'Active'`,
+        [selectedTrainerId]
+      );
+      if (!coachResult.rowCount) {
+        return res.status(409).json({ success: false, message: "This coach is inactive or no longer available." });
+      }
+      selectedCoach = coachResult.rows[0];
+      const assignedCountResult = await pool.query(
+        "SELECT COUNT(*)::integer AS count FROM users WHERE trainer_id = $1",
+        [selectedTrainerId]
+      );
+      selectedCoach.assigned_member_count = Number(assignedCountResult.rows[0].count) || 0;
+      const maxMembers = Number(selectedCoach.max_members) || 0;
+      if (maxMembers > 0 && selectedCoach.assigned_member_count >= maxMembers) {
+        return res.status(409).json({
+          success: false,
+          message: "This coach has reached their total member capacity. Choose another coach.",
+        });
+      }
+
+      const memberAvailabilityResult = await pool.query(
+        `SELECT day_of_week, TO_CHAR(start_time, 'HH24:MI') AS start_time,
+                TO_CHAR(end_time, 'HH24:MI') AS end_time
+         FROM user_workout_availability
+         WHERE user_id = $1`,
+        [req.user.user_id]
+      );
+      const memberForSchedule = {
+        ...current.rows[0],
+        preferred_days: preferred_days ?? current.rows[0].preferred_days,
+        preferred_workout_time: preferred_workout_time ?? current.rows[0].preferred_workout_time,
+      };
+      const memberSlots = getMemberAvailability(memberForSchedule, memberAvailabilityResult.rows);
+      const requiredDays = Number(
+        workout_days_per_week ??
+        current.rows[0].workout_days_per_week ??
+        memberSlots.length
+      );
+      const sessionDuration = Number(normalizedWorkoutDuration || current.rows[0].workout_duration || 60);
+      const coachAvailabilityResult = await pool.query(
+        `SELECT ta.day_of_week,
+                TO_CHAR(ta.start_time, 'HH24:MI') AS start_time,
+                TO_CHAR(ta.end_time, 'HH24:MI') AS end_time,
+                ta.member_limit,
+                (
+                  SELECT COUNT(DISTINCT assigned_member.user_id)::integer
+                  FROM users assigned_member
+                  JOIN user_workout_availability member_slot
+                    ON member_slot.user_id = assigned_member.user_id
+                  WHERE assigned_member.trainer_id = ta.trainer_id
+                    AND CASE member_slot.day_of_week
+                      WHEN 'Sunday' THEN 0
+                      WHEN 'Monday' THEN 1
+                      WHEN 'Tuesday' THEN 2
+                      WHEN 'Wednesday' THEN 3
+                      WHEN 'Thursday' THEN 4
+                      WHEN 'Friday' THEN 5
+                      WHEN 'Saturday' THEN 6
+                      ELSE -1
+                    END = ta.day_of_week
+                    AND member_slot.start_time < ta.end_time
+                    AND member_slot.end_time > ta.start_time
+                ) AS assigned_member_count
+         FROM trainer_availability ta
+         WHERE ta.trainer_id = $1`,
+        [selectedTrainerId]
+      );
+      const coachSlots = coachAvailabilityResult.rows;
+      const scheduleMatch = getScheduleMatch(
+        memberSlots,
+        coachSlots,
+        sessionDuration,
+        requiredDays
+      );
+      if (!scheduleMatch.compatible) {
+        return res.status(409).json({
+          success: false,
+          message: "This coach's schedule does not match your selected workout days and times. Choose another coach.",
+        });
+      }
+      const slotsWithCapacity = coachSlots.filter((slot) => (
+        Number(slot.assigned_member_count) < Number(slot.member_limit)
+      ));
+      if (!getScheduleMatch(memberSlots, slotsWithCapacity, sessionDuration, requiredDays).compatible) {
+        return res.status(409).json({
+          success: false,
+          message: "This coach has reached the member limit on your selected workout days. Choose another coach.",
+        });
+      }
+    }
 
     const currentEmail =
       current.rows[0]?.email || null;
@@ -1250,6 +1673,38 @@ const updateProfile = async (req, res) => {
       Boolean(nextEmail) &&
       nextEmail !== currentEmail;
 
+    if (
+      String(current.rows[0]?.account_status || "").toLowerCase() === "active" &&
+      current.rows[0]?.setup_completed
+    ) {
+      const payload = buildProfileChangePayload(current.rows[0], {
+        ...req.body,
+        ...(normalizedWorkoutDuration !== null && workout_duration !== undefined
+          ? { workout_duration: normalizedWorkoutDuration }
+          : {}),
+      });
+      if (Object.keys(payload).length === 0) {
+        return res.json({
+          success: true,
+          message: "No profile changes to submit.",
+        });
+      }
+
+      const request = await createProfileChangeRequest({
+        userId: req.user.user_id,
+        payload,
+      });
+      return res.status(202).json({
+        success: true,
+        message: request.emailSent
+          ? "Your profile changes are awaiting admin approval. Your current settings remain active until approval."
+          : "Your profile change request is saved and awaiting review, but the administrator email could not be delivered.",
+        request: request.request,
+        admin_email_sent: request.emailSent,
+      });
+    }
+
+    const currentUser = current.rows[0];
     await pool.query(
       `
       UPDATE users
@@ -1268,48 +1723,76 @@ const updateProfile = async (req, res) => {
           workout_days_per_week=COALESCE($13, workout_days_per_week),
           workout_duration=COALESCE($14, workout_duration),
           preferred_days=COALESCE($15, preferred_days),
-          intensity=COALESCE($16, intensity),
-          injuries=COALESCE($17, injuries),
-          health_conditions=COALESCE($18, health_conditions),
-          trainer_id=COALESCE($19, trainer_id),
-          setup_completed=COALESCE($20, setup_completed),
-          profile_image=COALESCE($21, profile_image),
+          preferred_workout_time=COALESCE($16, preferred_workout_time),
+          intensity=COALESCE($17, intensity),
+          injuries=COALESCE($18, injuries),
+          health_conditions=COALESCE($19, health_conditions),
+          injury_pain_levels=COALESCE($20::jsonb, injury_pain_levels),
+          setup_completed=COALESCE($21, setup_completed),
+          profile_image=COALESCE($22, profile_image),
+          trainer_id=COALESCE($23, trainer_id),
           updated_at=NOW()
-      WHERE user_id=$22
+      WHERE user_id=$24
       `,
       [
-        first_name
+        first_name !== undefined && first_name !== null
           ? String(first_name).trim()
-          : first_name,
-        last_name
+          : currentUser.first_name,
+        last_name !== undefined && last_name !== null
           ? String(last_name).trim()
-          : last_name,
-        email
+          : currentUser.last_name,
+        email !== undefined && email !== null
           ? normalizeEmail(email)
-          : email,
-        gender,
-        birth_date || null,
-        height || null,
-        weight || null,
-        fitness_goal,
-        activity_level,
-        phone,
-        age ?? null,
-        target_weight ?? null,
-        workout_days_per_week ?? null,
-        normalizedWorkoutDuration,
-        preferred_days ?? null,
-        intensity ?? null,
-        injuries ?? null,
-        health_conditions ?? null,
-        trainer_id ?? null,
-        typeof setup_completed === "boolean"
-          ? setup_completed
-          : null,
-        profile_image ?? null,
+          : currentUser.email,
+        gender ?? currentUser.gender,
+        birth_date !== undefined && birth_date !== null ? birth_date : currentUser.birth_date,
+        height !== undefined && height !== null ? height : currentUser.height,
+        weight !== undefined && weight !== null ? weight : currentUser.weight,
+        fitness_goal !== undefined && fitness_goal !== null ? fitness_goal : currentUser.fitness_goal,
+        activity_level !== undefined && activity_level !== null ? activity_level : currentUser.activity_level,
+        phone !== undefined && phone !== null ? phone : currentUser.phone,
+        age ?? currentUser.age,
+        target_weight ?? currentUser.target_weight,
+        workout_days_per_week ?? currentUser.workout_days_per_week,
+        normalizedWorkoutDuration ?? currentUser.workout_duration,
+        preferred_days ?? currentUser.preferred_days,
+        preferred_workout_time ?? currentUser.preferred_workout_time,
+        intensity ?? currentUser.intensity,
+        normalizedInjuries ?? currentUser.injuries,
+        normalizedHealthConditions ?? currentUser.health_conditions,
+        normalizedInjuryPainLevels,
+        typeof setup_completed === "boolean" ? setup_completed : currentUser.setup_completed,
+        profile_image ?? currentUser.profile_image,
+        selectedTrainerId ?? currentUser.trainer_id,
         req.user.user_id,
       ]
     );
+
+    const assessmentWeight = Number(weight);
+    const assessmentHeight = Number(height);
+    if (
+      currentUser.setup_completed !== true &&
+      setup_completed !== true &&
+      weight !== undefined &&
+      height !== undefined &&
+      Number.isFinite(assessmentWeight) &&
+      assessmentWeight >= 20 &&
+      assessmentWeight <= 200 &&
+      Number.isFinite(assessmentHeight) &&
+      assessmentHeight > 0
+    ) {
+      const assessmentBmi = (assessmentWeight / ((assessmentHeight / 100) ** 2)).toFixed(2);
+      await pool.query(
+        `
+        INSERT INTO progress_logs (user_id, weight, bmi, log_date)
+        SELECT $1, $2, $3, (NOW() AT TIME ZONE 'Asia/Manila')::date
+        WHERE NOT EXISTS (
+          SELECT 1 FROM progress_logs WHERE user_id = $1
+        )
+        `,
+        [req.user.user_id, assessmentWeight, assessmentBmi]
+      );
+    }
 
     // Keep the admin member record synchronized with the registered user.
     // A member record is created the first time onboarding is completed;
@@ -1427,6 +1910,68 @@ const updateProfile = async (req, res) => {
         .catch(() => {});
     }
 
+    if (selectedCoach) {
+      const memberName = `${first_name || current.rows[0].first_name || ""} ${last_name || current.rows[0].last_name || ""}`.trim() || "A new member";
+      const capacityBefore = getCapacityStatus(
+        selectedCoach.assigned_member_count,
+        selectedCoach.max_members,
+        selectedCoach.status
+      );
+      const capacityAfter = getCapacityStatus(
+        selectedCoach.assigned_member_count + 1,
+        selectedCoach.max_members,
+        selectedCoach.status
+      );
+      if ((capacityBefore === "Full") !== (capacityAfter === "Full")) {
+        await deliverCoachEmail({
+          trainer: selectedCoach,
+          event: "capacity status",
+          send: (to) => sendCoachCapacityStatusEmail({
+            to,
+            accountName: selectedCoach.full_name,
+            status: capacityAfter,
+            assignedMembers: selectedCoach.assigned_member_count + 1,
+            maxMembers: selectedCoach.max_members,
+          }),
+        });
+      }
+      try {
+        if (selectedCoach.email) {
+          await sendCoachAssignmentEmail({
+            to: selectedCoach.email,
+            trainerName: selectedCoach.full_name,
+            memberName,
+            memberEmail: email || current.rows[0].email,
+            preferredDays: preferred_days,
+            preferredWorkoutTime: preferred_workout_time,
+          });
+        }
+      } catch (notificationError) {
+        console.error(`Coach assignment email failed for trainer ${selectedTrainerId}:`, notificationError.message);
+      }
+      try {
+        await sendUserCoachAssignedEmail({
+          to: email || current.rows[0].email,
+          firstName: first_name || current.rows[0].first_name,
+          trainerName: selectedCoach.full_name,
+        });
+      } catch (notificationError) {
+        console.error(`Coach assignment email failed for user ${req.user.user_id}:`, notificationError.message);
+      }
+      try {
+        await createNotification({
+          audience: "trainer",
+          recipientId: selectedTrainerId,
+          message: `${memberName} selected you as their coach during setup.`,
+          notificationType: "workout",
+          userName: memberName,
+          targetUrl: "/trainer/roster",
+        });
+      } catch (notificationError) {
+        console.error(`Coach assignment notification failed for trainer ${selectedTrainerId}:`, notificationError.message);
+      }
+    }
+
     // A new address has to be confirmed again before the account stays usable.
     if (emailChanged) {
       await pool.query(
@@ -1460,6 +2005,9 @@ const updateProfile = async (req, res) => {
         : {}),
     });
   } catch (err) {
+    if (err.status) {
+      return res.status(err.status).json({ success: false, message: err.message });
+    }
     console.error("updateProfile error:", err.message);
 
     res.status(500).json({
@@ -1469,16 +2017,67 @@ const updateProfile = async (req, res) => {
   }
 };
 
+const updateHealthAssessment = async (req, res) => {
+  const { injuries, health_conditions, injury_pain_levels } = req.body;
+  const hasInjuries = Object.prototype.hasOwnProperty.call(req.body, "injuries");
+  const hasHealthConditions = Object.prototype.hasOwnProperty.call(req.body, "health_conditions");
+  const hasPainLevels = Object.prototype.hasOwnProperty.call(req.body, "injury_pain_levels");
+  if (!hasInjuries && !hasHealthConditions && !hasPainLevels) {
+    return res.status(400).json({ success: false, message: "Choose an injury or health condition update to save." });
+  }
+  if (hasInjuries !== hasPainLevels) {
+    return res.status(400).json({ success: false, message: "Save injury areas and their pain levels together." });
+  }
+
+  let normalizedInjuries = null;
+  let normalizedConditions = null;
+  let normalizedPainLevels = null;
+  try {
+    if (hasInjuries) {
+      normalizedInjuries = normalizeHealthSelection(injuries, allowedInjuries, "injury or pain areas");
+      normalizedPainLevels = normalizeInjuryPainLevels(injury_pain_levels, normalizedInjuries);
+    }
+    if (hasHealthConditions) normalizedConditions = normalizeHealthSelection(health_conditions, allowedHealthConditions, "health conditions");
+  } catch (error) {
+    return res.status(error.status || 400).json({ success: false, message: error.message });
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE users
+       SET injuries = CASE WHEN $1::boolean THEN $2::text[] ELSE injuries END,
+           health_conditions = CASE WHEN $3::boolean THEN $4::text[] ELSE health_conditions END,
+           injury_pain_levels = CASE WHEN $5::boolean THEN $6::jsonb ELSE injury_pain_levels END,
+           updated_at = NOW()
+       WHERE user_id = $7
+         AND LOWER(COALESCE(account_status, 'pending')) = 'active'
+       RETURNING injuries, health_conditions, injury_pain_levels`,
+      [hasInjuries, normalizedInjuries, hasHealthConditions, normalizedConditions, hasPainLevels, normalizedPainLevels, req.user.user_id]
+    );
+    if (!result.rowCount) {
+      return res.status(403).json({ success: false, message: "An active member account is required to update health information." });
+    }
+    return res.json({ success: true, data: result.rows[0], message: "Health information saved." });
+  } catch (error) {
+    console.error("updateHealthAssessment error:", error.message);
+    return res.status(500).json({ success: false, message: "Unable to save health information." });
+  }
+};
+
 module.exports = {
   register,
   login,
   googleLogin,
   forgotPassword,
   resetPassword,
+  requestPasswordChangeCode,
+  changePasswordWithCode,
   verifyEmail,
   resendVerification,
   getVerificationStatus,
   getProfile,
   updateProfile,
+  updateHealthAssessment,
   updatePhoto,
+  getUserChangeRequests,
 };

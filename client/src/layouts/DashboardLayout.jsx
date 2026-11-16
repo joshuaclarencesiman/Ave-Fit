@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import {
   BarChart3,
   Bell,
+  Boxes,
   Dumbbell,
   Home,
   Settings,
@@ -10,15 +11,16 @@ import {
   Users,
 } from "lucide-react";
 import AppShell from "../components/layout/AppShell";
-import useUnreadCount from "../components/layout/useUnreadCount";
+import useAdminSidebarCounts from "../components/layout/useAdminSidebarCounts";
 
 const NAV = [
   { to: "/admin/dashboard", icon: Home, label: "Dashboard" },
-  { to: "/admin/members", icon: Users, label: "Members" },
-  { to: "/admin/trainers", icon: UserCheck, label: "Trainers" },
+  { to: "/admin/members", icon: Users, label: "Members", countKey: "members" },
+  { to: "/admin/trainers", icon: UserCheck, label: "Trainers", countKey: "trainers" },
   { to: "/admin/workouts", icon: Dumbbell, label: "Exercises" },
+  { to: "/admin/equipment", icon: Boxes, label: "Equipment", countKey: "equipment" },
   { to: "/admin/analytics", icon: BarChart3, label: "Analytics" },
-  { to: "/admin/notifications", icon: Bell, label: "Notifications", badge: true },
+  { to: "/admin/notifications", icon: Bell, label: "Notifications", countKey: "notifications" },
   { to: "/admin/settings", icon: Settings, label: "Settings" },
 ];
 
@@ -27,6 +29,7 @@ const PAGE_TITLES = {
   "/admin/members": "Members",
   "/admin/trainers": "Trainers",
   "/admin/workouts": "Exercises",
+  "/admin/equipment": "Equipment Inventory",
   "/admin/nutrition": "Meal Plans",
   "/admin/analytics": "Analytics",
   "/admin/notifications": "Notifications",
@@ -36,13 +39,15 @@ const PAGE_TITLES = {
 export default function DashboardLayout({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const unread = useUnreadCount(location.pathname);
+  const counts = useAdminSidebarCounts(location.pathname);
+  const unread = counts.notifications;
   const admin = JSON.parse(localStorage.getItem("avefit_admin") || "{}");
 
   const nav = useMemo(
-    () =>
-      NAV.map((item) => (item.badge ? { ...item, badge: unread } : item)),
-    [unread]
+    () => NAV.map(({ countKey, ...item }) => (
+      countKey ? { ...item, badge: counts[countKey] } : item
+    )),
+    [counts]
   );
 
   const handleLogout = () => {
@@ -62,8 +67,6 @@ export default function DashboardLayout({ children }) {
         initials: (admin.name || "A").charAt(0).toUpperCase(),
       }}
       onLogout={handleLogout}
-      search
-      searchPlaceholder="Search…"
       topbarLeft={
         <span className="flex items-center gap-2 truncate text-sm">
           <span className="hidden text-slate-500 sm:inline">Admin</span>
