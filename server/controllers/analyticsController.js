@@ -1,6 +1,8 @@
 const pool = require("../db");
 const equipmentOptions = require("../utils/equipmentOptions");
 const { isMailConfigured, sendMail } = require("../utils/mailer");
+const { buildPrescriptiveRosterSummary, getStalledMembers } = require("../utils/prescriptiveRosterSummary");
+const { buildMemberPrescriptions } = require("../utils/memberPrescriptions");
 
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const PROGRAM_SCHEDULES = {
@@ -146,7 +148,7 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (character
   "'": "&#39;",
 })[character]);
 
-const getWeeklyProgressRows = async (userId = null) => {
+const getWeeklyProgressRows = async (userId = null, trainerId = null) => {
   const result = await pool.query(`
       SELECT
         u.user_id,
@@ -189,12 +191,14 @@ const getWeeklyProgressRows = async (userId = null) => {
         FROM workout_plans wp
         JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
         WHERE wp.user_id = u.user_id
+          AND wp.approval_status = 'Approved'
       ) workout_progress ON TRUE
       WHERE LOWER(COALESCE(u.account_status, 'pending')) = 'active'
         AND NULLIF(BTRIM(u.email), '') IS NOT NULL
         AND ($1::int IS NULL OR u.user_id = $1)
+        AND ($2::int IS NULL OR u.trainer_id = $2)
       ORDER BY u.first_name, u.last_name, u.user_id
-    `, [userId]);
+    `, [userId, trainerId]);
 
   return result.rows;
 };
@@ -294,17 +298,25 @@ const sendMemberWeeklyProgressReport = async (member) => {
 };
 
 const sendWeeklyProgressReport = async (req, res) => {
+  if (!req.trainer) {
+    return res.status(403).json({ success: false, message: "Weekly progress reports are available to trainers only." });
+  }
+
   if (!isMailConfigured()) {
     return res.status(503).json({ success: false, message: "Weekly report email is unavailable: SMTP is not configured." });
   }
 
   const userId = req.params.userId ? Number(req.params.userId) : null;
+  const trainerId = Number(req.trainer.trainer_id);
   if (userId !== null && (!Number.isInteger(userId) || userId < 1)) {
     return res.status(400).json({ success: false, message: "Choose a valid active member." });
   }
+  if (!Number.isInteger(trainerId) || trainerId < 1) {
+    return res.status(401).json({ success: false, message: "Trainer session is invalid. Please sign in again." });
+  }
 
   try {
-    const members = await getWeeklyProgressRows(userId);
+    const members = await getWeeklyProgressRows(userId, trainerId);
     if (userId !== null && !members.length) {
       return res.status(404).json({ success: false, message: "Active member not found." });
     }
@@ -336,7 +348,7 @@ const sendWeeklyProgressReport = async (req, res) => {
     return res.json({
       success: true,
       message: userId === null
-        ? `Sent weekly progress reports to ${sentCount} of ${members.length} active members${failed.length ? `; ${failed.length} failed` : ""}.`
+        ? `Sent weekly progress reports to ${sentCount} of ${members.length} assigned active members${failed.length ? `; ${failed.length} failed` : ""}.`
         : "Weekly progress report sent.",
       member_count: members.length,
       sent_count: sentCount,
@@ -346,6 +358,229 @@ const sendWeeklyProgressReport = async (req, res) => {
   } catch (err) {
     console.error("sendWeeklyProgressReport error:", err.message);
     return res.status(500).json({ success: false, message: "Unable to generate or send the weekly progress report." });
+  }
+};
+
+const getTrainerPrescriptiveAnalytics = async (req, res) => {
+  const trainerId = Number(req.trainer?.trainer_id);
+  if (!Number.isInteger(trainerId) || trainerId < 1) {
+    return res.status(401).json({ success: false, message: "Trainer session is invalid. Please sign in again." });
+  }
+
+  try {
+    const result = await pool.query(`
+      SELECT
+        u.user_id,
+        u.first_name,
+        u.last_name,
+        u.email,
+        u.gender,
+        u.age,
+        u.height,
+        u.target_weight,
+        u.activity_level,
+        u.intensity,
+        u.injuries,
+        u.injury_pain_levels,
+        u.health_conditions,
+        u.fitness_goal,
+        COALESCE(latest_progress.weight, u.weight) AS latest_weight,
+        COALESCE(
+          latest_progress.bmi,
+          CASE
+            WHEN COALESCE(latest_progress.weight, u.weight) > 0 AND u.height > 0
+              THEN COALESCE(latest_progress.weight, u.weight) / POWER(u.height / 100.0, 2)
+          END
+        ) AS latest_bmi,
+        previous_progress.weight AS previous_weight,
+        latest_progress.log_date AS latest_log_date,
+        previous_progress.log_date AS previous_log_date,
+        COALESCE(workout_activity.completed_last_week, 0)::int AS completed_last_week,
+        COALESCE(workout_activity.completed_previous_week, 0)::int AS completed_previous_week,
+        COALESCE(workout_activity.completed_last_two_weeks, 0)::int AS completed_last_two_weeks,
+        today_plan.plan_name AS today_workout_name,
+        COALESCE(today_plan.exercises, '[]'::json) AS today_workout_exercises,
+        latest_workout.plan_name AS latest_completed_plan_name,
+        latest_workout.exercise_count AS latest_workout_exercise_count,
+        latest_workout.completed_count AS latest_completed_exercise_count,
+        latest_workout.completed_at AS latest_completed_at
+      FROM users u
+      LEFT JOIN LATERAL (
+        SELECT weight, bmi, log_date
+        FROM progress_logs
+        WHERE user_id = u.user_id AND weight IS NOT NULL
+        ORDER BY log_date DESC, progress_id DESC
+        LIMIT 1
+      ) latest_progress ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT weight, log_date
+        FROM progress_logs
+        WHERE user_id = u.user_id
+          AND weight IS NOT NULL
+        ORDER BY log_date DESC, progress_id DESC
+        OFFSET 1
+        LIMIT 1
+      ) previous_progress ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT
+          COUNT(*) FILTER (
+            WHERE ws.completed IS TRUE
+              AND ws.completed_at >= NOW() - INTERVAL '7 days'
+          )::int AS completed_last_week,
+          COUNT(*) FILTER (
+            WHERE ws.completed IS TRUE
+              AND ws.completed_at >= NOW() - INTERVAL '14 days'
+              AND ws.completed_at < NOW() - INTERVAL '7 days'
+          )::int AS completed_previous_week,
+          COUNT(*) FILTER (
+            WHERE ws.completed IS TRUE
+              AND ws.completed_at >= NOW() - INTERVAL '14 days'
+          )::int AS completed_last_two_weeks
+        FROM workout_plans wp
+        JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
+        WHERE wp.user_id = u.user_id
+          AND wp.approval_status = 'Approved'
+      ) workout_activity ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT
+          wp.plan_name,
+          JSON_AGG(
+            JSON_BUILD_OBJECT(
+              'exercise_name', e.exercise_name,
+              'sets', ws.sets,
+              'reps', ws.reps,
+              'muscle_group', e.muscle_group
+            )
+            ORDER BY ws.session_id
+          ) AS exercises
+        FROM workout_plans wp
+        JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
+        LEFT JOIN exercises e ON e.exercise_id = ws.exercise_id
+        WHERE wp.user_id = u.user_id
+          AND wp.approval_status = 'Approved'
+          AND ws.session_date::text = TO_CHAR((NOW() AT TIME ZONE 'Asia/Manila')::date, 'YYYY-MM-DD')
+        GROUP BY wp.workout_plan_id
+        ORDER BY wp.created_at DESC, wp.workout_plan_id DESC
+        LIMIT 1
+      ) today_plan ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT
+          wp.plan_name,
+          COUNT(ws.session_id)::int AS exercise_count,
+          COUNT(ws.session_id) FILTER (WHERE ws.completed IS TRUE)::int AS completed_count,
+          MAX(ws.completed_at) AS completed_at
+        FROM workout_plans wp
+        JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
+        WHERE wp.user_id = u.user_id
+          AND wp.approval_status = 'Approved'
+        GROUP BY wp.workout_plan_id
+        HAVING COUNT(ws.session_id) FILTER (WHERE ws.completed IS TRUE) > 0
+        ORDER BY MAX(ws.completed_at) DESC NULLS LAST, MAX(ws.session_id) DESC
+        LIMIT 1
+      ) latest_workout ON TRUE
+      WHERE u.trainer_id = $1
+        AND LOWER(COALESCE(u.account_status, 'pending')) = 'active'
+      ORDER BY u.created_at DESC NULLS LAST, u.first_name ASC, u.last_name ASC
+    `, [trainerId]);
+
+    const members = result.rows;
+    const summary = buildPrescriptiveRosterSummary(members);
+    const memberRecommendations = buildMemberPrescriptions(members);
+    const stalledMemberRows = getStalledMembers(members);
+    const inactiveMemberRows = members.filter((member) => Number(member.completed_last_two_weeks) === 0);
+    const declinedMemberRows = members.filter((member) => (
+      Number(member.completed_previous_week) > 0 &&
+      Number(member.completed_last_week) < Number(member.completed_previous_week) * 0.8
+    ));
+    const weightLossMemberRows = members.filter((member) => (
+      /loss|lose/i.test(String(member.fitness_goal || ""))
+    ));
+    const {
+      stalled_member_count: stalledMembers,
+      inactive_member_count: inactiveMembers,
+      previous_week_workout_count: previousWeekCompletions,
+      last_week_workout_count: lastWeekCompletions,
+      weight_loss_member_count: weightLossMembers,
+    } = summary;
+    const insights = [];
+
+    if (stalledMembers > 0) {
+      insights.push({
+        type: "alert",
+        title: "Little weight change recently",
+        detail: `${stalledMembers} roster ${stalledMembers === 1 ? "member has" : "members have"} less than 0.5 kg change between their two latest weight logs. Review each member’s measurements, training load, and recovery before adjusting intensity.`,
+        members: stalledMemberRows.map((member) => ({
+          user_id: member.user_id,
+          first_name: member.first_name,
+          last_name: member.last_name,
+          detail: `Weight changed ${Math.abs(Number(member.latest_weight) - Number(member.previous_weight)).toFixed(1)} kg across two logs at least 14 days apart.`,
+        })),
+      });
+    }
+
+    if (members.length > 0 && inactiveMembers > 0) {
+      insights.push({
+        type: "alert",
+        title: "Consistency check-in needed",
+        detail: `${inactiveMembers} roster ${inactiveMembers === 1 ? "member has" : "members have"} no completed approved workout in the past 14 days. Reach out to identify barriers and agree on a manageable return schedule.`,
+        members: inactiveMemberRows.map((member) => ({
+          user_id: member.user_id,
+          first_name: member.first_name,
+          last_name: member.last_name,
+          detail: "No completed approved workout was recorded in the past 14 days.",
+        })),
+      });
+    }
+
+    if (previousWeekCompletions > 0 && lastWeekCompletions < previousWeekCompletions * 0.8) {
+      insights.push({
+        type: "recommendation",
+        title: "Roster workout completion declined",
+        detail: `Your roster completed ${lastWeekCompletions} approved workouts this week, down from ${previousWeekCompletions} the week before. Consider shorter sessions, a schedule check-in, or a recovery-focused plan.`,
+        members: declinedMemberRows.map((member) => ({
+          user_id: member.user_id,
+          first_name: member.first_name,
+          last_name: member.last_name,
+          detail: `${Number(member.completed_last_week) || 0} completed sessions last week, down from ${Number(member.completed_previous_week) || 0} the week before.`,
+        })),
+      });
+    }
+
+    if (weightLossMembers > 0) {
+      insights.push({
+        type: "focus",
+        title: "Goal-focused coaching",
+        detail: `${weightLossMembers} roster ${weightLossMembers === 1 ? "member is" : "members are"} pursuing weight loss. Review progress alongside adherence and recovery; avoid making intensity changes based on weight alone.`,
+        members: weightLossMemberRows.map((member) => ({
+          user_id: member.user_id,
+          first_name: member.first_name,
+          last_name: member.last_name,
+          detail: "Pursuing weight loss. Review recent measurements, adherence, and recovery before changing intensity.",
+        })),
+      });
+    }
+
+    if (insights.length === 0) {
+      insights.push({
+        type: "positive",
+        title: "No immediate roster alerts",
+        detail: members.length
+          ? "No current stagnation or attendance decline signal was detected for your active roster. Continue reviewing individual progress and recovery."
+          : "You have no active members assigned to your roster yet.",
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        ...summary,
+        members: memberRecommendations,
+        insights,
+      },
+    });
+  } catch (err) {
+    console.error("getTrainerPrescriptiveAnalytics error:", err.message);
+    return res.status(500).json({ success: false, message: "Unable to load roster prescriptive analytics." });
   }
 };
 
@@ -867,4 +1102,10 @@ const getAnalytics = async (req, res) => {
   }
 };
 
-module.exports = { getDashboardStats, getAnalytics, getTrainingPulse, sendWeeklyProgressReport };
+module.exports = {
+  getDashboardStats,
+  getAnalytics,
+  getTrainingPulse,
+  getTrainerPrescriptiveAnalytics,
+  sendWeeklyProgressReport,
+};

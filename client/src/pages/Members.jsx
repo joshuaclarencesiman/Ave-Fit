@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Search, Check, CheckCircle, XCircle, Trash2, X, UserRoundCog, UserRound, Save, KeyRound, ShieldCheck, TrendingUp, Mail, AlertTriangle, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, CheckCircle, XCircle, Trash2, X, UserRoundCog, UserRound, Save, KeyRound, ShieldCheck, TrendingUp, AlertTriangle, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import api from "../services/api";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
+import CustomSelect from "../components/ui/CustomSelect";
 import ProgressHistoryModal from "../components/progress/ProgressHistoryModal";
 import { formatWorkoutTimeRange } from "../utils/workoutSchedule";
 
@@ -71,6 +72,61 @@ function getBMICategory(bmi) {
   return { label: "Obese", color: "text-red-500" };
 }
 const formatFitnessGoal = (goal) => goal === "Muscle Gain" ? "Gain Weight" : goal;
+
+const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const WEEKDAY_ABBREVIATIONS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+const getWeekdayIndex = (day) => {
+  if (day === null || day === undefined || String(day).trim() === "") return null;
+  const value = String(day).trim();
+  if (/^\d+$/.test(value)) {
+    const index = Number(value);
+    return index >= 0 && index < WEEKDAY_NAMES.length ? index : null;
+  }
+  const index = WEEKDAY_NAMES.findIndex((weekday) => weekday.toLowerCase() === value.toLowerCase());
+  return index < 0 ? null : index;
+};
+
+const getCoachAvailabilityDisplay = (availability) => {
+  const slots = (Array.isArray(availability) ? availability : [])
+    .map((slot, index) => {
+      const dayIndex = getWeekdayIndex(slot.day_of_week);
+      return {
+        ...slot,
+        dayIndex,
+        dayName: dayIndex === null ? "Day not set" : WEEKDAY_NAMES[dayIndex],
+        timeRange: formatWorkoutTimeRange(slot.start_time, slot.end_time) || "Time not set",
+        key: `${slot.day_of_week}-${slot.start_time}-${slot.end_time}-${index}`,
+      };
+    })
+    .sort((left, right) =>
+      (left.dayIndex ?? WEEKDAY_NAMES.length) - (right.dayIndex ?? WEEKDAY_NAMES.length) ||
+      String(left.start_time || "").localeCompare(String(right.start_time || ""))
+    );
+  const groups = new Map();
+
+  slots.forEach((slot) => {
+    if (slot.dayIndex === null) return;
+    const key = `${slot.start_time || ""}-${slot.end_time || ""}`;
+    if (!groups.has(key)) {
+      groups.set(key, { start_time: slot.start_time, end_time: slot.end_time, days: new Set() });
+    }
+    groups.get(key).days.add(slot.dayIndex);
+  });
+
+  const groupedSlots = [...groups.values()];
+  const summary = groupedSlots.slice(0, 2).map((group) => {
+    const days = [...group.days].sort((left, right) => left - right);
+    const dayLabel = days.length === WEEKDAY_NAMES.length
+      ? "Every day"
+      : days.map((day) => WEEKDAY_ABBREVIATIONS[day]).join(", ");
+    const timeRange = formatWorkoutTimeRange(group.start_time, group.end_time) || "Time not set";
+    return `${dayLabel} · ${timeRange}`;
+  });
+
+  if (groupedSlots.length > 2) summary.push(`+${groupedSlots.length - 2} more`);
+  return { slots, summary: summary.join(" · ") || "No schedule set" };
+};
 
 const getManilaToday = () => {
   const parts = new Intl.DateTimeFormat("en", {
@@ -391,39 +447,72 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
                   const capacity = Number(coach.max_members) || 0;
                   const assigned = Number(coach.assigned_member_count) || 0;
                   const selected = String(selectedTrainer) === String(coach.trainer_id);
+                  const specializations = Array.isArray(coach.specializations)
+                    ? coach.specializations.filter(Boolean)
+                    : typeof coach.specializations === "string"
+                      ? coach.specializations.split(",").map((item) => item.trim()).filter(Boolean)
+                      : [];
+                  const availability = getCoachAvailabilityDisplay(coach.availability);
                   return (
-                    <button
+                    <article
                       key={coach.trainer_id}
-                      type="button"
-                      onClick={() => setSelectedTrainer(String(coach.trainer_id))}
-                      disabled={!canEditMembershipAndCoach || recommendationsLoading}
-                      aria-pressed={selected}
-                      className={`rounded-xl border p-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-60 ${selected ? "border-orange-500 bg-orange-50 dark:bg-orange-500/10" : "border-slate-200 bg-white hover:border-orange-300 dark:border-slate-700 dark:bg-[#111]"}`}
+                      className={`overflow-hidden rounded-xl border transition ${selected ? "border-orange-500 bg-orange-50 dark:bg-orange-500/10" : "border-slate-200 bg-white dark:border-slate-700 dark:bg-[#111]"}`}
                     >
-                      <div className="flex items-center gap-3">
-                        {coach.photo_url ? <img src={coach.photo_url} alt="" className="h-11 w-11 rounded-full bg-black object-contain" /> : <div className="grid h-11 w-11 place-items-center rounded-full bg-orange-100 text-orange-600 dark:bg-orange-500/15 dark:text-orange-300"><UserRound size={20}/></div>}
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-bold text-slate-900 dark:text-white">{coach.full_name}</p>
-                          <p className="truncate text-xs text-orange-600 dark:text-orange-400">{coach.goal_specialty || "General Fitness"}</p>
-                          {coach.specializations?.length > 0 && <p className="mt-1 line-clamp-1 text-[11px] text-slate-600 dark:text-slate-300">{Array.isArray(coach.specializations) ? coach.specializations.join(", ") : coach.specializations}</p>}
-                          <p className="mt-1 line-clamp-2 text-[11px] text-slate-500 dark:text-slate-400">{coach.bio || "No coach bio provided."}</p>
-                          <p className="mt-1 truncate text-[11px] text-slate-500 dark:text-slate-400">{coach.email}{coach.phone ? ` · ${coach.phone}` : ""}</p>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedTrainer(String(coach.trainer_id))}
+                        disabled={!canEditMembershipAndCoach || recommendationsLoading}
+                        aria-pressed={selected}
+                        className="block w-full p-3 text-left transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-60 dark:hover:bg-white/[0.03]"
+                      >
+                        <div className="flex items-center gap-3">
+                          {coach.photo_url ? <img src={coach.photo_url} alt="" className="h-11 w-11 shrink-0 rounded-full bg-black object-contain" /> : <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-orange-100 text-orange-600 dark:bg-orange-500/15 dark:text-orange-300"><UserRound size={20}/></div>}
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-bold text-slate-900 dark:text-white">{coach.full_name}</p>
+                            <p className="truncate text-xs text-orange-600 dark:text-orange-400">{coach.goal_specialty || "General Fitness"}</p>
+                            {specializations.length > 0 && (
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {specializations.slice(0, 2).map((specialization) => (
+                                  <span key={specialization} className="max-w-full truncate rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-medium text-orange-800 dark:bg-orange-500/15 dark:text-orange-300">
+                                    {specialization}
+                                  </span>
+                                ))}
+                                {specializations.length > 2 && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-white/10 dark:text-slate-300">+{specializations.length - 2} more</span>}
+                              </div>
+                            )}
+                            <p className="mt-1 line-clamp-2 text-[11px] text-slate-500 dark:text-slate-400">{coach.bio || "No coach bio provided."}</p>
+                            <p className="mt-1 truncate text-[11px] text-slate-500 dark:text-slate-400">{coach.email}{coach.phone ? ` · ${coach.phone}` : ""}</p>
+                          </div>
+                          {selected && <CheckCircle size={18} className="shrink-0 text-orange-500" aria-label="Selected" />}
                         </div>
-                        {selected && <CheckCircle size={18} className="shrink-0 text-orange-500" aria-label="Selected" />}
-                      </div>
-                      <div className="mt-3 flex items-center justify-between gap-2 text-[11px] text-slate-600 dark:text-slate-300">
-                        <span>{assigned}/{capacity} members · {Math.max(capacity - assigned, 0)} slots remaining</span>
-                        <span>{coach.capacity_status || (Number(coach.capacity_percent) >= 80 ? "Near Capacity" : "Active")}</span>
-                      </div>
-                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-white/10">
-                        <span className="block h-full rounded-full bg-orange-500" style={{ width: `${Math.min(Number(coach.capacity_percent) || 0, 100)}%` }} />
-                      </div>
-                      <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
-                        Availability: {coach.availability?.length
-                          ? coach.availability.map((slot) => `${slot.day_of_week} ${formatWorkoutTimeRange(slot.start_time, slot.end_time) || "Time not set"}`).join(" · ")
-                          : "No schedule set"}
-                      </p>
-                    </button>
+                        <div className="mt-3 flex items-center justify-between gap-2 text-[11px] text-slate-600 dark:text-slate-300">
+                          <span>{assigned}/{capacity} members · {Math.max(capacity - assigned, 0)} slots remaining</span>
+                          <span>{coach.capacity_status || (Number(coach.capacity_percent) >= 80 ? "Near Capacity" : "Active")}</span>
+                        </div>
+                        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-white/10">
+                          <span className="block h-full rounded-full bg-orange-500" style={{ width: `${Math.min(Number(coach.capacity_percent) || 0, 100)}%` }} />
+                        </div>
+                        <p title={availability.summary} className="mt-2 line-clamp-2 text-[11px] text-slate-500 dark:text-slate-400">
+                          <span className="font-semibold">Availability:</span> {availability.summary}
+                        </p>
+                      </button>
+                      {availability.slots.length > 0 && (
+                        <details className="group border-t border-slate-200 px-3 dark:border-slate-700">
+                          <summary className="flex cursor-pointer list-none items-center gap-2 py-2 text-[11px] font-semibold text-orange-700 marker:hidden dark:text-orange-300">
+                            <span>View full schedule</span>
+                            <ChevronDown size={14} className="ml-auto shrink-0 transition-transform group-open:rotate-180" />
+                          </summary>
+                          <ul className="space-y-1 pb-3 text-[11px] text-slate-600 dark:text-slate-300">
+                            {availability.slots.map((slot) => (
+                              <li key={slot.key} className="flex justify-between gap-3">
+                                <span>{slot.dayName}</span>
+                                <span className="text-right">{slot.timeRange}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
+                      )}
+                    </article>
                   );
                 })}
               </div>
@@ -467,12 +556,6 @@ export default function Members() {
   const [reviewMessage, setReviewMessage] = useState("");
   const [reviewError, setReviewError] = useState("");
   const [decisionNotice, setDecisionNotice] = useState("");
-  const [sendingReportMemberId, setSendingReportMemberId] = useState(null);
-  const [sendingAllReports, setSendingAllReports] = useState(false);
-  const [reportNotice, setReportNotice] = useState({ message: "", error: "" });
-  const [sentReportMemberIds, setSentReportMemberIds] = useState(() => new Set());
-  const [allReportsSent, setAllReportsSent] = useState(false);
-
   const fetchData = async () => {
     setLoading(true); setFetchError("");
     try {
@@ -562,47 +645,6 @@ export default function Members() {
     }
   };
 
-  const sendMemberReport = async (member) => {
-    setSendingReportMemberId(member.member_id);
-    setReportNotice({ message: "", error: "" });
-    try {
-      await api.post(`/analytics/weekly-progress-report/${member.member_id}`);
-      setReportNotice({ message: `Weekly progress report sent to ${member.full_name}.`, error: "" });
-      setSentReportMemberIds((current) => new Set(current).add(Number(member.member_id)));
-    } catch (error) {
-      setReportNotice({
-        message: "",
-        error: error.response?.data?.message || `Unable to send a progress report to ${member.full_name}.`,
-      });
-    } finally {
-      setSendingReportMemberId(null);
-    }
-  };
-
-  const sendAllMemberReports = async () => {
-    setSendingAllReports(true);
-    setAllReportsSent(false);
-    setReportNotice({ message: "", error: "" });
-    try {
-      const response = await api.post("/analytics/weekly-progress-report");
-      setReportNotice({ message: response.data.message, error: "" });
-      const sentIds = (response.data.sent_user_ids || []).map(Number);
-      setSentReportMemberIds((current) => new Set([...current, ...sentIds]));
-      setAllReportsSent(
-        response.data.member_count > 0 &&
-        response.data.failed_count === 0 &&
-        response.data.sent_count === response.data.member_count
-      );
-    } catch (error) {
-      setReportNotice({
-        message: "",
-        error: error.response?.data?.message || "Unable to send weekly progress reports.",
-      });
-    } finally {
-      setSendingAllReports(false);
-    }
-  };
-
   const handleApprove=async id=>{setDecisionNotice("");try{const member = members.find((row) => Number(row.member_id) === Number(id));const response=await api.put(`/members/${id}/approve`);setDecisionNotice(response.data.email_sent===false?"Member approved, but the notification email could not be delivered. Check the email-service configuration.":"Member approved and the notification email was sent.");const updatedMembers=await fetchData();const approvedMember=updatedMembers?.find((row)=>Number(row.member_id)===Number(id)) || member;if(approvedMember){setMembershipPromptMember({ ...approvedMember, membership_months: approvedMember.membership_months || 1 });}}catch(e){alert(e.response?.data?.message||"Failed to update member status.");}};
   const handleReject=async id=>{setDecisionNotice("");try{const response=await api.put(`/members/${id}/reject`);setDecisionNotice(response.data.email_sent===false?"Member status updated, but the notification email could not be delivered. Check the email-service configuration.":"Member status updated and the notification email was sent.");await fetchData();}catch(e){alert(e.response?.data?.message||"Failed to deactivate member.");}};
   const handleDelete=(id)=>{
@@ -678,8 +720,6 @@ export default function Members() {
     <header className="ave-page-hero rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8"><p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">People management</p><div className="mt-2 flex flex-wrap items-end justify-between gap-4"><div><h1 className="text-3xl font-black text-slate-900 dark:text-white">Members</h1><p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Manage accounts, approvals, fitness profiles, and coach assignments.</p></div></div></header>
     {fetchError&&<div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">⚠️ {fetchError}</div>}
     {decisionNotice&&<div role="status" aria-live="polite" className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-800 dark:border-orange-500/20 dark:bg-orange-500/10 dark:text-orange-200">{decisionNotice}</div>}
-    {reportNotice.message&&<div role="status" aria-live="polite" className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-200">{reportNotice.message}</div>}
-    {reportNotice.error&&<div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">{reportNotice.error}</div>}
     <section aria-label="Member summary" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
       {[{label:"Total members",value:members.length},{label:"Active members",value:activeCount},{label:"Pending approval",value:pendingCount}].map(item=><div key={item.label} className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-white/10 dark:bg-[#111]"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{item.label}</p><p className="mt-2 text-2xl font-black text-slate-900 dark:text-white">{loading?"—":item.value}</p></div>)}
     </section>
@@ -784,40 +824,44 @@ export default function Members() {
         </div>
       </section>
     )}
-    <details className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-[#111] sm:p-5">
-      <summary className="cursor-pointer list-none text-lg font-bold text-slate-900 marker:hidden dark:text-white">
-        <span className="inline-flex items-center gap-2"><Mail size={18} className="text-orange-500" /> Weekly Progress Reports</span>
-        <span className="mt-1 block text-sm font-normal text-slate-600 dark:text-slate-400">Email a personalized progress summary to one member or all eligible active members.</span>
-      </summary>
-      <section aria-labelledby="weekly-progress-report-title" className="mt-4 space-y-4 border-t border-slate-200 pt-4 dark:border-white/10">
-      <div>
-        <h2 id="weekly-progress-report-title" className="text-lg font-bold text-slate-900 dark:text-white">Send weekly progress reports</h2>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Each report includes the member’s latest measurements and completed workouts from the past 7 days.</p>
-        <button type="button" onClick={sendAllMemberReports} disabled={sendingAllReports || sendingReportMemberId !== null} className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-lg bg-orange-600 px-4 text-sm font-semibold text-white hover:bg-orange-700 disabled:cursor-wait disabled:opacity-60">
-          {sendingAllReports ? <><Mail size={15} />Sending reports...</> : allReportsSent ? <><Check size={16} />Sent to all eligible members</> : <><Mail size={15} />Send to all active members</>}
-        </button>
+    <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-[#111] sm:flex-row sm:items-center sm:justify-between">
+      <label className="flex min-h-10 w-full items-center gap-2 rounded-xl bg-slate-100 px-3 dark:bg-white/5 sm:max-w-xs">
+        <Search size={16} className="shrink-0 text-slate-400" />
+        <span className="sr-only">Search members</span>
+        <input
+          type="search"
+          placeholder="Search name or email..."
+          value={search}
+          onChange={(event) => {
+            setSearch(event.target.value);
+            setCurrentPage(1);
+          }}
+          className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-500 dark:text-white"
+        />
+      </label>
+      <div className="flex w-full items-center gap-3 sm:w-auto">
+        <span className="shrink-0 text-sm font-semibold text-slate-500 dark:text-slate-400">Status</span>
+        <div className="w-full sm:w-52">
+          <CustomSelect
+            value={filter}
+            onChange={(nextFilter) => {
+              setFilter(nextFilter);
+              setCurrentPage(1);
+            }}
+            ariaLabel="Filter members by status"
+            options={[
+              { value: "All", label: "All" },
+              { value: "Active", label: "Active" },
+              { value: "Pending", label: pendingCount > 0 ? `Pending (${pendingCount})` : "Pending" },
+              { value: "Inactive", label: "Inactive" },
+              { value: "Rejected", label: "Rejected" },
+            ]}
+          />
+        </div>
       </div>
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-        {members.filter((member) => String(member.status || "").trim().toLowerCase() === "active").map((member) => (
-          <div key={member.member_id} className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-slate-200 p-3 dark:border-white/10">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-slate-800 dark:text-white">{member.full_name}</p>
-              <p className="truncate text-xs text-slate-500">{member.email}</p>
-            </div>
-            <button type="button" onClick={() => sendMemberReport(member)} disabled={sendingReportMemberId !== null || sendingAllReports || sentReportMemberIds.has(Number(member.member_id))} aria-label={sentReportMemberIds.has(Number(member.member_id)) ? `Weekly progress report sent to ${member.full_name}` : `Send weekly progress report to ${member.full_name}`} className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${sentReportMemberIds.has(Number(member.member_id)) ? "bg-green-700" : "bg-orange-600 hover:bg-orange-700"}`}>
-              {sendingReportMemberId === member.member_id ? <><Mail size={14} />Sending...</> : sentReportMemberIds.has(Number(member.member_id)) ? <><Check size={14} />Sent</> : <><Mail size={14} />Send</>}
-            </button>
-          </div>
-        ))}
-        {!members.some((member) => String(member.status || "").trim().toLowerCase() === "active") && (
-          <p className="text-sm text-slate-500">No active users to send reports to.</p>
-        )}
-      </div>
-      </section>
-    </details>
-    <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-[#111] sm:flex-row sm:items-center sm:justify-between"><label className="flex min-h-10 w-full items-center gap-2 rounded-xl bg-slate-100 px-3 dark:bg-white/5 sm:max-w-xs"><Search size={16} className="shrink-0 text-slate-400"/><span className="sr-only">Search members</span><input type="search" placeholder="Search name or email..." value={search} onChange={e=>{setSearch(e.target.value);setCurrentPage(1);}} className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-500 dark:text-white"/></label><div role="group" aria-label="Filter members by status" className="flex gap-2 overflow-x-auto">{["All","Active","Pending","Inactive","Rejected"].map(s=><button key={s} type="button" aria-pressed={filter===s} onClick={()=>{setFilter(s);setCurrentPage(1);}} className={`min-h-9 rounded-lg px-3 text-sm font-semibold transition ${filter===s?"bg-orange-500 text-white":"bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-white/5 dark:text-slate-300 dark:hover:bg-white/10"}`}>{s}{s==="Pending"&&pendingCount>0?` (${pendingCount})`:""}</button>)}</div></div>
+    </div>
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-white/10 dark:bg-[#111]">
-      {loading?<div className="p-8 space-y-3">{[...Array(5)].map((_,i)=><div key={i} className="h-10 bg-slate-100 dark:bg-gray-800 rounded-lg animate-pulse"/>)}</div>:<div className="overflow-x-auto"><table className="w-full min-w-[1080px] table-fixed text-sm"><colgroup><col style={{ width: "22%" }} /><col style={{ width: "8%" }} /><col style={{ width: "14%" }} /><col style={{ width: "7%" }} /><col style={{ width: "8%" }} /><col style={{ width: "15%" }} /><col style={{ width: "10%" }} /><col style={{ width: "16%" }} /></colgroup><thead className="bg-slate-50 dark:bg-[#202020] border-b border-slate-200 dark:border-gray-800"><tr>{["Member","Goal","Designated Coach","BMI","Status","Membership","Joined","Actions"].map(h=><th key={h} className="text-left px-2 py-4 sm:px-3 font-semibold text-slate-600 dark:text-gray-300">{h}</th>)}</tr></thead><tbody className="divide-y divide-slate-100 dark:divide-gray-800">{filtered.length===0?<tr><td colSpan={8} className="text-center py-12 text-slate-400">No members found.</td></tr>:paginatedMembers.map(member=>{const bmiInfo=getBMICategory(member.bmi);const membershipStatus=getMembershipStatus(member);const memberStatus=member.status?.trim().toLowerCase();return <tr key={member.member_id} onClick={()=>setViewMember(member)} className="hover:bg-slate-50 dark:hover:bg-[#202020] transition cursor-pointer"><td className="px-2 py-4 sm:px-3"><div className="flex min-w-0 items-center gap-2"><MemberPhoto member={member}/><div className="min-w-0">      <p className="flex min-w-0 items-center gap-1.5 font-semibold text-slate-800 dark:text-white"><span className="truncate">{member.full_name}</span>{member.missing_profile_fields?.length > 0 && <span title={`Missing information: ${member.missing_profile_fields.join(", ")}`} aria-label={`Incomplete profile: ${member.missing_profile_fields.join(", ")}`} className="h-2 w-2 shrink-0 rounded-full bg-red-500"/>}</p><p className="truncate text-slate-400 text-xs">{member.email}</p><p className={`mt-0.5 text-[11px] font-semibold ${member.email_verified?"text-green-500":"text-orange-500"}`}>{member.email_verified?"✓ Email verified":"⚠ Email not verified"}</p></div></div></td><td className="px-2 py-4 sm:px-3 text-slate-600 dark:text-gray-300">{member.fitness_goal||"—"}</td><td className="px-2 py-4 sm:px-3">{member.trainer_id?<div className="flex items-center gap-2 text-slate-700 dark:text-gray-200">{member.trainer_photo_url?<img src={member.trainer_photo_url} alt="" className="w-8 h-8 rounded-full object-contain bg-black"/>:<div className="w-8 h-8 rounded-full bg-orange-100 dark:bg-orange-500/15 flex items-center justify-center text-orange-500 text-xs font-bold">{member.trainer_name?.charAt(0)||"?"}</div>}<span className="truncate">{member.trainer_name||"Assigned Coach"}</span></div>:<span className="text-slate-400">Not assigned</span>}</td><td className="px-2 py-4 sm:px-3"><div className="flex min-w-0 flex-col items-start"><span className="font-semibold text-slate-800 dark:text-white">{member.bmi?parseFloat(member.bmi).toFixed(1):"?"}</span><span className={`text-xs font-medium ${bmiInfo.color}`}>{bmiInfo.label}</span></div></td><td className="px-2 py-4 sm:px-3 whitespace-nowrap"><span className={`px-3 py-1 rounded-full text-xs font-semibold ${statusColors[member.status]||statusColors.Inactive}`}>{member.status||"Inactive"}</span></td><td className="px-2 py-4 sm:px-3">            <div className="space-y-1"><div className="flex items-center gap-2"><p className="font-semibold text-slate-800 dark:text-white">{member.membership_months ? `${member.membership_months === 12 ? "1 year" : `${member.membership_months} ${member.membership_months === 1 ? "month" : "months"}`}` : "Not recorded"}</p>{!member.membership_months && <span title="No membership assigned yet" aria-label="No membership assigned" className="h-2.5 w-2.5 shrink-0 rounded-full bg-red-500" />}</div><span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${membershipStatus === "Active" ? "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-400" : membershipStatus === "Inactive" ? "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400" : membershipStatus === "Upcoming" ? "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400" : "bg-slate-100 text-slate-600 dark:bg-slate-700/50 dark:text-slate-300"}`}>{membershipStatus}</span>{member.membership_start_date && member.membership_end_date && <p className="text-xs text-slate-500 dark:text-slate-400">{formatMembershipDate(member.membership_start_date)} – {formatMembershipDate(member.membership_end_date)}</p>}</div></td><td className="px-2 py-4 sm:px-3 text-slate-500 dark:text-gray-400">{member.joined_date?formatMembershipDate(member.joined_date):"—"}</td><td className="px-2 py-4 sm:px-3" onClick={e=>e.stopPropagation()}><div className="flex items-center justify-start gap-1"><button onClick={()=>setViewMember(member)} className="grid h-8 w-8 place-items-center rounded-lg text-orange-500 transition hover:bg-orange-50 dark:hover:bg-orange-500/10" title="View member / change coach" aria-label={`View ${member.full_name}`}><UserRoundCog size={16}/></button>{memberStatus==="pending"?<button onClick={()=>handleApprove(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-green-600 text-white transition hover:bg-green-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title="Approve member" aria-label={`Approve ${member.full_name}`}><CheckCircle size={16}/></button>:(memberStatus==="inactive"||memberStatus==="rejected")?<button onClick={()=>handleApprove(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-green-600 text-white transition hover:bg-green-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title={memberStatus==="rejected"?"Approve member":"Reactivate member"} aria-label={`${memberStatus==="rejected"?"Approve":"Reactivate"} ${member.full_name}`}><CheckCircle size={16}/></button>:null}{memberStatus==="pending"?<button onClick={()=>handleReject(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-red-600 text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title="Reject" aria-label={`Reject ${member.full_name}`}><XCircle size={16}/></button>:null}<button onClick={()=>handleDelete(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-red-600 text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title="Delete" aria-label={`Delete ${member.full_name}`}><Trash2 size={16}/></button></div></td></tr>})}</tbody></table></div>}
+      {loading?<div className="p-8 space-y-3">{[...Array(5)].map((_,i)=><div key={i} className="h-10 bg-slate-100 dark:bg-gray-800 rounded-lg animate-pulse"/>)}</div>:<div className="overflow-x-auto"><table className="w-full min-w-[1080px] table-fixed text-sm"><colgroup><col style={{ width: "22%" }} /><col style={{ width: "8%" }} /><col style={{ width: "14%" }} /><col style={{ width: "7%" }} /><col style={{ width: "15%" }} /><col style={{ width: "8%" }} /><col style={{ width: "10%" }} /><col style={{ width: "16%" }} /></colgroup><thead className="bg-slate-50 dark:bg-[#202020] border-b border-slate-200 dark:border-gray-800"><tr>{["Member","Goal","Designated Coach","BMI","Membership period","Status","Joined","Actions"].map(h=><th key={h} className="text-left px-2 py-4 sm:px-3 font-semibold text-slate-600 dark:text-gray-300">{h}</th>)}</tr></thead><tbody className="divide-y divide-slate-100 dark:divide-gray-800">{filtered.length===0?<tr><td colSpan={8} className="text-center py-12 text-slate-400">No members found.</td></tr>:paginatedMembers.map(member=>{const bmiInfo=getBMICategory(member.bmi);const membershipStatus=getMembershipStatus(member);const memberStatus=member.status?.trim().toLowerCase();return <tr key={member.member_id} onClick={()=>setViewMember(member)} className="hover:bg-slate-50 dark:hover:bg-[#202020] transition cursor-pointer"><td className="px-2 py-4 sm:px-3"><div className="flex min-w-0 items-center gap-2"><MemberPhoto member={member}/><div className="min-w-0">      <p className="flex min-w-0 items-center gap-1.5 font-semibold text-slate-800 dark:text-white"><span className="truncate">{member.full_name}</span>{member.missing_profile_fields?.length > 0 && <span title={`Missing information: ${member.missing_profile_fields.join(", ")}`} aria-label={`Incomplete profile: ${member.missing_profile_fields.join(", ")}`} className="h-2 w-2 shrink-0 rounded-full bg-red-500"/>}</p><p className="truncate text-slate-400 text-xs">{member.email}</p><p className={`mt-0.5 text-[11px] font-semibold ${member.email_verified?"text-green-500":"text-orange-500"}`}>{member.email_verified?"✓ Email verified":"⚠ Email not verified"}</p></div></div></td><td className="px-2 py-4 sm:px-3 text-slate-600 dark:text-gray-300">{member.fitness_goal||"—"}</td><td className="px-2 py-4 sm:px-3">{member.trainer_id?<div className="flex items-center gap-2 text-slate-700 dark:text-gray-200">{member.trainer_photo_url?<img src={member.trainer_photo_url} alt="" className="w-8 h-8 rounded-full object-contain bg-black"/>:<div className="w-8 h-8 rounded-full bg-orange-100 dark:bg-orange-500/15 flex items-center justify-center text-orange-500 text-xs font-bold">{member.trainer_name?.charAt(0)||"?"}</div>}<span className="truncate">{member.trainer_name||"Assigned Coach"}</span></div>:<span className="text-slate-400">Not assigned</span>}</td><td className="px-2 py-4 sm:px-3"><div className="flex min-w-0 flex-col items-start"><span className="font-semibold text-slate-800 dark:text-white">{member.bmi?parseFloat(member.bmi).toFixed(1):"?"}</span><span className={`text-xs font-medium ${bmiInfo.color}`}>{bmiInfo.label}</span></div></td><td className="px-2 py-4 sm:px-3">            <div className="space-y-1"><div className="flex items-center gap-2"><p className="font-semibold text-slate-800 dark:text-white">{member.membership_months ? `${member.membership_months === 12 ? "1 year" : `${member.membership_months} ${member.membership_months === 1 ? "month" : "months"}`}` : "Not recorded"}</p>{!member.membership_months && <span title="No membership assigned yet" aria-label="No membership assigned" className="h-2.5 w-2.5 shrink-0 rounded-full bg-red-500" />}</div><span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${membershipStatus === "Active" ? "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-400" : membershipStatus === "Inactive" ? "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400" : membershipStatus === "Upcoming" ? "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400" : "bg-slate-100 text-slate-600 dark:bg-slate-700/50 dark:text-slate-300"}`}>{membershipStatus}</span>{member.membership_start_date && member.membership_end_date && <p className="text-xs text-slate-500 dark:text-slate-400">{formatMembershipDate(member.membership_start_date)} – {formatMembershipDate(member.membership_end_date)}</p>}</div></td><td className="px-2 py-4 sm:px-3 whitespace-nowrap"><span className={`px-3 py-1 rounded-full text-xs font-semibold ${statusColors[member.status]||statusColors.Inactive}`}>{member.status||"Inactive"}</span></td><td className="px-2 py-4 sm:px-3 text-slate-500 dark:text-gray-400">{member.joined_date?formatMembershipDate(member.joined_date):"—"}</td><td className="px-2 py-4 sm:px-3" onClick={e=>e.stopPropagation()}><div className="flex items-center justify-start gap-1"><button onClick={()=>setViewMember(member)} className="grid h-8 w-8 place-items-center rounded-lg text-orange-500 transition hover:bg-orange-50 dark:hover:bg-orange-500/10" title="View member / change coach" aria-label={`View ${member.full_name}`}><UserRoundCog size={16}/></button>{memberStatus==="pending"?<button onClick={()=>handleApprove(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-green-600 text-white transition hover:bg-green-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title="Approve member" aria-label={`Approve ${member.full_name}`}><CheckCircle size={16}/></button>:(memberStatus==="inactive"||memberStatus==="rejected")?<button onClick={()=>handleApprove(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-green-600 text-white transition hover:bg-green-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title={memberStatus==="rejected"?"Approve member":"Reactivate member"} aria-label={`${memberStatus==="rejected"?"Approve":"Reactivate"} ${member.full_name}`}><CheckCircle size={16}/></button>:null}{memberStatus==="pending"?<button onClick={()=>handleReject(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-red-600 text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title="Reject" aria-label={`Reject ${member.full_name}`}><XCircle size={16}/></button>:null}<button onClick={()=>handleDelete(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-red-600 text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title="Delete" aria-label={`Delete ${member.full_name}`}><Trash2 size={16}/></button></div></td></tr>})}</tbody></table></div>}
     </div>
     {!loading && totalPages > 1 && (
       <nav aria-label="Member pagination" className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

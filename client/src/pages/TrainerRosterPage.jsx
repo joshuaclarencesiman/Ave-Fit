@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Search, TrendingUp, Users, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, Mail, Search, TrendingUp, Users, X } from "lucide-react";
 import trainerApi from "../trainerApi";
 import ProgressHistoryModal from "../components/progress/ProgressHistoryModal";
 import CustomSelect from "../components/ui/CustomSelect";
 import { formatWorkoutTimeRange } from "../utils/workoutSchedule";
-
-const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 const fetchTrainerProgress = (userId) => trainerApi.get(`/me/members/${userId}/progress`);
 
@@ -195,9 +193,13 @@ export default function TrainerRosterPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
-  const [sortBy, setSortBy] = useState("first_name");
+  const [sortBy, setSortBy] = useState("newest");
   const [profileMember, setProfileMember] = useState(null);
   const [progressMember, setProgressMember] = useState(null);
+  const [sendingReportMemberId, setSendingReportMemberId] = useState(null);
+  const [sendingAllReports, setSendingAllReports] = useState(false);
+  const [sentReportMemberIds, setSentReportMemberIds] = useState(() => new Set());
+  const [reportNotice, setReportNotice] = useState({ message: "", error: "" });
 
   const refreshRoster = useCallback(async () => {
     const response = await trainerApi.get("/me/roster");
@@ -243,6 +245,41 @@ export default function TrainerRosterPage() {
     };
   }, [refreshRoster]);
 
+  const sendMemberReport = async (member) => {
+    setSendingReportMemberId(member.user_id);
+    setReportNotice({ message: "", error: "" });
+    try {
+      await trainerApi.post(`/me/weekly-progress-report/${member.user_id}`);
+      setReportNotice({ message: `Weekly progress report sent to ${member.first_name} ${member.last_name}.`, error: "" });
+      setSentReportMemberIds((current) => new Set(current).add(Number(member.user_id)));
+    } catch (err) {
+      setReportNotice({
+        message: "",
+        error: err.response?.data?.message || `Unable to send a report to ${member.first_name} ${member.last_name}.`,
+      });
+    } finally {
+      setSendingReportMemberId(null);
+    }
+  };
+
+  const sendAllMemberReports = async () => {
+    setSendingAllReports(true);
+    setReportNotice({ message: "", error: "" });
+    try {
+      const response = await trainerApi.post("/me/weekly-progress-report");
+      setReportNotice({ message: response.data.message, error: "" });
+      const sentIds = (response.data.sent_user_ids || []).map(Number);
+      setSentReportMemberIds((current) => new Set([...current, ...sentIds]));
+    } catch (err) {
+      setReportNotice({
+        message: "",
+        error: err.response?.data?.message || "Unable to send weekly progress reports to your roster.",
+      });
+    } finally {
+      setSendingAllReports(false);
+    }
+  };
+
   const filteredMembers = members
     .filter((member) => {
       const query = search.trim().toLowerCase();
@@ -250,9 +287,22 @@ export default function TrainerRosterPage() {
       return `${member.first_name || ""} ${member.last_name || ""} ${member.email || ""} ${member.fitness_goal || ""}`.toLowerCase().includes(query);
     })
     .sort((memberA, memberB) => {
-      const otherName = sortBy === "first_name" ? "last_name" : "first_name";
-      const primaryComparison = (memberA[sortBy] || "").localeCompare(memberB[sortBy] || "", undefined, { sensitivity: "base", numeric: true });
-      return primaryComparison || (memberA[otherName] || "").localeCompare(memberB[otherName] || "", undefined, { sensitivity: "base", numeric: true });
+      if (sortBy === "newest" || sortBy === "oldest") {
+        const joinedA = Date.parse(memberA.joined_at || "") || 0;
+        const joinedB = Date.parse(memberB.joined_at || "") || 0;
+        const dateComparison = sortBy === "newest" ? joinedB - joinedA : joinedA - joinedB;
+        if (dateComparison) return dateComparison;
+      } else {
+        const otherName = sortBy === "first_name" ? "last_name" : "first_name";
+        const primaryComparison = (memberA[sortBy] || "").localeCompare(memberB[sortBy] || "", undefined, { sensitivity: "base", numeric: true });
+        if (primaryComparison) return primaryComparison;
+        return (memberA[otherName] || "").localeCompare(memberB[otherName] || "", undefined, { sensitivity: "base", numeric: true });
+      }
+      return `${memberA.first_name || ""} ${memberA.last_name || ""}`.localeCompare(
+        `${memberB.first_name || ""} ${memberB.last_name || ""}`,
+        undefined,
+        { sensitivity: "base", numeric: true }
+      );
     });
 
   return (
@@ -268,6 +318,43 @@ export default function TrainerRosterPage() {
 
       {error && <div role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">{error}</div>}
 
+      <details className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <summary className="flex cursor-pointer list-none items-center gap-3 text-lg font-bold text-slate-900 marker:hidden dark:text-white">
+          <Mail size={19} className="shrink-0 text-orange-500" />
+          <span>Weekly progress reports</span>
+          <ChevronDown size={18} className="ml-auto shrink-0 text-slate-500 transition-transform group-open:rotate-180" />
+          <span className="sr-only">Toggle weekly progress reports</span>
+        </summary>
+        <section aria-labelledby="weekly-progress-reports-heading" className="mt-4 border-t border-slate-200 pt-4 dark:border-white/10">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 id="weekly-progress-reports-heading" className="text-lg font-bold text-slate-900 dark:text-white">Send weekly progress reports</h2>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Send recent measurements and completed workout summaries to members assigned to your roster.</p>
+            </div>
+            <button type="button" onClick={sendAllMemberReports} disabled={sendingAllReports || sendingReportMemberId !== null || !members.length} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-orange-600 px-4 text-sm font-semibold text-white hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-60">
+              <Mail size={15} /> {sendingAllReports ? "Sending reports..." : "Send to my roster"}
+            </button>
+          </div>
+          {reportNotice.message && <p role="status" aria-live="polite" className="mb-3 rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-200">{reportNotice.message}</p>}
+          {reportNotice.error && <p role="alert" className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">{reportNotice.error}</p>}
+          {members.length ? (
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {members.map((member) => (
+                <div key={member.user_id} className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-slate-200 p-3 dark:border-white/10">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-800 dark:text-white">{member.first_name} {member.last_name}</p>
+                    <p className="truncate text-xs text-slate-500">{member.email}</p>
+                  </div>
+                  <button type="button" onClick={() => sendMemberReport(member)} disabled={sendingReportMemberId !== null || sendingAllReports || sentReportMemberIds.has(Number(member.user_id))} aria-label={sentReportMemberIds.has(Number(member.user_id)) ? `Weekly progress report sent to ${member.first_name} ${member.last_name}` : `Send weekly progress report to ${member.first_name} ${member.last_name}`} className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${sentReportMemberIds.has(Number(member.user_id)) ? "bg-green-700" : "bg-orange-600 hover:bg-orange-700"}`}>
+                    {sendingReportMemberId === member.user_id ? <><Mail size={14} /> Sending...</> : sentReportMemberIds.has(Number(member.user_id)) ? <><Check size={14} /> Sent</> : <><Mail size={14} /> Send</>}
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500 dark:bg-white/[0.04]">No active members are currently assigned to your roster.</p>}
+        </section>
+      </details>
+
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-lg font-bold text-slate-900 dark:text-white">Your members</h2>
@@ -280,16 +367,22 @@ export default function TrainerRosterPage() {
               <span className="sr-only">Search roster</span>
               <input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search members..." className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-500 dark:text-white" />
             </label>
-            <div className="w-full sm:w-56">
-              <CustomSelect
-                value={sortBy}
-                onChange={setSortBy}
-                ariaLabel="Alphabetical Sorting"
-                options={[
-                  { value: "first_name", label: "Sort by First Name" },
-                  { value: "last_name", label: "Sort by Last Name" },
-                ]}
-              />
+            <div className="flex w-full items-center gap-3 sm:w-auto">
+              <span className="shrink-0 text-sm font-semibold text-slate-500 dark:text-slate-400">Sort by</span>
+              <div className="w-full sm:w-[200px]">
+                <CustomSelect
+                  value={sortBy}
+                  onChange={setSortBy}
+                  ariaLabel="Sort members by date"
+                  options={[
+                    { value: "newest", label: "Newest first" },
+                    { value: "oldest", label: "Oldest first" },
+                    { value: "first_name", label: "First name A–Z" },
+                    { value: "last_name", label: "Last name A–Z" },
+                  ]}
+                  className="min-h-12 rounded-2xl bg-white px-4 text-slate-800 dark:bg-[#111] dark:text-white"
+                />
+              </div>
             </div>
           </div>
         )}

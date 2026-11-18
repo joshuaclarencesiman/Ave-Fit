@@ -1363,6 +1363,7 @@ const getMyRoster = async (req, res) => {
         u.workout_duration,
         u.membership_start_date,
         u.membership_end_date,
+        u.created_at AS joined_at,
         t.full_name AS coach_name,
         CASE
           WHEN u.membership_start_date IS NULL OR u.membership_end_date IS NULL THEN 'Not set'
@@ -1441,7 +1442,7 @@ const getMyRoster = async (req, res) => {
       ) user_availability ON true
       WHERE u.trainer_id = $1
         AND LOWER(COALESCE(u.account_status, 'pending')) = 'active'
-      ORDER BY u.first_name ASC
+      ORDER BY u.created_at DESC NULLS LAST, u.first_name ASC, u.last_name ASC
       `,
       [req.trainer.trainer_id]
     );
@@ -1498,6 +1499,59 @@ const getMyMissingWorkouts = async (req, res) => {
   } catch (err) {
     console.error("getMyMissingWorkouts error:", err.message);
     res.status(500).json({ success: false, message: "Unable to load members with missing workouts." });
+  }
+};
+
+const getTrainerSidebarCounts = async (req, res) => {
+  try {
+    const result = await pool.query(
+      `WITH schedule AS (
+         SELECT (NOW() AT TIME ZONE 'Asia/Manila')::date + 1 AS workout_date
+       ),
+       pending_plan_reviews AS (
+         SELECT COUNT(DISTINCT wp.workout_plan_id)::int AS count
+         FROM workout_plans wp
+         LEFT JOIN users u ON u.user_id = wp.user_id
+         WHERE wp.trainer_id = $1
+           AND (u.user_id IS NULL OR u.trainer_id = $1)
+           AND (
+             LOWER(COALESCE(wp.approval_status, '')) = 'pending'
+             OR LOWER(COALESCE(wp.deletion_request_status, '')) = 'pending'
+           )
+       ),
+       missing_workouts AS (
+         SELECT COUNT(*)::int AS count
+         FROM users u
+         CROSS JOIN schedule
+         WHERE u.trainer_id = $1
+           AND LOWER(COALESCE(u.account_status, 'pending')) = 'active'
+           AND u.setup_completed = TRUE
+           AND COALESCE(cardinality(u.preferred_days), 0) > 0
+           AND (u.membership_end_date IS NULL OR u.membership_end_date >= schedule.workout_date)
+           AND LOWER(TO_CHAR(schedule.workout_date, 'FMDay')) = ANY (
+             SELECT LOWER(BTRIM(day_name))
+             FROM UNNEST(u.preferred_days) AS days(day_name)
+           )
+           AND NOT EXISTS (
+             SELECT 1
+             FROM workout_plans wp
+             JOIN workout_sessions ws ON ws.workout_plan_id = wp.workout_plan_id
+             WHERE wp.user_id = u.user_id
+               AND ws.session_date = TO_CHAR(schedule.workout_date, 'YYYY-MM-DD')
+           )
+       )
+       SELECT pending_plan_reviews.count + missing_workouts.count AS workout_plans
+       FROM pending_plan_reviews
+       CROSS JOIN missing_workouts`,
+      [req.trainer.trainer_id]
+    );
+    return res.json({
+      success: true,
+      data: { workout_plans: Number(result.rows[0].workout_plans) },
+    });
+  } catch (error) {
+    console.error("getTrainerSidebarCounts error:", error.message);
+    return res.status(500).json({ success: false, message: "Unable to load trainer sidebar counts." });
   }
 };
 
@@ -1608,7 +1662,8 @@ const getMyWorkoutPlans = async (req, res) => {
       ) plan_sessions ON true
       WHERE wp.trainer_id = $1
         AND (u.user_id IS NULL OR u.trainer_id = $1)
-      ORDER BY wp.created_at DESC, wp.workout_plan_id DESC
+      ORDER BY COALESCE(plan_sessions.scheduled_date, wp.requested_session_date::text) DESC NULLS LAST,
+        wp.created_at DESC, wp.workout_plan_id DESC
       `,
       [req.trainer.trainer_id]
     );
@@ -3493,6 +3548,7 @@ module.exports = {
   loginTrainer,
   getMyRoster,
   getMyMissingWorkouts,
+  getTrainerSidebarCounts,
   getMyMemberProgress,
   getMyProfile,
   updateMyPhoto,
