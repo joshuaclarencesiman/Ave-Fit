@@ -25,7 +25,7 @@ const {
   sendUserCoachAssignedEmail,
 } = require("../utils/mailer");
 const { notifyNewUser, createNotification } = require("../utils/notifications");
-const { getCapacityStatus, getMemberAvailability, getScheduleMatch } = require("../utils/coachAssignment");
+const { getCapacityStatus, getMemberAvailability, getScheduleMatch, isCoachAtCapacity } = require("../utils/coachAssignment");
 const { deliverCoachEmail } = require("../utils/coachEmailNotifications");
 const {
   buildProfileChangePayload,
@@ -1459,6 +1459,8 @@ const updateProfile = async (req, res) => {
 
     if (
       phone !== undefined &&
+      phone !== null &&
+      String(phone).trim() !== "" &&
       !validatePhilippinePhone(phone)
     ) {
       return res.status(400).json({
@@ -1584,8 +1586,7 @@ const updateProfile = async (req, res) => {
         [selectedTrainerId]
       );
       selectedCoach.assigned_member_count = Number(assignedCountResult.rows[0].count) || 0;
-      const maxMembers = Number(selectedCoach.max_members) || 0;
-      if (maxMembers > 0 && selectedCoach.assigned_member_count >= maxMembers) {
+      if (isCoachAtCapacity(selectedCoach.assigned_member_count, selectedCoach.max_members)) {
         return res.status(409).json({
           success: false,
           message: "This coach has reached their total member capacity. Choose another coach.",
@@ -1751,7 +1752,9 @@ const updateProfile = async (req, res) => {
         weight !== undefined && weight !== null ? weight : currentUser.weight,
         fitness_goal !== undefined && fitness_goal !== null ? fitness_goal : currentUser.fitness_goal,
         activity_level !== undefined && activity_level !== null ? activity_level : currentUser.activity_level,
-        phone !== undefined && phone !== null ? phone : currentUser.phone,
+        phone !== undefined && phone !== null
+          ? (String(phone).trim() ? String(phone).trim() : null)
+          : currentUser.phone,
         age ?? currentUser.age,
         target_weight ?? currentUser.target_weight,
         workout_days_per_week ?? currentUser.workout_days_per_week,

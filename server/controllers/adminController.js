@@ -35,12 +35,7 @@ const getAdminSidebarCounts = async (req, res) => {
          (
            SELECT COUNT(*)::int
            FROM equipment_inventory
-           WHERE LOWER(BTRIM(COALESCE(status, ''))) IN (
-             'needs inspection',
-             'under repair',
-             'under maintenance',
-             'needs replacement'
-           )
+           WHERE in_service_count < quantity
          ) AS equipment,
          (
            SELECT COUNT(*)::int
@@ -110,6 +105,7 @@ const loginAdmin = async (req, res) => {
       { expiresIn: "72h" }
     );
 
+    req.admin = { admin_id: admin.admin_id };
     res.json({
       success: true,
       message: "Login successful.",

@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from "react";
-import { Activity, Save, LogOut, ChevronRight, Camera, CircleUserRound, Dumbbell } from "lucide-react";
+import { Activity, Save, LogOut, Camera, CircleUserRound, Dumbbell } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useUserAuth } from "../context/UserAuthContext";
 import { PasswordField } from "../components/ui/Form";
@@ -21,6 +21,7 @@ const normalizeFitnessGoal = (goal) => goal === "Muscle Gain" ? "Gain Weight" : 
 const isValidPhoneNumber = (phone) => /^09\d{9}$/.test(phone);
 const normalizePhoneNumber = (phone) => {
   const digits = String(phone || "").replace(/\D/g, "");
+  if (!digits) return "";
   return digits.startsWith("09") ? digits.slice(0, 11) : `09${digits.slice(-9)}`;
 };
 const toSelectionList = (value) => {
@@ -86,6 +87,8 @@ export default function ProfilePage() {
   const [passwordNotice, setPasswordNotice] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [changeRequests, setChangeRequests] = useState([]);
+  const [canChangeFitnessGoal, setCanChangeFitnessGoal] = useState(false);
+  const [goalUnlockError, setGoalUnlockError] = useState("");
   const [confirmLogout, setConfirmLogout] = useState(false);
   const bmiCategory = getBmiCategory(bmi);
 
@@ -93,9 +96,29 @@ export default function ProfilePage() {
     Promise.all([
       userApi.get("/profile"),
       userApi.get("/profile/change-requests"),
+      userApi.get("/progress").catch((error) => {
+        console.error("Unable to verify whether the fitness goal has been reached:", error);
+        setGoalUnlockError("Unable to verify goal completion. Refresh the page to try again.");
+        return null;
+      }),
     ])
-      .then(([profileResponse, requestResponse]) => {
+      .then(([profileResponse, requestResponse, progressResponse]) => {
         const d = profileResponse.data.data;
+      if (progressResponse) setGoalUnlockError("");
+        const progressLogs = progressResponse?.data.data || [];
+        const latestProgressWeight = [...progressLogs]
+          .reverse()
+          .find((entry) => entry.weight != null)?.weight;
+        const currentWeight = Number(latestProgressWeight ?? d.weight);
+        const targetWeight = Number(d.target_weight);
+        const fitnessGoal = normalizeFitnessGoal(d.fitness_goal || "");
+        setCanChangeFitnessGoal(
+          progressResponse !== null &&
+          Number.isFinite(currentWeight) &&
+          Number.isFinite(targetWeight) &&
+          ((fitnessGoal === "Weight Loss" && currentWeight <= targetWeight) ||
+            (fitnessGoal === "Gain Weight" && currentWeight >= targetWeight))
+        );
         const profileForm = {
           first_name: d.first_name || "",
           last_name: d.last_name || "",
@@ -105,7 +128,7 @@ export default function ProfilePage() {
           birth_date: d.birth_date ? d.birth_date.split("T")[0] : "",
           height: d.height || "",
           weight: d.weight || "",
-          fitness_goal: normalizeFitnessGoal(d.fitness_goal || ""),
+          fitness_goal: fitnessGoal,
           activity_level: d.activity_level || "",
           injuries: toSelectionList(d.injuries),
           health_conditions: toSelectionList(d.health_conditions),
@@ -163,6 +186,7 @@ export default function ProfilePage() {
   };
 
   const handleChange = (key, val) => {
+    if (key === "fitness_goal" && !canChangeFitnessGoal) return;
     setForm((f) => {
       const updated = { ...f, [key]: val };
       if ((key === "weight" || key === "height") && updated.weight && updated.height) {
@@ -274,7 +298,7 @@ export default function ProfilePage() {
   };
 
   const handleSave = async () => {
-    if (!isValidPhoneNumber(form.phone)) {
+    if (form.phone && !isValidPhoneNumber(form.phone)) {
       setMsg("Phone number must start with 09 and contain exactly 11 digits.");
       return;
     }
@@ -282,8 +306,12 @@ export default function ProfilePage() {
     setMsg("");
     try {
       const profileChanges = Object.fromEntries(
-        Object.entries(form).filter(([key]) => !["email", "injuries", "health_conditions", "injury_pain_levels"].includes(key))
+        Object.entries(form).filter(([key]) => (
+          !["email", "injuries", "health_conditions", "injury_pain_levels"].includes(key) &&
+          (key !== "fitness_goal" || canChangeFitnessGoal)
+        ))
       );
+      if (!profileChanges.phone) profileChanges.phone = null;
       const res = await userApi.put("/profile", profileChanges);
       if (res.data.request) {
         setChangeRequests((current) => [res.data.request, ...current]);
@@ -519,7 +547,7 @@ export default function ProfilePage() {
           </div>
 
           <div>
-            <label htmlFor="profile-phone" className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Phone Number</label>
+            <label htmlFor="profile-phone" className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Phone Number <span className="font-normal text-slate-400">(optional)</span></label>
             <div className="flex min-h-12 w-full items-stretch overflow-hidden rounded-xl border border-slate-200 bg-slate-50 shadow-sm transition hover:border-slate-300 focus-within:border-orange-500 focus-within:ring-4 focus-within:ring-orange-500/15 dark:border-white/10 dark:bg-white/[0.04] dark:hover:border-white/20 dark:focus-within:border-orange-500">
               <span aria-hidden="true" className="flex select-none items-center border-r border-slate-200 bg-slate-100 px-4 text-sm font-semibold tracking-wide text-slate-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-200">09</span>
               <input
@@ -529,10 +557,12 @@ export default function ProfilePage() {
                 autoComplete="tel"
                 maxLength={9}
                 pattern="[0-9]{9}"
-                required
-                aria-invalid={Boolean(form.phone.slice(2)) && !isValidPhoneNumber(form.phone)}
+                aria-invalid={Boolean(form.phone && form.phone.slice(2)) && !isValidPhoneNumber(form.phone)}
                 value={form.phone.startsWith("09") ? form.phone.slice(2) : ""}
-                onChange={(event) => handleChange("phone", `09${event.target.value.replace(/\D/g, "").slice(0, 9)}`)}
+                onChange={(event) => {
+                  const digits = event.target.value.replace(/\D/g, "").slice(0, 9);
+                  handleChange("phone", digits ? `09${digits}` : "");
+                }}
                 placeholder="000 000 000"
                 className="min-w-0 flex-1 bg-transparent px-4 py-3 text-sm font-medium tracking-wide text-slate-900 outline-none placeholder:text-slate-400 dark:text-white dark:placeholder:text-slate-500"
               />
@@ -553,18 +583,34 @@ export default function ProfilePage() {
             <span className="grid h-10 w-10 place-items-center rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400"><Dumbbell size={19} /></span>
             <div>
               <h2 className="font-bold text-slate-900 dark:text-white">Fitness settings</h2>
-              <p className="text-xs text-slate-500">Adjust your goal. Your coach manages your experience level.</p>
+              <p className="text-xs text-slate-500">Goal changes unlock when you reach your target weight. Your coach manages your experience level.</p>
             </div>
           </div>
           <div>
-            <label htmlFor="profile-fitness-goal" className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Fitness goal</label>
-            <select id="profile-fitness-goal" value={form.fitness_goal} onChange={(e) => handleChange("fitness_goal", e.target.value)}
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-500 dark:border-white/10 dark:bg-white/5 dark:text-white">
-              <option value="">Select goal...</option>
-              {["Weight Loss", "Gain Weight", "General Fitness", "Endurance", "Maintain Weight"].map((g) => (
-                <option key={g}>{g}</option>
-              ))}
-            </select>
+            {canChangeFitnessGoal ? (
+              <>
+                <label htmlFor="profile-fitness-goal" className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">Fitness goal</label>
+                <select
+                  id="profile-fitness-goal"
+                  value={form.fitness_goal}
+                  onChange={(event) => handleChange("fitness_goal", event.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-orange-500 dark:border-white/10 dark:bg-white/5 dark:text-white"
+                >
+                  {!form.fitness_goal && <option value="">Not set</option>}
+                  {["Weight Loss", "Gain Weight", "General Fitness", "Endurance", "Maintain Weight"].map((goal) => (
+                    <option key={goal} value={goal}>{goal}</option>
+                  ))}
+                </select>
+              </>
+            ) : (
+              <>
+                <p className="mb-1 text-xs font-medium text-slate-600 dark:text-slate-300">Fitness goal</p>
+                <p className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-300">
+                  {form.fitness_goal || "Not set"}
+                </p>
+              </>
+            )}
+            {goalUnlockError && <p role="status" className="mt-1 text-xs text-amber-700 dark:text-amber-300">{goalUnlockError}</p>}
           </div>
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-white/10 dark:bg-white/[0.03]">
                 <label htmlFor="profile-experience-level" className="text-xs font-medium text-slate-500">Experience level</label>
@@ -698,23 +744,6 @@ export default function ProfilePage() {
             </form>
           </>
           )}
-        </section>
-
-        {/* Quick Links */}
-        <section className="overflow-hidden rounded-2xl border border-orange-100 bg-white shadow-sm dark:border-white/5 dark:bg-[#111]">
-          <div className="border-b border-slate-200 px-5 py-4 dark:border-white/10">
-            <h2 className="font-bold text-slate-900 dark:text-white">Fitness setup</h2>
-            <p className="mt-1 text-xs text-slate-500">Edit your settings below. Changes need admin approval before taking effect.</p>
-          </div>
-          {[
-            { label: "Change fitness goal", target: "profile-fitness-settings" },
-          ].map((item) => (
-            <button key={item.label} type="button" onClick={() => document.getElementById(item.target)?.scrollIntoView({ behavior: "smooth", block: "start" })}
-              className="flex w-full items-center justify-between border-b border-slate-200 px-5 py-4 text-left transition hover:bg-slate-50 last:border-0 dark:border-white/10 dark:hover:bg-white/[0.03]">
-              <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{item.label}</span>
-              <ChevronRight size={16} className="text-slate-500" />
-            </button>
-          ))}
         </section>
 
         {/* Save + Logout */}

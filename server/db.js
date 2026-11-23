@@ -1,6 +1,5 @@
 const { Pool } = require("pg");
 const path = require("path");
-const { isTransientDatabaseError } = require("./utils/databaseErrors");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 
 const getDatabaseConfig = () => {
@@ -67,8 +66,6 @@ const getDatabaseConfig = () => {
         }),
     ssl: sslEnabled ? {} : false,
     connectionTimeoutMillis: 10000,
-    keepAlive: true,
-    keepAliveInitialDelayMillis: 10000,
   };
 };
 
@@ -264,6 +261,62 @@ const initializeDatabase = async () => {
         ELSE equipment_condition
       END
       WHERE status IN ('Needs inspection', 'Under repair', 'In service', 'Needs replacement')
+    `);
+    await client.query(`
+      ALTER TABLE equipment_inventory
+      ADD COLUMN IF NOT EXISTS in_service_count INTEGER NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS under_maintenance_count INTEGER NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS needs_replacement_count INTEGER NOT NULL DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS needs_inspection_count INTEGER NOT NULL DEFAULT 0
+    `);
+    await client.query(`
+      UPDATE equipment_inventory
+      SET in_service_count = CASE
+            WHEN status IN ('In service', 'Repaired', 'Replaced') THEN quantity
+            ELSE 0
+          END,
+          under_maintenance_count = CASE
+            WHEN status IN ('Under Maintenance', 'Under maintenance', 'Under repair') THEN quantity
+            ELSE 0
+          END,
+          needs_replacement_count = CASE
+            WHEN status IN ('Needs replacement', 'Retired') THEN quantity
+            ELSE 0
+          END,
+          needs_inspection_count = CASE WHEN status = 'Needs inspection' THEN quantity ELSE 0 END
+      WHERE in_service_count + under_maintenance_count + needs_replacement_count + needs_inspection_count = 0
+    `);
+    await client.query(`
+      UPDATE equipment_inventory
+      SET status = CASE
+        WHEN needs_replacement_count > 0 THEN 'Needs replacement'
+        WHEN under_maintenance_count > 0 THEN 'Under Maintenance'
+        WHEN needs_inspection_count > 0 THEN 'Needs inspection'
+        ELSE 'In service'
+      END
+    `);
+    await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_constraint
+          WHERE conrelid = 'equipment_inventory'::regclass
+            AND conname = 'equipment_inventory_status_counts_match_quantity'
+        ) THEN
+          ALTER TABLE equipment_inventory
+          ADD CONSTRAINT equipment_inventory_status_counts_match_quantity
+          CHECK (
+            in_service_count >= 0
+            AND under_maintenance_count >= 0
+            AND needs_replacement_count >= 0
+            AND needs_inspection_count >= 0
+            AND in_service_count + under_maintenance_count
+              + needs_replacement_count + needs_inspection_count = quantity
+          );
+        END IF;
+      END
+      $$
     `);
     await client.query(`
       DO $$
@@ -710,6 +763,22 @@ const initializeDatabase = async () => {
     `);
 
     await client.query(`
+      CREATE TABLE IF NOT EXISTS admin_audit_logs (
+        audit_id BIGSERIAL PRIMARY KEY,
+        admin_id INTEGER,
+        event_type VARCHAR(40) NOT NULL,
+        request_method VARCHAR(12) NOT NULL,
+        request_path VARCHAR(240) NOT NULL,
+        status_code SMALLINT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS admin_audit_logs_created_at_idx
+      ON admin_audit_logs (created_at DESC)
+    `);
+
+    await client.query(`
       ALTER TABLE admins
       ADD COLUMN IF NOT EXISTS password_reset_token_hash TEXT
     `);
@@ -764,4 +833,3 @@ const initializeDatabase = async () => {
 module.exports = pool;
 module.exports.initializeDatabase = initializeDatabase;
 module.exports.expireMemberships = expireMemberships;
-module.exports.isTransientDatabaseError = isTransientDatabaseError;

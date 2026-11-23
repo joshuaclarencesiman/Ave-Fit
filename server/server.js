@@ -2,10 +2,12 @@ require("dotenv").config({ path: require("path").join(__dirname, ".env") });
 const express = require("express");
 const cors = require("cors");
 
-const { initializeDatabase, expireMemberships, isTransientDatabaseError } = require("./db");
+const { initializeDatabase, expireMemberships } = require("./db");
+const auditAdminActivity = require("./middleware/adminAuditMiddleware");
 const {
   sendWeeklyBmiReminders,
   sendUnassignedWorkoutReminders,
+  sendMemberNoWorkoutPlanReminders,
 } = require("./utils/notifications");
 
 // Admin routes
@@ -55,6 +57,7 @@ app.use((req, res, next) => {
 
 // Profile photos are compressed to small data URLs by the client and validated again server-side.
 app.use(express.json({ limit: "3mb" }));
+app.use("/api", auditAdminActivity);
 
 app.get("/", (req, res) => res.send("AveFit API is running 🚀"));
 
@@ -105,6 +108,15 @@ const waitForDatabase = async (maxAttempts = 10, delayMs = 5000) => {
 
 // Network-level failures (DNS lookup, dropped Wi-Fi, laptop waking from sleep).
 // These are temporary: the job simply runs again on its next interval.
+const NETWORK_ERRORS = [
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "ECONNRESET",
+  "ENETUNREACH",
+  "EHOSTUNREACH",
+];
 const lastNetworkWarning = {};
 
 const runJob = (label, fn) => async () => {
@@ -112,10 +124,10 @@ const runJob = (label, fn) => async () => {
     await fn();
     delete lastNetworkWarning[label];
   } catch (err) {
-    if (isTransientDatabaseError(err)) {
+    if (NETWORK_ERRORS.includes(err.code)) {
       // Warn once per outage instead of every minute.
       if (!lastNetworkWarning[label]) {
-        console.warn(`\u26a0\ufe0f ${label} skipped: database connection temporarily unavailable (${err.code || "connection error"}). Will retry automatically.`);
+        console.warn(`\u26a0\ufe0f ${label} skipped: database unreachable (${err.code || "network"}). Will retry automatically.`);
         lastNetworkWarning[label] = true;
       }
     } else {
@@ -127,14 +139,17 @@ const runJob = (label, fn) => async () => {
 const membershipJob = runJob("Membership expiry check", expireMemberships);
 const bmiJob = runJob("Weekly BMI reminder check", sendWeeklyBmiReminders);
 const workoutJob = runJob("No-workout reminder check", sendUnassignedWorkoutReminders);
+const memberWorkoutJob = runJob("Member no-workout reminder check", sendMemberNoWorkoutPlanReminders);
 
 waitForDatabase()
   .then(() => {
     setInterval(membershipJob, 60 * 1000).unref();
     setInterval(bmiJob, 60 * 60 * 1000).unref();
     setInterval(workoutJob, 60 * 60 * 1000).unref();
+    setInterval(memberWorkoutJob, 60 * 60 * 1000).unref();
     bmiJob();
     workoutJob();
+    memberWorkoutJob();
     app.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));
   })
   .catch((err) => {

@@ -238,7 +238,7 @@ function MembershipStatusModal({ member, onClose, onSave, isSaving = false }) {
   );
 }
 
-function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, onViewProgress }) {
+function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, onViewProgress, onDeactivate }) {
   const bmiInfo = getBMICategory(member.bmi);
   const [selectedTrainer, setSelectedTrainer] = useState(member.trainer_id || "");
   const [recommendations, setRecommendations] = useState([]);
@@ -249,6 +249,11 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
   const [changesError, setChangesError] = useState("");
   const assignedTrainer = trainers.find(t => Number(t.trainer_id) === Number(member.trainer_id));
   const canEditMembershipAndCoach = String(member.status || "").trim() === "Active";
+  const selectedCoach = recommendations.find((coach) => String(coach.trainer_id) === String(selectedTrainer));
+  const coachChanged = String(selectedTrainer || "") !== String(member.trainer_id || "");
+  const selectedCoachAtCapacity = Boolean(selectedCoach &&
+    Number(selectedCoach.max_members) > 0 &&
+    Number(selectedCoach.assigned_member_count) >= Number(selectedCoach.max_members));
   useEffect(() => {
     setMembershipMonths(member.membership_months || 1);
     setSelectedTrainer(member.trainer_id || "");
@@ -271,6 +276,9 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
     setSavingChanges(true);
     setChangesError("");
     try {
+      if (coachChanged && selectedCoachAtCapacity) {
+        throw new Error("This coach has reached their maximum member capacity. Choose another coach.");
+      }
       if (coachChanged) await onAssign(member, selectedTrainer || null);
       if (membershipChanged) {
         await onMembershipUpdate(member, membershipMonths ? Number(membershipMonths) : null);
@@ -292,8 +300,6 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
     ? getMembershipEndDate(membershipStartDate, membershipMonths)
     : null;
   const membershipChanged = String(membershipMonths || "") !== String(member.membership_months || "");
-  const selectedCoach = recommendations.find((coach) => String(coach.trainer_id) === String(selectedTrainer));
-  const coachChanged = String(selectedTrainer || "") !== String(member.trainer_id || "");
   const hasChanges = membershipChanged || coachChanged;
   const injuries = toHealthNotes(member.injuries).map((area) => {
     const level = Number(member.injury_pain_levels?.[area]);
@@ -345,6 +351,21 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
             ))}
             <div className="rounded-xl bg-slate-50 p-3 dark:bg-[#222]"><p className="text-xs text-slate-400">Email verified</p><p className="mt-1 font-semibold text-slate-700 dark:text-gray-200">{member.email_verified ? "Yes" : "No"}</p></div>
           </div>
+          {String(member.status || "").trim().toLowerCase() === "active" && (
+            <section className="flex flex-col gap-3 rounded-2xl border border-red-200 bg-red-50/70 p-4 dark:border-red-500/20 dark:bg-red-500/[0.05] sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">Account access</h3>
+                <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-400">Deactivate this account to block member access. Membership dates and workout history will be retained.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => onDeactivate(member)}
+                className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-red-300 bg-white px-3 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300 dark:hover:bg-red-500/20"
+              >
+                <XCircle size={16} /> Deactivate account
+              </button>
+            </section>
+          )}
           <section className="rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
             <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-400">Training preferences</p>
             <p className="mt-2 text-sm text-slate-700 dark:text-slate-200">
@@ -446,6 +467,8 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
                 {recommendations.map((coach) => {
                   const capacity = Number(coach.max_members) || 0;
                   const assigned = Number(coach.assigned_member_count) || 0;
+                  const atCapacity = capacity > 0 && assigned >= capacity;
+                  const alreadyAssigned = String(member.trainer_id || "") === String(coach.trainer_id);
                   const selected = String(selectedTrainer) === String(coach.trainer_id);
                   const specializations = Array.isArray(coach.specializations)
                     ? coach.specializations.filter(Boolean)
@@ -461,7 +484,7 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
                       <button
                         type="button"
                         onClick={() => setSelectedTrainer(String(coach.trainer_id))}
-                        disabled={!canEditMembershipAndCoach || recommendationsLoading}
+                        disabled={!canEditMembershipAndCoach || recommendationsLoading || (atCapacity && !alreadyAssigned)}
                         aria-pressed={selected}
                         className="block w-full p-3 text-left transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-60 dark:hover:bg-white/[0.03]"
                       >
@@ -487,7 +510,7 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
                         </div>
                         <div className="mt-3 flex items-center justify-between gap-2 text-[11px] text-slate-600 dark:text-slate-300">
                           <span>{assigned}/{capacity} members · {Math.max(capacity - assigned, 0)} slots remaining</span>
-                          <span>{coach.capacity_status || (Number(coach.capacity_percent) >= 80 ? "Near Capacity" : "Active")}</span>
+                          <span>{atCapacity ? "Full" : coach.capacity_status || (Number(coach.capacity_percent) >= 80 ? "Near Capacity" : "Active")}</span>
                         </div>
                         <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-white/10">
                           <span className="block h-full rounded-full bg-orange-500" style={{ width: `${Math.min(Number(coach.capacity_percent) || 0, 100)}%` }} />
@@ -522,10 +545,10 @@ function ViewModal({ member, trainers, onClose, onAssign, onMembershipUpdate, on
               <p role="status" className="mt-2 rounded-lg border border-amber-300/50 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200">{recommendationMessage}</p>
             )}
             {selectedTrainer && selectedCoach && (
-              <div role={selectedCoach.schedule_compatible && Number(selectedCoach.assigned_member_count) < Number(selectedCoach.max_members) ? "status" : "alert"} className={`mt-3 rounded-lg border px-3 py-2 text-xs ${selectedCoach.schedule_compatible && Number(selectedCoach.assigned_member_count) < Number(selectedCoach.max_members) ? "border-green-200 bg-green-50 text-green-800 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-200" : "border-amber-300/50 bg-amber-50 text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200"}`}>
-                {!selectedCoach.schedule_compatible && <p>This coach’s availability does not match the member’s preferred workout schedule. You can still assign this coach.</p>}
-                {Number(selectedCoach.assigned_member_count) >= Number(selectedCoach.max_members) && <p className={!selectedCoach.schedule_compatible ? "mt-1" : ""}>This coach is at full capacity. You can still assign this coach.</p>}
-                {selectedCoach.schedule_compatible && Number(selectedCoach.assigned_member_count) < Number(selectedCoach.max_members) && <p>Schedule matches. Compatible days: {selectedCoach.matched_days.map((day) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][day]).join(", ") || "—"}</p>}
+              <div role={selectedCoach.schedule_compatible && !selectedCoachAtCapacity ? "status" : "alert"} className={`mt-3 rounded-lg border px-3 py-2 text-xs ${selectedCoach.schedule_compatible && !selectedCoachAtCapacity ? "border-green-200 bg-green-50 text-green-800 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-200" : "border-amber-300/50 bg-amber-50 text-amber-800 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200"}`}>
+                {!selectedCoach.schedule_compatible && <p>This coach’s availability does not match the member’s preferred workout schedule.{selectedCoachAtCapacity ? " Choose another coach because this coach is full." : " You can still assign this coach."}</p>}
+                {selectedCoachAtCapacity && <p className={!selectedCoach.schedule_compatible ? "mt-1" : ""}>{coachChanged ? "This coach has reached their maximum member capacity. Choose another coach." : "This coach is at maximum capacity. This member is already assigned and can remain with this coach."}</p>}
+                {selectedCoach.schedule_compatible && !selectedCoachAtCapacity && <p>Schedule matches. Compatible days: {selectedCoach.matched_days.map((day) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][day]).join(", ") || "—"}</p>}
               </div>
             )}
             {!canEditMembershipAndCoach && <p className="mt-2 text-xs text-slate-500">Coach assignment is locked until this member is active.</p>}
@@ -549,6 +572,9 @@ export default function Members() {
   const [confirmMember, setConfirmMember] = useState(null);
   const [deletingMember, setDeletingMember] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  const [memberToDeactivate, setMemberToDeactivate] = useState(null);
+  const [deactivatingMember, setDeactivatingMember] = useState(false);
+  const [deactivationError, setDeactivationError] = useState("");
   const [changeRequests, setChangeRequests] = useState([]);
   const [membershipRequests, setMembershipRequests] = useState([]);
   const [reviewingRequestId, setReviewingRequestId] = useState(null);
@@ -647,6 +673,26 @@ export default function Members() {
 
   const handleApprove=async id=>{setDecisionNotice("");try{const member = members.find((row) => Number(row.member_id) === Number(id));const response=await api.put(`/members/${id}/approve`);setDecisionNotice(response.data.email_sent===false?"Member approved, but the notification email could not be delivered. Check the email-service configuration.":"Member approved and the notification email was sent.");const updatedMembers=await fetchData();const approvedMember=updatedMembers?.find((row)=>Number(row.member_id)===Number(id)) || member;if(approvedMember){setMembershipPromptMember({ ...approvedMember, membership_months: approvedMember.membership_months || 1 });}}catch(e){alert(e.response?.data?.message||"Failed to update member status.");}};
   const handleReject=async id=>{setDecisionNotice("");try{const response=await api.put(`/members/${id}/reject`);setDecisionNotice(response.data.email_sent===false?"Member status updated, but the notification email could not be delivered. Check the email-service configuration.":"Member status updated and the notification email was sent.");await fetchData();}catch(e){alert(e.response?.data?.message||"Failed to deactivate member.");}};
+  const handleDeactivate = async () => {
+    if (!memberToDeactivate) return;
+    setDeactivatingMember(true);
+    setDeactivationError("");
+    setDecisionNotice("");
+    try {
+      const response = await api.put(`/members/${memberToDeactivate.member_id}/deactivate`);
+      setDecisionNotice(response.data.message || `${memberToDeactivate.full_name} is now inactive.`);
+      const updatedMembers = await fetchData();
+      const updatedMember = updatedMembers?.find(
+        (member) => Number(member.member_id) === Number(memberToDeactivate.member_id)
+      );
+      if (updatedMember) setViewMember(updatedMember);
+      setMemberToDeactivate(null);
+    } catch (error) {
+      setDeactivationError(error.response?.data?.message || "Unable to deactivate this member account.");
+    } finally {
+      setDeactivatingMember(false);
+    }
+  };
   const handleDelete=(id)=>{
     const member = members.find((row) => Number(row.member_id) === Number(id));
     if (member) setConfirmMember(member);
@@ -712,9 +758,10 @@ export default function Members() {
 
   return <div className="space-y-6">
     {membershipPromptMember && <MembershipStatusModal member={membershipPromptMember} isSaving={savingMembershipPrompt} onClose={() => setMembershipPromptMember(null)} onSave={async (member, membershipMonths) => { setSavingMembershipPrompt(true); try { await handleMembershipUpdate(member, membershipMonths); } finally { setSavingMembershipPrompt(false); } }} />}
-    {viewMember&&<ViewModal member={viewMember} trainers={trainers} onClose={()=>setViewMember(null)} onAssign={handleAssign} onMembershipUpdate={handleMembershipUpdate} onViewProgress={setProgressMember}/>}
+    {viewMember&&<ViewModal member={viewMember} trainers={trainers} onClose={()=>setViewMember(null)} onAssign={handleAssign} onMembershipUpdate={handleMembershipUpdate} onViewProgress={setProgressMember} onDeactivate={(member) => { setDeactivationError(""); setMemberToDeactivate(member); }}/>}
     {progressMember&&<ProgressHistoryModal member={progressMember} fetchProgress={fetchAdminProgress} onClose={()=>setProgressMember(null)}/>}
     {confirmMember&&<ConfirmDialog title={`Delete ${confirmMember.full_name || "this member"} permanently?`} description="This action cannot be undone. The member’s account and associated records will be permanently deleted." confirmLabel="Delete member" isLoading={deletingMember} error={deleteError} onCancel={()=>{if(!deletingMember){setConfirmMember(null);setDeleteError("");}}} onConfirm={confirmDelete}/>}
+    {memberToDeactivate&&<ConfirmDialog title={`Deactivate ${memberToDeactivate.full_name || "this member"}?`} description="This immediately blocks the member from using their account and invalidates their current session. Their membership dates and workout history will be retained. You can reactivate the account later." confirmLabel="Deactivate account" isLoading={deactivatingMember} error={deactivationError} onCancel={()=>{if(!deactivatingMember){setMemberToDeactivate(null);setDeactivationError("");}}} onConfirm={handleDeactivate}/>}
     {reviewRequestToReject&&<ConfirmDialog title="Reject this change request?" description="The member's current profile and password will remain unchanged. The member will be notified by email." confirmLabel="Reject request" isLoading={reviewingRequestId === reviewRequestToReject.request_id} error={reviewError} onCancel={()=>{if(!reviewingRequestId)setReviewRequestToReject(null);}} onConfirm={()=>handleReviewChangeRequest(reviewRequestToReject, "reject")}/>}
 
     <header className="ave-page-hero rounded-3xl border border-orange-100 px-5 py-6 dark:border-white/5 sm:px-7 sm:py-8"><p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-600 dark:text-orange-400">People management</p><div className="mt-2 flex flex-wrap items-end justify-between gap-4"><div><h1 className="text-3xl font-black text-slate-900 dark:text-white">Members</h1><p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Manage accounts, approvals, fitness profiles, and coach assignments.</p></div></div></header>
@@ -861,7 +908,7 @@ export default function Members() {
       </div>
     </div>
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-white/10 dark:bg-[#111]">
-      {loading?<div className="p-8 space-y-3">{[...Array(5)].map((_,i)=><div key={i} className="h-10 bg-slate-100 dark:bg-gray-800 rounded-lg animate-pulse"/>)}</div>:<div className="overflow-x-auto"><table className="w-full min-w-[1080px] table-fixed text-sm"><colgroup><col style={{ width: "22%" }} /><col style={{ width: "8%" }} /><col style={{ width: "14%" }} /><col style={{ width: "7%" }} /><col style={{ width: "15%" }} /><col style={{ width: "8%" }} /><col style={{ width: "10%" }} /><col style={{ width: "16%" }} /></colgroup><thead className="bg-slate-50 dark:bg-[#202020] border-b border-slate-200 dark:border-gray-800"><tr>{["Member","Goal","Designated Coach","BMI","Membership period","Status","Joined","Actions"].map(h=><th key={h} className="text-left px-2 py-4 sm:px-3 font-semibold text-slate-600 dark:text-gray-300">{h}</th>)}</tr></thead><tbody className="divide-y divide-slate-100 dark:divide-gray-800">{filtered.length===0?<tr><td colSpan={8} className="text-center py-12 text-slate-400">No members found.</td></tr>:paginatedMembers.map(member=>{const bmiInfo=getBMICategory(member.bmi);const membershipStatus=getMembershipStatus(member);const memberStatus=member.status?.trim().toLowerCase();return <tr key={member.member_id} onClick={()=>setViewMember(member)} className="hover:bg-slate-50 dark:hover:bg-[#202020] transition cursor-pointer"><td className="px-2 py-4 sm:px-3"><div className="flex min-w-0 items-center gap-2"><MemberPhoto member={member}/><div className="min-w-0">      <p className="flex min-w-0 items-center gap-1.5 font-semibold text-slate-800 dark:text-white"><span className="truncate">{member.full_name}</span>{member.missing_profile_fields?.length > 0 && <span title={`Missing information: ${member.missing_profile_fields.join(", ")}`} aria-label={`Incomplete profile: ${member.missing_profile_fields.join(", ")}`} className="h-2 w-2 shrink-0 rounded-full bg-red-500"/>}</p><p className="truncate text-slate-400 text-xs">{member.email}</p><p className={`mt-0.5 text-[11px] font-semibold ${member.email_verified?"text-green-500":"text-orange-500"}`}>{member.email_verified?"✓ Email verified":"⚠ Email not verified"}</p></div></div></td><td className="px-2 py-4 sm:px-3 text-slate-600 dark:text-gray-300">{member.fitness_goal||"—"}</td><td className="px-2 py-4 sm:px-3">{member.trainer_id?<div className="flex items-center gap-2 text-slate-700 dark:text-gray-200">{member.trainer_photo_url?<img src={member.trainer_photo_url} alt="" className="w-8 h-8 rounded-full object-contain bg-black"/>:<div className="w-8 h-8 rounded-full bg-orange-100 dark:bg-orange-500/15 flex items-center justify-center text-orange-500 text-xs font-bold">{member.trainer_name?.charAt(0)||"?"}</div>}<span className="truncate">{member.trainer_name||"Assigned Coach"}</span></div>:<span className="text-slate-400">Not assigned</span>}</td><td className="px-2 py-4 sm:px-3"><div className="flex min-w-0 flex-col items-start"><span className="font-semibold text-slate-800 dark:text-white">{member.bmi?parseFloat(member.bmi).toFixed(1):"?"}</span><span className={`text-xs font-medium ${bmiInfo.color}`}>{bmiInfo.label}</span></div></td><td className="px-2 py-4 sm:px-3">            <div className="space-y-1"><div className="flex items-center gap-2"><p className="font-semibold text-slate-800 dark:text-white">{member.membership_months ? `${member.membership_months === 12 ? "1 year" : `${member.membership_months} ${member.membership_months === 1 ? "month" : "months"}`}` : "Not recorded"}</p>{!member.membership_months && <span title="No membership assigned yet" aria-label="No membership assigned" className="h-2.5 w-2.5 shrink-0 rounded-full bg-red-500" />}</div><span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${membershipStatus === "Active" ? "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-400" : membershipStatus === "Inactive" ? "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400" : membershipStatus === "Upcoming" ? "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400" : "bg-slate-100 text-slate-600 dark:bg-slate-700/50 dark:text-slate-300"}`}>{membershipStatus}</span>{member.membership_start_date && member.membership_end_date && <p className="text-xs text-slate-500 dark:text-slate-400">{formatMembershipDate(member.membership_start_date)} – {formatMembershipDate(member.membership_end_date)}</p>}</div></td><td className="px-2 py-4 sm:px-3 whitespace-nowrap"><span className={`px-3 py-1 rounded-full text-xs font-semibold ${statusColors[member.status]||statusColors.Inactive}`}>{member.status||"Inactive"}</span></td><td className="px-2 py-4 sm:px-3 text-slate-500 dark:text-gray-400">{member.joined_date?formatMembershipDate(member.joined_date):"—"}</td><td className="px-2 py-4 sm:px-3" onClick={e=>e.stopPropagation()}><div className="flex items-center justify-start gap-1"><button onClick={()=>setViewMember(member)} className="grid h-8 w-8 place-items-center rounded-lg text-orange-500 transition hover:bg-orange-50 dark:hover:bg-orange-500/10" title="View member / change coach" aria-label={`View ${member.full_name}`}><UserRoundCog size={16}/></button>{memberStatus==="pending"?<button onClick={()=>handleApprove(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-green-600 text-white transition hover:bg-green-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title="Approve member" aria-label={`Approve ${member.full_name}`}><CheckCircle size={16}/></button>:(memberStatus==="inactive"||memberStatus==="rejected")?<button onClick={()=>handleApprove(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-green-600 text-white transition hover:bg-green-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title={memberStatus==="rejected"?"Approve member":"Reactivate member"} aria-label={`${memberStatus==="rejected"?"Approve":"Reactivate"} ${member.full_name}`}><CheckCircle size={16}/></button>:null}{memberStatus==="pending"?<button onClick={()=>handleReject(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-red-600 text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title="Reject" aria-label={`Reject ${member.full_name}`}><XCircle size={16}/></button>:null}<button onClick={()=>handleDelete(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-red-600 text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title="Delete" aria-label={`Delete ${member.full_name}`}><Trash2 size={16}/></button></div></td></tr>})}</tbody></table></div>}
+      {loading?<div className="p-8 space-y-3">{[...Array(5)].map((_,i)=><div key={i} className="h-10 bg-slate-100 dark:bg-gray-800 rounded-lg animate-pulse"/>)}</div>:<div className="overflow-hidden"><table className="w-full table-fixed text-xs lg:text-sm"><colgroup><col style={{ width: "22%" }} /><col style={{ width: "8%" }} /><col style={{ width: "14%" }} /><col style={{ width: "7%" }} /><col style={{ width: "15%" }} /><col style={{ width: "8%" }} /><col style={{ width: "10%" }} /><col style={{ width: "16%" }} /></colgroup><thead className="bg-slate-50 dark:bg-[#202020] border-b border-slate-200 dark:border-gray-800"><tr>{["Member","Goal","Designated Coach","BMI","Membership period","Status","Joined","Actions"].map(h=><th key={h} className="text-left px-2 py-4 sm:px-3 font-semibold text-slate-600 dark:text-gray-300">{h}</th>)}</tr></thead><tbody className="divide-y divide-slate-100 dark:divide-gray-800">{filtered.length===0?<tr><td colSpan={8} className="text-center py-12 text-slate-400">No members found.</td></tr>:paginatedMembers.map(member=>{const bmiInfo=getBMICategory(member.bmi);const membershipStatus=getMembershipStatus(member);const memberStatus=member.status?.trim().toLowerCase();return <tr key={member.member_id} onClick={()=>setViewMember(member)} className="hover:bg-slate-50 dark:hover:bg-[#202020] transition cursor-pointer"><td className="px-2 py-4 sm:px-3"><div className="flex min-w-0 items-center gap-2"><MemberPhoto member={member}/><div className="min-w-0">      <p className="flex min-w-0 items-center gap-1.5 font-semibold text-slate-800 dark:text-white"><span className="truncate">{member.full_name}</span>{member.missing_profile_fields?.length > 0 && <span title={`Missing information: ${member.missing_profile_fields.join(", ")}`} aria-label={`Incomplete profile: ${member.missing_profile_fields.join(", ")}`} className="h-2 w-2 shrink-0 rounded-full bg-red-500"/>}</p><p className="truncate text-slate-400 text-xs">{member.email}</p><p className={`mt-0.5 text-[11px] font-semibold ${member.email_verified?"text-green-500":"text-orange-500"}`}>{member.email_verified?"✓ Email verified":"⚠ Email not verified"}</p></div></div></td><td className="px-2 py-4 sm:px-3 text-slate-600 dark:text-gray-300">{member.fitness_goal||"—"}</td><td className="px-2 py-4 sm:px-3">{member.trainer_id?<div className="flex items-center gap-2 text-slate-700 dark:text-gray-200">{member.trainer_photo_url?<img src={member.trainer_photo_url} alt="" className="w-8 h-8 rounded-full object-contain bg-black"/>:<div className="w-8 h-8 rounded-full bg-orange-100 dark:bg-orange-500/15 flex items-center justify-center text-orange-500 text-xs font-bold">{member.trainer_name?.charAt(0)||"?"}</div>}<span className="truncate">{member.trainer_name||"Assigned Coach"}</span></div>:<span className="text-slate-400">Not assigned</span>}</td><td className="px-2 py-4 sm:px-3"><div className="flex min-w-0 flex-col items-start"><span className="font-semibold text-slate-800 dark:text-white">{member.bmi?parseFloat(member.bmi).toFixed(1):"?"}</span><span className={`text-xs font-medium ${bmiInfo.color}`}>{bmiInfo.label}</span></div></td><td className="px-2 py-4 sm:px-3">            <div className="space-y-1"><div className="flex items-center gap-2"><p className="font-semibold text-slate-800 dark:text-white">{member.membership_months ? `${member.membership_months === 12 ? "1 year" : `${member.membership_months} ${member.membership_months === 1 ? "month" : "months"}`}` : "Not recorded"}</p>{!member.membership_months && <span title="No membership assigned yet" aria-label="No membership assigned" className="h-2.5 w-2.5 shrink-0 rounded-full bg-red-500" />}</div><span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${membershipStatus === "Active" ? "bg-green-100 text-green-700 dark:bg-green-500/15 dark:text-green-400" : membershipStatus === "Inactive" ? "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400" : membershipStatus === "Upcoming" ? "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400" : "bg-slate-100 text-slate-600 dark:bg-slate-700/50 dark:text-slate-300"}`}>{membershipStatus}</span>{member.membership_start_date && member.membership_end_date && <p className="text-xs text-slate-500 dark:text-slate-400">{formatMembershipDate(member.membership_start_date)} – {formatMembershipDate(member.membership_end_date)}</p>}</div></td><td className="px-2 py-4 sm:px-3 whitespace-nowrap"><span className={`px-3 py-1 rounded-full text-xs font-semibold ${statusColors[member.status]||statusColors.Inactive}`}>{member.status||"Inactive"}</span></td><td className="px-2 py-4 sm:px-3 text-slate-500 dark:text-gray-400">{member.joined_date?formatMembershipDate(member.joined_date):"—"}</td><td className="px-2 py-4 sm:px-3" onClick={e=>e.stopPropagation()}><div className="flex items-center justify-start gap-1"><button onClick={()=>setViewMember(member)} className="grid h-8 w-8 place-items-center rounded-lg text-orange-500 transition hover:bg-orange-50 dark:hover:bg-orange-500/10" title="View member / change coach" aria-label={`View ${member.full_name}`}><UserRoundCog size={16}/></button>{memberStatus==="pending"?<button onClick={()=>handleApprove(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-green-600 text-white transition hover:bg-green-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title="Approve member" aria-label={`Approve ${member.full_name}`}><CheckCircle size={16}/></button>:(memberStatus==="inactive"||memberStatus==="rejected")?<button onClick={()=>handleApprove(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-green-600 text-white transition hover:bg-green-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title={memberStatus==="rejected"?"Approve member":"Reactivate member"} aria-label={`${memberStatus==="rejected"?"Approve":"Reactivate"} ${member.full_name}`}><CheckCircle size={16}/></button>:null}{memberStatus==="pending"?<button onClick={()=>handleReject(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-red-600 text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title="Reject" aria-label={`Reject ${member.full_name}`}><XCircle size={16}/></button>:null}<button onClick={()=>handleDelete(member.member_id)} className="grid h-8 w-8 place-items-center rounded-lg bg-red-600 text-white transition hover:bg-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#111]" title="Delete" aria-label={`Delete ${member.full_name}`}><Trash2 size={16}/></button></div></td></tr>})}</tbody></table></div>}
     </div>
     {!loading && totalPages > 1 && (
       <nav aria-label="Member pagination" className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

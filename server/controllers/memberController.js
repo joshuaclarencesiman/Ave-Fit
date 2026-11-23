@@ -7,7 +7,7 @@ const {
   sendUserCoachAssignedEmail,
   sendMemberAccountDecisionEmail,
 } = require("../utils/mailer");
-const { getCapacityStatus, getMemberAvailability, getScheduleMatch } = require("../utils/coachAssignment");
+const { getCapacityStatus, getMemberAvailability, getScheduleMatch, isCoachAtCapacity } = require("../utils/coachAssignment");
 const { deliverCoachEmail } = require("../utils/coachEmailNotifications");
 
 const MEMBERSHIP_TERMS = [1, 3, 6, 12];
@@ -422,6 +422,14 @@ const assignTrainer = async (req, res) => {
         );
         const assignedCount = assignedCountResult.rows[0].count;
         nextAssignedCount = assignedCount;
+        if (isCoachAtCapacity(assignedCount, nextTrainer.max_members)) {
+          await client.query("ROLLBACK");
+          transactionStarted = false;
+          return res.status(409).json({
+            success: false,
+            message: "This coach has reached their total member capacity. Choose another coach.",
+          });
+        }
       }
     }
 
@@ -1177,6 +1185,70 @@ const approveMember = async (req, res) => {
   }
 };
 
+const deactivateMember = async (req, res) => {
+  const userId = Number(req.params.id);
+  if (!Number.isInteger(userId) || userId < 1) {
+    return res.status(400).json({ success: false, message: "Choose a valid member." });
+  }
+
+  try {
+    const result = await pool.query(`
+      UPDATE users
+      SET account_status = 'Inactive',
+          token_version = token_version + 1,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE user_id = $1
+        AND LOWER(COALESCE(account_status, 'pending')) = 'active'
+      RETURNING user_id, account_status, first_name, last_name, email
+    `, [userId]);
+
+    if (!result.rows.length) {
+      const current = await pool.query(
+        "SELECT account_status FROM users WHERE user_id = $1",
+        [userId]
+      );
+      if (!current.rows.length) {
+        return res.status(404).json({ success: false, message: "Member not found." });
+      }
+      return res.status(409).json({
+        success: false,
+        message: "Only an active member account can be deactivated.",
+      });
+    }
+
+    await pool.query(
+      "UPDATE members SET status = 'Inactive' WHERE email = (SELECT email FROM users WHERE user_id = $1)",
+      [userId]
+    ).catch((error) => {
+      console.error(`Unable to sync legacy member status for user ${userId}:`, error.message);
+    });
+
+    const member = result.rows[0];
+    await createNotification({
+      audience: "user",
+      recipientId: member.user_id,
+      message: "Your AveFit account has been deactivated by the gym administrator. Please contact the gym for assistance.",
+      notificationType: "membership",
+      userName: `${member.first_name || ""} ${member.last_name || ""}`.trim(),
+      targetUrl: "/user/profile",
+    }).catch((error) => {
+      console.error(`Member deactivation notification failed for user ${userId}:`, error.message);
+    });
+
+    return res.json({
+      success: true,
+      message: "Member account deactivated successfully.",
+      member: {
+        user_id: member.user_id,
+        account_status: member.account_status,
+      },
+    });
+  } catch (error) {
+    console.error("deactivateMember error:", error.message);
+    return res.status(500).json({ success: false, message: "Unable to deactivate this member account." });
+  }
+};
+
 
 // =====================================================
 // REJECT MEMBER
@@ -1366,6 +1438,7 @@ module.exports = {
   assignTrainer,
   getCoachRecommendations,
   approveMember,
+  deactivateMember,
   rejectMember,
   deleteMember,
   getMemberProgress

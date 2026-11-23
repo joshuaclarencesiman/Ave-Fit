@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, useRef } from "react";
-import { UserCheck, Plus, Search, Edit2, XCircle, Users, UserCircle, X, Camera, Check, Eye, EyeOff, CalendarClock, TrendingUp } from "lucide-react";
+import { UserCheck, Plus, Search, XCircle, Users, UserCircle, X, Camera, Check, Eye, EyeOff, CalendarClock, TrendingUp } from "lucide-react";
 import api from "../services/api";
 import { fileToCompressedDataUrl } from "../utils/imageUpload";
 import { formatWorkoutTimeRange } from "../utils/workoutSchedule";
@@ -7,6 +7,7 @@ import TrainerAvailabilityManager from "../components/trainers/TrainerAvailabili
 import ScrollReveal from "../components/ScrollReveal";
 import ConfirmDialog from "../components/ui/ConfirmDialog";
 import ProgressHistoryModal from "../components/progress/ProgressHistoryModal";
+import CustomSelect from "../components/ui/CustomSelect";
 
 const fetchMemberProgress = (userId) => api.get(`/members/${userId}/progress`);
 
@@ -806,11 +807,6 @@ export default function Trainers() {
     }
   };
 
-  const handleEdit = (trainer) => {
-    setEditTrainer(trainer);
-    setShowModal(true);
-  };
-
   const handleAdd = () => {
     setEditTrainer(null);
     setShowModal(true);
@@ -920,13 +916,27 @@ export default function Trainers() {
             className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none dark:text-white"
           />
         </label>
-        <div className="flex gap-2 overflow-x-auto" role="group" aria-label="Filter trainers by status">
-          {["All","Active","Pending","Inactive"].map(status=><button key={status} type="button" aria-pressed={statusFilter===status} onClick={()=>setStatusFilter(status)} className={`min-h-9 rounded-lg px-3 text-sm font-semibold transition ${statusFilter===status?"bg-orange-500 text-white":"bg-slate-100 text-slate-600 dark:bg-white/5 dark:text-slate-300"}`}>{status}{status==="Pending"&&pendingCount?` (${pendingCount})`:""}</button>)}
-        </div>
+        <CustomSelect
+          ariaLabel="Filter trainers by status"
+          value={statusFilter}
+          onChange={setStatusFilter}
+          className="min-h-11 w-full sm:w-52"
+          options={[
+            { value: "All", label: "All", description: "Show every coach" },
+            { value: "Active", label: "Active", description: "Approved and available" },
+            {
+              value: "Pending",
+              label: "Pending",
+              description: "Awaiting approval",
+              count: pendingCount,
+            },
+            { value: "Inactive", label: "Inactive", description: "Not currently active" },
+          ]}
+        />
       </div>
 
       {/* Table */}
-      <div className="admin-trainers-table-container overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-white/10 dark:bg-[#111]">
+      <div className="admin-trainers-table-container overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-white/10 dark:bg-[#111]">
         {loading ? (
           <div className="p-8 space-y-3">
             {[...Array(4)].map((_, i) => (
@@ -934,15 +944,15 @@ export default function Trainers() {
             ))}
           </div>
         ) : (
-          <table className="admin-trainers-table w-full text-sm">
+          <table className="admin-trainers-table w-full table-fixed text-xs lg:text-sm">
             <colgroup>
-              <col />
-              <col />
-              <col />
-              <col />
-              <col />
-              <col />
-              <col />
+              <col style={{ width: "20%" }} />
+              <col style={{ width: "20%" }} />
+              <col style={{ width: "9%" }} />
+              <col style={{ width: "18%" }} />
+              <col style={{ width: "9%" }} />
+              <col style={{ width: "8%" }} />
+              <col style={{ width: "16%" }} />
             </colgroup>
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
@@ -1054,13 +1064,6 @@ export default function Trainers() {
                           aria-label={`View ${trainer.full_name}'s availability`}
                         >
                           <CalendarClock size={16} />
-                        </button>
-                        <button
-                          onClick={() => handleEdit(trainer)}
-                          className="p-1.5 rounded-lg hover:bg-orange-50 text-orange-500 transition"
-                          title="Edit"
-                        >
-                          <Edit2 size={16} />
                         </button>
                         {trainer.status === "Pending" && (
                           <button onClick={() => handleApprove(trainer.trainer_id)} className="p-1.5 rounded-lg hover:bg-green-50 text-green-500 transition" title="Approve"><UserCheck size={16} /></button>
